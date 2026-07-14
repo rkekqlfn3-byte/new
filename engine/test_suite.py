@@ -18,6 +18,7 @@ TEST_MODULES = [
     "engine.test_llm_failures",
     "engine.test_tls_security",
     "engine.test_release_security",
+    "engine.test_gui_markdown_safety",
     "engine.test_ui_persistence_refresh",
     "engine.test_atomic_storage",
     "engine.test_persistence",

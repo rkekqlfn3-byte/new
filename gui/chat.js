@@ -6,15 +6,54 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// 이 창은 eel을 통해 Python 기능과 연결되므로, AI 응답·저장 대화에서 온
+// HTML이 그대로 실행되면 일반 채팅창보다 피해가 크다. 마크다운 렌더 결과를
+// 허용 목록 기반으로 정화해 스크립트·이벤트 속성·위험 링크를 제거한다.
+const SANITIZE_ALLOWED_TAGS = new Set([
+    'P', 'BR', 'HR', 'STRONG', 'EM', 'B', 'I', 'U', 'S', 'DEL',
+    'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI',
+    'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'A',
+    'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD',
+]);
+const SANITIZE_SAFE_HREF = /^(https?:|mailto:)/i;
+
+function sanitizeRenderedHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const elements = Array.from(template.content.querySelectorAll('*'));
+    for (const el of elements) {
+        if (!template.content.contains(el)) continue;
+        if (!SANITIZE_ALLOWED_TAGS.has(el.tagName)) {
+            el.replaceWith(document.createTextNode(el.textContent || ''));
+            continue;
+        }
+        for (const attr of Array.from(el.attributes)) {
+            const name = attr.name.toLowerCase();
+            if (el.tagName === 'A' && name === 'href'
+                && SANITIZE_SAFE_HREF.test(attr.value.trim())) continue;
+            if (el.tagName === 'CODE' && name === 'class'
+                && /^language-[A-Za-z0-9_+-]*$/.test(attr.value)) continue;
+            el.removeAttribute(attr.name);
+        }
+        if (el.tagName === 'A' && el.hasAttribute('href')) {
+            el.setAttribute('target', '_blank');
+            el.setAttribute('rel', 'noopener noreferrer');
+        }
+    }
+    return template.innerHTML;
+}
+
 function formatMessageContent(text, isIncoming, image_data = null) {
     let contentHtml = '';
-    if (image_data) {
+    if (typeof image_data === 'string' && image_data.startsWith('data:image/')) {
         contentHtml += `<img src="${image_data}" class="chat-image-attachment" onclick="document.getElementById('image-modal').style.display='block'; document.getElementById('modal-img').src=this.src;"><br>`;
     }
     if (!text) return contentHtml;
 
     let processed = text.trim();
-    let parsedText = (typeof marked !== 'undefined') ? marked.parse(processed) : processed;
+    let parsedText = (typeof marked !== 'undefined')
+        ? sanitizeRenderedHtml(marked.parse(processed))
+        : escapeHtml(processed).replace(/\n/g, '<br>');
     if (parsedText.includes('[응/아니오]')) {
         parsedText = parsedText.replace('[응/아니오]', `<div style="margin-top: 10px; display: flex; gap: 10px;">
             <button class="premium-btn primary" onclick="openLearningReview()">학습 내용 검토</button>
@@ -400,7 +439,7 @@ function receive_stream_chunk(chunk) {
     currentStreamRawContent += chunk;
     msgDiv.dataset.rawContent = currentStreamRawContent;
 
-    bubble.innerHTML = currentStreamRawContent.replace(/\n/g, '<br>');
+    bubble.innerHTML = escapeHtml(currentStreamRawContent).replace(/\n/g, '<br>');
 
     if (!streamScrollTimer) {
         streamScrollTimer = setTimeout(() => {
