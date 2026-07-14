@@ -17,10 +17,14 @@ class AppActionError(RuntimeError):
 
 class AppActionUnavailable(AppActionError):
     error_type = "target_not_found"
+    # Raised while locating the target, before any document is modified.
+    state_changed = False
 
 
 class AppActionBusy(AppActionError):
     error_type = "environment_error"
+    # Raised before acquiring the app, so nothing external changed yet.
+    state_changed = False
 
 
 class AppActionBlocked(AppActionError):

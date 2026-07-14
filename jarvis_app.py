@@ -1,8 +1,29 @@
 import os
+import socket
 import sys
 import traceback
 from pathlib import Path
 from engine.macro_worker import is_macro_worker, run_macro_worker
+
+
+def _resolve_browser_port():
+    """Use JARVIS_PORT when set, otherwise pick a free ephemeral port.
+
+    Defaulting to a fixed 8080 makes startup fail when another program already
+    holds it. An explicit free port avoids that while keeping JARVIS_PORT as a
+    debugging override.
+    """
+    override = os.environ.get("JARVIS_PORT")
+    if override:
+        try:
+            port = int(override)
+        except ValueError:
+            port = 0
+        if 1 <= port <= 65535:
+            return port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("localhost", 0))
+        return sock.getsockname()[1]
 
 # Frozen children must dispatch here before Eel, APIs, and user data are loaded.
 if is_macro_worker():
@@ -35,12 +56,7 @@ def start_app():
         browser_mode = os.environ.get("JARVIS_BROWSER_MODE", "chrome")
         if browser_mode.lower() in {"none", "false", "off"}:
             browser_mode = None
-        try:
-            browser_port = int(os.environ.get("JARVIS_PORT", "8080"))
-        except ValueError:
-            browser_port = 8080
-        if not 1 <= browser_port <= 65535:
-            browser_port = 8080
+        browser_port = _resolve_browser_port()
         eel.start(
             'index.html',
             mode=browser_mode,

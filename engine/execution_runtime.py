@@ -7,6 +7,7 @@ from datetime import datetime
 
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
+from engine.version import APP_VERSION
 
 
 DIAGNOSTICS_PATH = user_data_path("execution_diagnostics.json")
@@ -57,6 +58,7 @@ class ExecutionController:
             execution_id = uuid.uuid4().hex
             self.current = {
                 "execution_id": execution_id,
+                "app_version": APP_VERSION,
                 "label": str(label)[:200],
                 "status": "running",
                 "started_at": datetime.now().isoformat(timespec="seconds"),

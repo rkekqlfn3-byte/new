@@ -27,6 +27,14 @@ class ExecutionControllerTests(unittest.TestCase):
         self.assertGreaterEqual(record["duration_ms"], 0)
         self.assertEqual(execution_id, reloaded.records[-1]["execution_id"])
 
+    def test_diagnostic_record_carries_app_version(self):
+        from engine.version import APP_VERSION
+        with tempfile.TemporaryDirectory(prefix="jarvis-runtime-test-") as temp_dir:
+            controller = self._controller(temp_dir)
+            controller.begin("버전")
+            record = controller.finish(True)
+        self.assertEqual(APP_VERSION, record["app_version"])
+
     def test_interruptible_wait_stops_after_cancel(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-runtime-test-") as temp_dir:
             controller = self._controller(temp_dir)
