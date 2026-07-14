@@ -175,6 +175,8 @@ UI Automation은 Windows UIA 요소를 제공하는 프로그램을 대상으로
 
 - 학습 스킬은 선택적 `execution_profile`에 `primary_route`, `fallback_routes`, `verification_required`, `max_fallback_attempts`를 저장할 수 있습니다. 프로필이 없는 기존 스킬은 예전과 똑같이 단일 경로로 실행됩니다.
 - 지원 경로는 `native`, `action_plan`, `uia`, `python`이며 우선순위는 이 순서입니다. `native`·`uia`는 새 실행 엔진이 아니라 같은 `ActionExecutor`가 실행하는 대체 계획(`native_plan`, `uia_plan`)이고 `python`은 기존 preflight 뒤 매크로 실행기를 씁니다.
+- 프로필이 없는 스킬도 저장된 계획 키로 경로를 자동 선택합니다. `plan`이 있으면 예전처럼 `action_plan`을 쓰고, `plan` 없이 `native_plan`·`uia_plan`만 있는 스킬은 각각 `native`·`uia` 경로로 실행됩니다(이전에는 실행 경로를 찾지 못해 실패).
+- 저장된 계획에 담긴 `app_command`(Excel·한글 등 네이티브 앱 명령)는 계획만으로 재실행하지 않습니다. 네이티브 앱 명령은 실행 시점에 실제 문서를 조사해 준비하고 결정·확인 단계를 거쳐야 하므로, 학습 스킬의 저장된 계획으로 재생하는 대신 명확한 안내와 함께 안전하게 차단합니다. 학습된 네이티브 앱 명령을 확인 흐름과 함께 재실행하는 기능은 향후 확장 과제입니다.
 - 대체 실행은 최대 1회이며, 첫 경로가 외부 상태를 바꾸지 않은 안전한 실패에서만 허용합니다: `route_unavailable`, `target_not_found`, `adapter_unavailable`, `environment_unavailable`, `connection_not_established`.
 - 검증 실패, 부분 실행, 사용자 취소, 위험 작업 차단, 확인 대기, 실행기가 반환한 실패(`success=false`)는 절대 다른 경로로 자동 재시도하지 않습니다. 첫 경로의 상태 변경 여부가 불확실하면 변경된 것으로 간주합니다.
 - 실행 진단에 실제 선택 경로, 경로별 시도 결과, 대체 사용 여부와 사유, 상태 변경 여부, 롤백 수행·성공 여부를 남깁니다.

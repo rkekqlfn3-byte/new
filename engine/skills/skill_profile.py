@@ -28,8 +28,16 @@ class SkillProfile:
 
         primary = str(route_override or raw.get("primary_route") or "").strip()
         if not primary:
+            # Infer a default route from the stored plan data. ``plan`` keeps its
+            # historical precedence so skills that already ran via action_plan are
+            # unaffected; native_plan/uia_plan are added so a skill that only
+            # carries those keys becomes runnable instead of failing selection.
             if skill.get("plan"):
                 primary = "action_plan"
+            elif skill.get("native_plan"):
+                primary = "native"
+            elif skill.get("uia_plan"):
+                primary = "uia"
             elif str(skill.get("code", "")).strip():
                 primary = "python"
 

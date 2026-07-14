@@ -51,6 +51,21 @@ class SkillStateError(SkillExecutionError):
     error_type = "validation_error"
 
 
+class SkillNativeAppActionUnsupported(SkillStateError):
+    """A stored plan carries an ``app_command`` that needs the live native path.
+
+    Replaying an ``app_command`` from a saved plan is unsafe: the native adapters
+    must inspect the live document, build a ``PreparedAction``, and clear a
+    decision/confirmation gate first (see ``AppCommandRouter``). That path is
+    session-bound and cannot be driven from a replayed skill, so this fails
+    closed with a clear message instead of the generic action-plan error. Wiring
+    learned native app commands back through the router is future expansion work.
+    """
+
+    route_failure_code = "app_action_requires_live_path"
+    state_changed = False
+
+
 class SkillContextChanged(SkillExecutionError):
     error_type = "validation_error"
     status = "context_changed"
@@ -258,11 +273,30 @@ class SkillExecutor:
             return self._run_python_route(skill, params, diagnostic)
         return self._run_plan_route(route, skill, params)
 
+    @staticmethod
+    def _app_command_steps(plan):
+        if not isinstance(plan, (list, tuple)):
+            return []
+        return [
+            index
+            for index, step in enumerate(plan, start=1)
+            if isinstance(step, dict) and step.get("action") == "app_command"
+        ]
+
     def _run_plan_route(self, route, skill, params):
         plan = self._plan_for_route(skill, route)
         if not plan:
             raise SkillRouteUnavailable(
                 f"스킬 실행 경로 '{route}'에 필요한 실행 데이터가 없습니다."
+            )
+        if self._app_command_steps(plan):
+            # A replayed plan cannot supply the live-inspected PreparedAction that
+            # app_command requires, so fail closed with an explicit contract
+            # message rather than the generic action-plan rejection.
+            raise SkillNativeAppActionUnsupported(
+                "이 학습 작업에는 네이티브 앱 명령(app_command)이 포함되어 있어 저장된 "
+                "계획만으로는 실행할 수 없습니다. 실행할 때 앱 상태를 직접 조사해 준비·확인하는 "
+                "네이티브 명령으로 다시 요청해 주세요."
             )
         return self.owner.action_executor.execute_plan(
             plan,

@@ -54,6 +54,7 @@ TEST_MODULES = [
     "engine.test_preference_manager",
     "engine.test_run_policy",
     "engine.test_skill_fallback",
+    "engine.test_skill_native_route",
     "engine.test_postconditions",
     "engine.test_ai_router",
     "engine.test_command_context",
