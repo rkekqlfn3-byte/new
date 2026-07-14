@@ -1,0 +1,16 @@
+{
+  "schema_version": 4,
+  "has_scanned": false,
+  "noun_dictionary": {},
+  "macro_dictionary": {},
+  "search_engines_dict": {},
+  "favorites": [],
+  "user_nouns": [],
+  "ai_config": {
+    "provider": "openai",
+    "api_key": "",
+    "ollama_model": "llama3",
+    "routing_mode": "auto"
+  },
+  "learned_macros": {}
+}

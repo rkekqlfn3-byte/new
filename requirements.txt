@@ -1,0 +1,7 @@
+psutil>=6.0.0
+eel>=0.16.0
+
+pywin32
+pywinauto>=0.6.8
+PyPDF2>=3.0.0
+olefile>=0.46

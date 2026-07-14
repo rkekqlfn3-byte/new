@@ -1,0 +1,45 @@
+
+const apiToggle = document.getElementById('api-toggle');
+const apiToggleLabel = document.getElementById('api-toggle-label');
+if (apiToggle && apiToggleLabel) {
+    apiToggle.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            apiToggleLabel.textContent = "대화: API";
+            apiToggleLabel.style.color = "#6c5ce7";
+        } else {
+            apiToggleLabel.textContent = "대화: Ollama";
+            apiToggleLabel.style.color = "#a1a1aa";
+        }
+    });
+}
+
+const chatInput = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+const cancelExecutionBtn = document.getElementById('cancel-execution-btn');
+const chatArea = document.getElementById('chat-area');
+const btnAppScan = document.getElementById('btn_app_scan');
+const btnRecentScan = document.getElementById('btn_recent_scan');
+const btnWebScan = document.getElementById('btn_web_scan');
+const btnScanMenu = document.getElementById('btn_scan_menu');
+const scanSubOptions = document.getElementById('scan-sub-options');
+const btnUnifiedDict = document.getElementById('btn_open_unified_dict');
+const unifiedDictModal = document.getElementById('unified-dict-modal');
+
+// The first Eel websocket call can briefly race with a newly opened window.
+// Persisted UI loaders use this bounded retry instead of requiring a reload.
+window.runUiLoadWithRetry = async function(task, attempts = 5) {
+    let lastError;
+    const delays = [120, 300, 700, 1200];
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            return await task();
+        } catch (error) {
+            lastError = error;
+            if (attempt + 1 < attempts) {
+                await new Promise(resolve => setTimeout(resolve, delays[attempt] || 700));
+            }
+        }
+    }
+    throw lastError;
+};
+

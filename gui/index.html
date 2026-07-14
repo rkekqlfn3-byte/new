@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis ⚡ Command Center</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="text/javascript" src="/eel.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header glass-panel">
+            <div class="header-left" style="cursor: default; display: flex; align-items: center; gap: 15px;">
+                <h1 id="header-name" class="header-title" style="margin: 0;">Jarvis ⚡ Command Center</h1>
+            </div>
+            
+            <div class="header-right">
+                <div class="api-toggle-container">
+                    <label class="switch tooltip">
+                        <input type="checkbox" id="api-toggle" checked>
+                        <span class="slider round"></span>
+                        <span class="tooltiptext">클라우드 API ↔ 로컬 Ollama</span>
+                    </label>
+                    <span id="api-toggle-label" class="api-label" style="color: #6c5ce7;">대화: API</span>
+                </div>
+                
+                <div class="header-actions">
+                    <button id="btn_refresh" class="btn btn-refresh" title="자비스 완전 재부팅" onclick="document.body.innerHTML='<div class=\'loading-overlay\'><div class=\'spinner\'></div><div>🔄 재부팅 중입니다... 잠시만 기다려주세요!</div></div>'; eel.restart_jarvis()(); setTimeout(function(){ window.close(); }, 500);">🔄 재부팅</button>
+                    <button id="btn_ai_settings" class="btn btn-ai-settings" title="AI 두뇌 설정">⚙️ AI 설정</button>
+                    <button id="btn_toggle_term" style="display: none;"></button>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <aside class="sidebar glass-panel">
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab active" data-target="chat-history-tab" onclick="switchSidebarTab('chat-history-tab')">💬 대화 기록</button>
+                    <button class="sidebar-tab" data-target="user-memory-tab" onclick="switchSidebarTab('user-memory-tab')">🧠 영구 기억</button>
+                </div>
+                
+                <div id="chat-history-tab" class="sidebar-pane active">
+                    <button id="btn-new-chat" class="premium-btn w-full" style="margin-bottom: 15px;">+ 새 대화 시작</button>
+                    <ul id="chat-session-list" class="session-list">
+                        <!-- Sessions populated here -->
+                    </ul>
+                </div>
+                
+                <div id="user-memory-tab" class="sidebar-pane" style="display: none; flex-direction: column; height: 100%;">
+                    <div class="memory-subtabs">
+                        <button class="memory-subtab active" onclick="switchMemoryTab('mem-user', this)">👤 정보</button>
+                        <button class="memory-subtab" onclick="switchMemoryTab('mem-rules', this)">📝 규칙</button>
+                        <button class="memory-subtab" onclick="switchMemoryTab('mem-others', this)">💾 기타</button>
+                    </div>
+                    
+                    <textarea id="mem-user" class="premium-input memory-box active" style="flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="사용자 이름, 직업 등 기본 정보를 적어주세요."></textarea>
+                    <textarea id="mem-rules" class="premium-input memory-box" style="display: none; flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="비서가 대답할 때 지켜야 할 규칙이나 명령 방식 등을 적어주세요."></textarea>
+                    <textarea id="mem-others" class="premium-input memory-box" style="display: none; flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="그 외 자유롭게 기억시킬 내용을 적어주세요."></textarea>
+                    
+                    <button id="btn-save-memory" class="premium-btn primary w-full">기억 저장하기</button>
+                </div>
+            </aside>
+            <button class="panel-toggle toggle-left" onclick="const s = document.querySelector('.sidebar'); s.classList.toggle('collapsed'); this.innerText = s.classList.contains('collapsed') ? '›' : '‹';" title="사이드바 열기/닫기">‹</button>
+            <div class="chat-section">
+                <button class="panel-toggle toggle-right" onclick="document.getElementById('btn_toggle_term').click();" title="터미널 열기/닫기">‹</button>
+                <main class="chat-area" id="chat-area">
+                    <div class="message system-date">오늘</div>
+                    <div class="message incoming animate-slide-up">
+                        <div class="message-content">
+                            <div class="sender-name current-name">Jarvis ⚡</div>
+                            <div class="bubble">안녕하세요! <strong>⚡ 명령</strong>과 <strong>❓ 질문</strong> 처리 전용 데스크탑 어시스턴트입니다.<br>처음이라면 좌측 하단 <strong>[+]</strong> 메뉴에서 <strong>[정밀 스캔 🔍]</strong>을 한 번 실행해 주세요. 앱 실행 명령의 인식률이 크게 올라갑니다.</div>
+                        </div>
+                    </div>
+                </main>
+
+                <footer class="input-area glass-panel">
+                    <div class="input-actions-left">
+                        <button id="btn-plus" class="btn-icon btn-plus-menu">➕</button>
+                        <button id="btn-attach" class="btn-icon btn-attach-file" title="파일 첨부">📎</button>
+                        <input type="file" id="chat-file-upload" accept="image/*" class="hidden-input">
+                    </div>
+                    
+                    <div class="input-main">
+                        <div id="chat-preview-container" class="chat-preview-container hidden-input">
+                            <img id="chat-preview-img" src="">
+                            <button id="btn-cancel-preview" class="btn-cancel-preview">&times;</button>
+                        </div>
+                        
+                        <div class="segmented-control">
+                            <input type="radio" id="mode-command" name="chat-mode" value="command" checked class="hidden-input">
+                            <label for="mode-command" class="mode-tab">⚡ 명령</label>
+
+                            <input type="radio" id="mode-question" name="chat-mode" value="question" class="hidden-input">
+                            <label for="mode-question" class="mode-tab">❓ 질문</label>
+                        </div>
+                        
+                        <textarea id="chat-input" class="chat-input-field" placeholder="메시지를 입력하세요…" title="예: 오늘 뭐 했어?, 유튜브 틀어줘, 계산기 켜줘" rows="1" style="resize: none; overflow: hidden; font-family: inherit; line-height: 1.5; padding: 12px;"></textarea>
+                    </div>
+                    
+                    <button id="send-btn" class="btn-send" title="전송">➤</button>
+                    <button id="cancel-execution-btn" class="btn-send" title="현재 실행 취소" style="display:none;background:#ff5555;">■</button>
+                    
+                    <!-- Plus Menu popup -->
+                    <div id="plus-menu" class="plus-menu">
+                        <button id="btn_open_unified_dict">📖 통합 사전 관리 (명사/동사/매크로)</button>
+                        <button id="btn-execution-diagnostics">🩺 최근 실행 진단</button>
+                        <button id="btn-native-action-candidates">🧩 네이티브 확장 후보</button>
+                        <button id="btn_scan_menu">🔍 컴퓨터 앱 / 즐겨찾기 찾아오기 ▼</button>
+                        <div id="scan-sub-options" style="display: none; flex-direction: column; padding-left: 10px; margin-top: 5px; margin-bottom: 5px; border-left: 2px solid var(--primary); margin-left: 10px;">
+                            <button id="btn_app_scan" style="padding: 5px 10px; font-size: 0.9em; margin-bottom: 4px;">↳ 처음부터 끝까지 앱 찾기 (초기 설정용)</button>
+                            <button id="btn_recent_scan" style="padding: 5px 10px; font-size: 0.9em; margin-bottom: 4px;">↳ 새로 설치한 앱만 찾기</button>
+                            <button id="btn_web_scan" style="padding: 5px 10px; font-size: 0.9em;">↳ 크롬 즐겨찾기 불러오기</button>
+                        </div>
+                    </div>
+                </footer>
+            </div>
+
+            <div id="terminal-pane" class="terminal-pane">
+                <div class="terminal-line">[System] 터미널 초기화 완료...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Unified Dictionary Modal -->
+    <div id="unified-dict-modal" class="modal">
+        <div class="modal-content premium-modal action-modal-wide animate-modal-in" style="max-height: 90vh; display: flex; flex-direction: column;">
+            <span class="close-modal">&times;</span>
+            <h2 style="margin-bottom: 15px;">📖 통합 사전 관리</h2>
+            
+            <div class="tab-container flex-row" style="margin-bottom: 15px;">
+                <button class="tab-btn unified-tab-btn active" onclick="switchUnifiedTab('noun')">📱 명사 사전 (앱/별명)</button>
+                <button class="tab-btn unified-tab-btn" onclick="switchUnifiedTab('verb')">💬 동사 사전 (명령어)</button>
+                <button class="tab-btn unified-tab-btn" onclick="switchUnifiedTab('macro')">⚡ 행동 사전 (매크로)</button>
+            </div>
+            
+            <div id="unified-content" style="flex: 1; overflow-y: auto; padding-right: 5px;">
+                <!-- NOUN TAB -->
+                <div id="tab-noun" class="unified-tab-pane" style="display: block;">
+                    <div class="premium-card">
+                        <h3>🔹 내가 쓰는 앱에 편한 별명 지어주기</h3>
+                        <p class="desc">컴퓨터에 깔린 앱 이름이 어렵다면, 내가 부르기 편한 별명(예: 카톡)을 지어주세요.</p>
+                        
+                        <div class="tab-container flex-row" style="margin-bottom: 10px;">
+                            <button id="btn-tab-all" class="tab-btn active" data-tab="all">모든 앱</button>
+                            <button id="btn-tab-fav" class="tab-btn" data-tab="favorites">⭐ 즐겨찾기</button>
+                        </div>
+
+                        <div class="flex-row">
+                            <input type="text" id="dict-search-input" class="premium-input flex-1" placeholder="🔍 앱 이름 검색 (예: 카카오톡)">
+                            <button id="btn-toggle-fav" class="premium-btn btn-outline" title="즐겨찾기 추가/해제">⭐</button>
+                        </div>
+                        
+                        <div id="dict-app-select" class="premium-list"></div>
+                        <div id="dict-synonyms-list" class="synonym-list-container"></div>
+                        
+                        <div class="flex-row mb-10">
+                            <input type="text" id="dict-synonym-input" class="premium-input flex-1" placeholder="새로운 별명 입력 (예: 카톡)">
+                            <button id="btn-add-synonym" class="premium-btn primary">추가</button>
+                        </div>
+                        <div class="flex-row">
+                            <input type="text" id="dict-rename-input" class="premium-input flex-1" placeholder="앱 원래 이름 변경 (예: 카카오톡)">
+                            <button id="btn-rename-noun" class="premium-btn warning">변경</button>
+                        </div>
+                    </div>
+
+                    <div class="premium-card">
+                        <h3>✨ 자비스가 모르는 앱이나 웹사이트 직접 가르치기</h3>
+                        <p class="desc">컴퓨터에 있는데 자비스가 못 찾은 앱이나 자주 가는 웹사이트를 직접 등록합니다.</p>
+                        <div class="flex-row mb-10">
+                            <input type="text" id="custom-noun-input" class="premium-input flex-1" placeholder="앱 이름 (예: 그림판, 넷플릭스)">
+                            <button id="btn-ai-search" class="premium-btn ai-btn">✨ 컴퓨터에서 직접 찾기</button>
+                        </div>
+                        <div id="ai-results-list" class="ai-results-container"></div>
+                        
+                        <input type="text" id="custom-path-input" class="premium-input w-full mb-10" placeholder="앱 위치 파일(.exe) 또는 인터넷 주소(URL)">
+                        <button id="btn-add-custom" class="premium-btn success w-full">이 앱 기억시키기</button>
+                    </div>
+                </div>
+
+                <!-- VERB TAB -->
+                <div id="tab-verb" class="unified-tab-pane" style="display: none;">
+                    <div class="premium-card">
+                        <h3>🔹 자비스 기본 행동(동사)</h3>
+                        <p class="desc">자비스에게 "열어줘", "켜줘" 같이 기본 동작에 대한 나만의 편한 말투를 가르쳐주세요.</p>
+                        <input type="text" id="action-dict-search" class="premium-input w-full mb-10" placeholder="🔍 명령어 검색 (예: 닫기, 검색)">
+                        <div id="action-dict-list" class="premium-list max-h-600"></div>
+                    </div>
+                </div>
+
+                <!-- MACRO TAB -->
+                <div id="tab-macro" class="unified-tab-pane" style="display: none;">
+                    <div class="premium-card">
+                        <h3>💡 자비스에게 새로운 행동 가르치기</h3>
+                        <p class="desc">키보드 단축키를 누르거나, 여러 행동을 묶어서 나만의 마법 주문(명령어)으로 만들어 보세요!</p>
+                        
+                        <select id="macro-template-select" class="premium-input w-full mb-10">
+                            <option value="">💡 (선택) 자비스가 추천하는 주문 템플릿</option>
+                            <option value="hotkey_screenshot">📸 화면 캡처 (win+shift+s)</option>
+                            <option value="hotkey_desktop">🖥️ 바탕화면 보기 (win+d)</option>
+                            <option value="hotkey_copy">📋 복사하기 (ctrl+c)</option>
+                            <option value="cmd_calc">🧮 계산기 열기 (calc)</option>
+                            <option value="cmd_taskmgr">⚙️ 작업 관리자 (taskmgr)</option>
+                            <option value="compound_example">🍿 연속 동작 예시 (볼륨 줄여 + 유튜브 켜)</option>
+                        </select>
+
+                        <div class="flex-row mb-10">
+                            <input type="hidden" id="macro-name-input">
+                            <select id="macro-type-select" class="premium-input w-full">
+                                <option value="hotkey">⌨️ 키보드 단축키 누르기</option>
+                                <option value="cmd">💻 컴퓨터 시스템 명령 실행</option>
+                                <option value="compound">🔗 여러 주문을 연속으로 쓰기</option>
+                            </select>
+                        </div>
+                        <input type="text" id="macro-data-input" class="premium-input w-full mb-10" placeholder="실행 내용 (예: 단축키면 win+shift+s, 연속이면 '볼륨 줄여, 유튜브 켜')">
+                        <input type="text" id="macro-synonyms-input" class="premium-input w-full mb-10" placeholder="명령어 발동 키워드 (예: 화면 캡처, 스샷 찍어)">
+                        <button id="btn-add-macro" class="premium-btn primary w-full mb-10">✨ 마법 주문 가르치기</button>
+                        
+                        <h3>🤖 자비스가 기억하는 모든 커스텀 매크로</h3>
+                        <div id="custom-macro-list" class="premium-list max-h-600"></div>
+
+                        <h3 style="margin-top:20px;">🧠 AI가 학습한 행동 관리</h3>
+                        <p class="desc">학습된 문장과 동사를 고치거나, 잘못 배운 행동을 완전히 삭제할 수 있습니다.</p>
+                        <input type="text" id="learned-macro-search" class="premium-input w-full mb-10" placeholder="🔍 학습 이름·문장·동사 검색">
+                        <div id="learned-macro-list" class="learned-library-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Modal -->
+    <div id="image-modal" class="modal">
+        <span class="close-modal">&times;</span>
+        <img class="modal-content animate-modal-in" id="modal-img">
+    </div>
+
+    <!-- AI Settings Modal -->
+    <div id="learning-review-modal" class="modal">
+        <div class="modal-content premium-modal action-modal-wide animate-modal-in learning-review-modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>🧠 학습 내용 검토</h2>
+            <p class="desc">실행된 행동을 확인하고, 다음부터 사용할 이름과 문장을 수정한 뒤 저장하세요.</p>
+            <div id="learning-review-list"></div>
+            <div id="learning-review-error" class="learning-review-error" aria-live="polite"></div>
+            <div class="learning-review-actions">
+                <button id="btn-approve-learning" class="premium-btn primary">학습 저장</button>
+                <button id="btn-run-once-learning" class="premium-btn">이번만 실행</button>
+                <button id="btn-discard-learning" class="premium-btn warning">폐기</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="native-action-candidates-modal" class="modal">
+        <div class="modal-content premium-modal action-modal-wide animate-modal-in native-candidate-modal-content">
+            <span class="close-modal">&times;</span>
+            <div class="native-candidate-heading">
+                <div>
+                    <h2>🧩 네이티브 확장 후보</h2>
+                    <p class="desc">사용자가 확인한 동적 작업이 반복되면 개발 검토용 후보로만 기록합니다. 후보가 자동 실행 기능으로 바뀌지는 않습니다.</p>
+                </div>
+                <button id="btn-refresh-native-candidates" class="premium-btn">새로고침</button>
+            </div>
+            <label class="native-candidate-filter">
+                <input id="native-candidate-show-dismissed" type="checkbox">
+                거절·구현·병합된 후보도 표시
+            </label>
+            <div id="native-action-candidates-list" class="native-candidate-list"></div>
+        </div>
+    </div>
+
+    <!-- AI Settings Modal -->
+    <div id="ai-settings-modal" class="modal">
+        <div class="modal-content premium-modal animate-modal-in">
+            <span class="close-modal close-ai-settings">&times;</span>
+            <h2 style="margin-bottom: 15px;">⚙️ AI (두뇌) 설정</h2>
+            
+            <div id="ai-config-tab" class="modal-tab-pane active" style="margin-top: 10px;">
+                <div class="premium-card">
+                    <h3>🧠 AI 모델 (API Key) 연동</h3>
+                    <p class="desc">OpenAI 또는 Gemini API 키를 입력하여 챗봇을 똑똑하게 만듭니다.</p>
+                    <div class="form-group">
+                        <label>명령 라우팅 방식</label>
+                        <select id="ai-routing-mode" class="premium-input">
+                            <option value="auto">자동 학습 — 로컬 우선, 실패 시 AI</option>
+                            <option value="local_only">로컬 전용 — API/Ollama 사용 안 함</option>
+                            <option value="ai_first">AI 우선 — 모든 명령을 AI가 분석</option>
+                        </select>
+                        <p class="desc">상단 토글은 질문·대화에서만 API와 Ollama를 선택합니다.</p>
+                    </div>
+                    <div class="form-group">
+                        <label>제공자 (Provider)</label>
+                        <select id="ai-provider" class="premium-input">
+                            <option value="openai">OpenAI (ChatGPT)</option>
+                            <option value="gemini">Google Gemini</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="password" id="ai-api-key" class="premium-input" placeholder="sk-...">
+                    </div>
+                    <div class="form-group">
+                        <label>Ollama 모델명 (대화 모드용)</label>
+                        <input type="text" id="ai-ollama-model" class="premium-input" placeholder="예: llama3" value="llama3">
+                    </div>
+                </div>
+            </div>
+            
+            <button id="btn-save-ai-settings" class="premium-btn primary w-full text-lg p-12 mt-10">설정 저장하기</button>
+        </div>
+    </div>
+
+    <script defer src="globals.js"></script>
+    <script defer src="ui.js"></script>
+    <script defer src="api.js"></script>
+    <script defer src="session_manager.js"></script>
+    <script defer src="chat.js"></script>
+</body>
+</html>

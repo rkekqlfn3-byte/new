@@ -1,0 +1,149 @@
+import json
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+from pathlib import Path
+
+from engine.api import config_api
+from engine.document_reader import extract_text, resolve_file_path
+from engine.managers.dict_manager import DictionaryManager
+from engine.runtime_paths import seed_user_data
+
+
+class DictionaryPersistenceTests(unittest.TestCase):
+    def test_dictionary_config_and_macro_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "dictionaries.json")
+            manager = DictionaryManager(dictionary_path=path)
+
+            self.assertTrue(manager.add_custom_noun("테스트앱", "test.exe"))
+            self.assertTrue(manager.add_noun_synonym("테스트앱", "별명앱"))
+            self.assertTrue(manager.rename_noun("테스트앱", "새테스트앱"))
+            self.assertTrue(manager.macro_manager.add_custom_macro(
+                "TEST_MACRO", "테스트", ["테스트 실행"], "hotkey", "ctrl+shift+9"
+            ))
+            self.assertTrue(manager.config_manager.save_ai_config(
+                "gemini", "test-key", "test-model"
+            ))
+
+            reloaded = DictionaryManager(dictionary_path=path)
+            self.assertEqual("test.exe", reloaded.noun_dict["새테스트앱"])
+            self.assertEqual("test.exe", reloaded.noun_dict["별명앱"])
+            self.assertEqual("ctrl+shift+9", reloaded.macro_dict["TEST_MACRO"]["data"])
+            self.assertEqual("gemini", reloaded.get_ai_config()["provider"])
+            self.assertEqual("test-model", reloaded.get_ai_config()["ollama_model"])
+            self.assertEqual("auto", reloaded.get_ai_config()["routing_mode"])
+
+    def test_noun_revision_changes_after_mutation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = DictionaryManager(
+                dictionary_path=os.path.join(temp_dir, "dictionaries.json")
+            )
+            revision = manager.noun_revision
+            manager.add_custom_noun("리비전앱", "revision.exe")
+            self.assertGreater(manager.noun_revision, revision)
+
+
+class RuntimeDataPathTests(unittest.TestCase):
+    def test_seed_prefers_legacy_data_and_merges_missing_sessions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            legacy = root / "legacy"
+            bundled = root / "bundled"
+            target = root / "target"
+            (legacy / "sessions").mkdir(parents=True)
+            (bundled / "sessions").mkdir(parents=True)
+            (legacy / "dictionaries.json").write_text('{"source":"legacy"}', encoding="utf-8")
+            (bundled / "dictionaries.json").write_text('{"source":"bundle"}', encoding="utf-8")
+            (bundled / "user_memory.json").write_text('{"user_info":"seed"}', encoding="utf-8")
+            (bundled / "user_preferences.json").write_text(
+                '{"schema_version":1,"preferences":{"test":{}}}', encoding="utf-8"
+            )
+            (legacy / "sessions" / "session_old.json").write_text('{"id":"old"}', encoding="utf-8")
+            (bundled / "sessions" / "session_new.json").write_text('{"id":"new"}', encoding="utf-8")
+
+            seed_user_data(target, [legacy, bundled])
+
+            self.assertEqual('{"source":"legacy"}', (target / "dictionaries.json").read_text(encoding="utf-8"))
+            self.assertTrue((target / "user_memory.json").is_file())
+            self.assertTrue((target / "user_preferences.json").is_file())
+            self.assertTrue((target / "sessions" / "session_old.json").is_file())
+            self.assertTrue((target / "sessions" / "session_new.json").is_file())
+
+    def test_seed_never_overwrites_existing_user_data(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bundled = root / "bundled"
+            target = root / "target"
+            bundled.mkdir()
+            target.mkdir()
+            (bundled / "dictionaries.json").write_text('{"version":2}', encoding="utf-8")
+            (target / "dictionaries.json").write_text('{"version":1,"custom":true}', encoding="utf-8")
+            (bundled / "user_preferences.json").write_text(
+                '{"source":"bundle"}', encoding="utf-8"
+            )
+            (target / "user_preferences.json").write_text(
+                '{"source":"user"}', encoding="utf-8"
+            )
+
+            seed_user_data(target, [bundled])
+
+            self.assertEqual(
+                '{"version":1,"custom":true}',
+                (target / "dictionaries.json").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                '{"source":"user"}',
+                (target / "user_preferences.json").read_text(encoding="utf-8"),
+            )
+
+
+class MemoryAndSessionPersistenceTests(unittest.TestCase):
+    def test_user_memory_round_trip_and_legacy_compatibility(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "user_memory.json")
+            with patch.object(config_api, "USER_MEMORY_PATH", path):
+                self.assertTrue(config_api.save_user_memory("사용자", "짧게", "기타"))
+                self.assertEqual(
+                    {"user_info": "사용자", "rules": "짧게", "others": "기타"},
+                    config_api.load_user_memory(),
+                )
+
+                with open(path, "w", encoding="utf-8") as file:
+                    json.dump({"userInfo": "이전형식", "rules": "규칙"}, file)
+                self.assertEqual("이전형식", config_api.load_user_memory()["user_info"])
+
+    def test_session_save_load_list_and_delete(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             patch.object(config_api, "CHAT_SESSION_DIR", temp_dir):
+            messages = [{"role": "user", "content": "테스트 질문"}]
+            self.assertTrue(config_api.save_chat_session(
+                "session_test", "테스트", messages, "요약", {"mode": "question"}
+            ))
+            loaded = config_api.load_chat_session("session_test")
+            self.assertEqual(messages, loaded["messages"])
+            self.assertEqual("요약", loaded["summary"])
+            self.assertEqual("session_test", config_api.get_chat_sessions()[0]["id"])
+            self.assertTrue(config_api.delete_chat_session("session_test"))
+            self.assertIsNone(config_api.load_chat_session("session_test"))
+
+
+class DocumentReaderTests(unittest.TestCase):
+    def test_text_file_resolution_and_extraction(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "report.txt")
+            with open(path, "w", encoding="utf-8") as file:
+                file.write("정확한 테스트 문서")
+
+            self.assertEqual(os.path.abspath(path), resolve_file_path(path))
+            self.assertEqual("정확한 테스트 문서", extract_text(path))
+
+    def test_missing_file_returns_clear_message(self):
+        missing = os.path.join(tempfile.gettempdir(), "definitely-missing-jarvis.txt")
+        self.assertIsNone(resolve_file_path(missing))
+        self.assertIn("찾을 수 없습니다", extract_text(missing))
+
+
+if __name__ == "__main__":
+    unittest.main()
