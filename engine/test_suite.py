@@ -42,6 +42,7 @@ TEST_MODULES = [
     "engine.test_app_command_router",
     "engine.test_ui_automation",
     "engine.test_execution_runtime",
+    "engine.test_execution_busy",
     "engine.test_execution_result",
     "engine.test_confirmation_flow",
     "engine.test_excel_native_write",

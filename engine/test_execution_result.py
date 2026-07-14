@@ -97,7 +97,7 @@ class ExecutionResultContractTests(unittest.TestCase):
         self.assertEqual({
             "validation_error", "verification_error", "execution_error",
             "timeout", "target_not_found", "user_cancelled",
-            "environment_error", "unknown",
+            "environment_error", "busy", "unknown",
         }, set(ERROR_TYPES))
 
     def test_unhandled_exception_is_returned_as_structured_failure(self):

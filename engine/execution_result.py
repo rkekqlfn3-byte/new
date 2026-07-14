@@ -14,6 +14,7 @@ ERROR_TYPES = frozenset({
     "target_not_found",
     "user_cancelled",
     "environment_error",
+    "busy",
     "unknown",
 })
 

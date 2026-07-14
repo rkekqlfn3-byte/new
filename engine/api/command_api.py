@@ -1,6 +1,6 @@
 import eel
 from engine.core import parser, dict_mgr
-from engine.execution_runtime import ExecutionCancelled
+from engine.execution_runtime import ExecutionBusyError, ExecutionCancelled
 from engine.execution_result import failure_result
 from engine.managers.pending_confirmation_manager import normalize_session_id
 
@@ -123,11 +123,18 @@ def parse_command(user_input, image_data=None, mode="command", use_api=False, su
             session_id, user_text=str(user_input or "")
         )
 
-    execution_id = parser.execution_controller.begin(
-        str(user_input)[-200:], {
-            "mode": mode, "use_api": bool(use_api), "session_id": session_id,
-        }
-    )
+    try:
+        execution_id = parser.execution_controller.begin(
+            str(user_input)[-200:], {
+                "mode": mode, "use_api": bool(use_api), "session_id": session_id,
+            }
+        )
+    except ExecutionBusyError as error:
+        # Another command is still running; do not touch its diagnostics.
+        return failure_result(
+            str(error), action="command",
+            error_type="busy", retryable=True, status="busy",
+        )
     try:
         result = parser.execute_command_result(
             user_input,

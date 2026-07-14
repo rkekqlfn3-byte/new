@@ -16,6 +16,20 @@ class ExecutionCancelled(RuntimeError):
     pass
 
 
+class ExecutionBusyError(RuntimeError):
+    """Reject a new execution while another one is already running.
+
+    A single ``CommandParser`` instance can be entered from several eel
+    callback threads (voice, auto-run, a second window). Without this guard
+    ``begin`` would overwrite the running execution's diagnostics and clear its
+    pending cancel signal. Callers surface it as a retryable ``busy`` result.
+    """
+
+    error_type = "busy"
+    status = "busy"
+    retryable = True
+
+
 class ExecutionController:
     def __init__(self, diagnostics_path=None, max_records=100):
         self.diagnostics_path = diagnostics_path or DIAGNOSTICS_PATH
@@ -32,6 +46,13 @@ class ExecutionController:
 
     def begin(self, label="command", metadata=None):
         with self._lock:
+            # Reject before clearing the cancel event so a rejected second
+            # command never wipes the running command's pending cancellation.
+            if self.current is not None:
+                raise ExecutionBusyError(
+                    "이미 실행 중인 작업이 있어 새 명령을 시작할 수 없습니다. "
+                    "현재 작업이 끝난 뒤 다시 시도해 주세요."
+                )
             self._cancel_event.clear()
             execution_id = uuid.uuid4().hex
             self.current = {
