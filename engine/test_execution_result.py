@@ -90,7 +90,7 @@ class ExecutionResultContractTests(unittest.TestCase):
             message = parser.parse_and_execute("메모장 열어")
         self.assertFalse(result["success"])
         self.assertEqual("execution_error", result["error_type"])
-        self.assertIn("에러", result["message"])
+        self.assertIn("오류", result["message"])
         self.assertIsInstance(message, str)
 
     def test_error_taxonomy_is_closed(self):
