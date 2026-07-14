@@ -242,7 +242,7 @@ if (btnAddSynonym) {
             if (dictSynonymInput) dictSynonymInput.value = '';
             currentNouns = await eel.get_nouns()();
             updateSynonymList();
-            addMessage("오빠! 이제 나한테 '" + synonym + " 열어줘'라고 편하게 명령해도 다 알아들을 수 있어! 💕", true);
+            addMessage("이제 '" + synonym + " 열어줘'라고 편하게 명령해도 다 알아들을 수 있어! ✨", true);
         } else {
             alert("저장에 실패했습니다.");
         }
@@ -295,7 +295,7 @@ if (btnAiSearch) {
         const results = await eel.ai_find_exe(query)();
         const listDiv = document.getElementById('ai-results-list');
         if (listDiv) listDiv.innerHTML = '';
-        btnAiSearch.textContent = "✨ 경로 자동 검색";
+        btnAiSearch.textContent = "✨ 컴퓨터에서 직접 찾기";
         if (results.length === 0) {
             if (listDiv) listDiv.innerHTML = "<div class='ai-result-item' style='color:#ed8796;'>발견된 앱이 없습니다. 직접 경로를 입력해주세요. 😭</div>";
             return;

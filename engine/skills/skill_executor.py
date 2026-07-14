@@ -129,8 +129,11 @@ class SkillVerificationFailed(SkillExecutionError):
         self.rollback_performed = bool(
             summary.result.get("rollback_performed", False)
         )
-        self.rollback_success = bool(
-            summary.result.get("rollback_success", False)
+        # None when no rollback ran, so "not attempted" stays distinct from
+        # "attempted and failed" for later log readers.
+        self.rollback_success = (
+            bool(summary.result.get("rollback_success", False))
+            if self.rollback_performed else None
         )
 
 
@@ -451,7 +454,8 @@ class SkillExecutor:
             "fallback_attempts": 0,
             "state_changed_before_failure": False,
             "rollback_performed": False,
-            "rollback_success": True,
+            # None until a rollback actually runs; True/False only then.
+            "rollback_success": None,
             "preflight_status": SAFE,
         }
         self.owner.execution_controller.event(
@@ -498,11 +502,11 @@ class SkillExecutor:
                 if state_changed:
                     diagnostic["state_changed_before_failure"] = True
                 if hasattr(error, "rollback_performed"):
-                    diagnostic["rollback_performed"] = bool(
-                        getattr(error, "rollback_performed")
-                    )
-                    diagnostic["rollback_success"] = bool(
-                        getattr(error, "rollback_success", False)
+                    performed = bool(getattr(error, "rollback_performed"))
+                    diagnostic["rollback_performed"] = performed
+                    diagnostic["rollback_success"] = (
+                        bool(getattr(error, "rollback_success", False))
+                        if performed else None
                     )
                 last_error = error
                 if self._can_fallback(

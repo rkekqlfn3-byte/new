@@ -61,6 +61,16 @@ class ReleaseDefaultDataTests(unittest.TestCase):
             'if not defined jarvis_python set "jarvis_python=python"', script
         )
 
+    def test_start_script_validates_a_copied_virtualenv_before_use(self):
+        # Jarvis_Start.bat must not launch a stale copied venv blindly; it should
+        # verify the interpreter starts and fall back to the system pythonw.
+        script = (PROJECT_ROOT / "Jarvis_Start.bat").read_text(
+            encoding="utf-8"
+        ).lower()
+        self.assertIn('".venv\\scripts\\python.exe" -c "import sys"', script)
+        self.assertIn("where pythonw", script)
+        self.assertIn('set "jarvis_pythonw=pythonw"', script)
+
     def test_build_regression_gate_lists_every_test_module(self):
         discovered = {
             f"engine.{path.stem}"
