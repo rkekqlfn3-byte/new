@@ -18,6 +18,18 @@ R0 개발 저장소·실행 폴더 분리 및 도구 복원
 → R6 마지막 전체 테스트·실앱 검증·릴리스 교체
 ```
 
+### 현재 진행 상태
+
+| 단계 | 상태 | 기준 커밋 또는 비고 |
+| --- | --- | --- |
+| R0 | 완료 | 개발·실행 경계와 검증 도구 복원 |
+| R1 | 완료 | `pypdf 6.14.2`, PDF 입력 한계 |
+| R2 | 완료 | 시스템 결과·로그·GUI 삽입 경계 |
+| R3 | 완료 | `b00916b`까지 핵심 구조 분리 |
+| R4 | 완료 | 문서·RULEBOOK·추적성 최신화 |
+| R5 | 대기 | 릴리스 버전·태그·후보 빌드 |
+| R6 | 대기 | 마지막 전체 검증과 실행본 교체 |
+
 테스트는 사용자의 결정대로 **R6에서 마지막에 한 번에 실행한다.** R1~R4에서는 필요한 회귀 테스트 코드를 추가하되 실행하지 않는다. R6에서 실패가 나오면 해당 원인을 수정하고 새로 빌드한 다음 R6 전체를 처음부터 다시 실행한다.
 
 ## 2. 해결 대상
@@ -50,13 +62,13 @@ Word·PowerPoint는 R6가 완전 통과한 뒤 별도 기능 계획으로 시작
 
 ### 현재 실행본
 
-- 경로: `dist/Jarvis/Jarvis.exe`
+- 경로: `C:\Users\PC04\OneDrive\Desktop\JARVIS_RUNTIME\current\Jarvis\Jarvis.exe`
 - SHA-256: `B237B5678C147988431CE93EAE66904A5A12474985DA6154B1C2D57C42FE8455`
 - 빌드 커밋: `a096e9303e6f339e1c9c57472183f5c6d901af39`
 
 ### 직전 백업
 
-- 경로: `releases/JARVIS_Command_Engine_V1/Jarvis.zip`
+- 경로: `C:\Users\PC04\OneDrive\Desktop\JARVIS_RUNTIME\previous\Jarvis.zip`
 - SHA-256: `D4F485386AC47AB0A9C2B4697462B5BB5FDA7D6121AE04E4C50AE1D6B4599116`
 
 작업 시작 시 기준 태그를 추가하고, 각 단계는 한 가지 목적만 가진 커밋으로 종료한다. 현재 사용자 데이터 `%LOCALAPPDATA%\Jarvis\data`는 복사·초기화·수정 대상이 아니다.
