@@ -6,7 +6,7 @@ from unittest import mock
 from engine.api import command_api
 from engine.confirmation import ConfirmationResponseHandler
 from engine.execution_result import confirmation_result
-from engine.execution_runtime import ExecutionController
+from engine.execution_runtime import ExecutionBusyError, ExecutionController
 from engine.managers.pending_confirmation_manager import (
     ConfirmationAlreadyConsumedError,
     ConfirmationConflictError,
@@ -113,7 +113,7 @@ class ConfirmationResultTests(unittest.TestCase):
 
 
 class ConfirmationExecutionRuntimeTests(unittest.TestCase):
-    def test_paused_execution_is_not_completed_and_can_resume_after_other_work(self):
+    def test_paused_execution_is_not_completed_and_blocks_other_work(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-confirm-runtime-") as temp_dir:
             path = os.path.join(temp_dir, "diagnostics.json")
             controller = ExecutionController(path)
@@ -124,17 +124,14 @@ class ConfirmationExecutionRuntimeTests(unittest.TestCase):
             self.assertEqual([], diagnostics["records"])
             self.assertEqual(first_id, diagnostics["pending"][0]["execution_id"])
 
-            second_id = controller.begin("second", {"session_id": "b"})
-            controller.finish(True, response="second done")
+            with self.assertRaises(ExecutionBusyError):
+                controller.begin("second", {"session_id": "b"})
             self.assertTrue(controller.resume(first_id))
             first_record = controller.finish(True, response="first done")
             reloaded = ExecutionController(path)
 
         self.assertEqual(first_id, first_record["execution_id"])
-        self.assertEqual(
-            [second_id, first_id],
-            [record["execution_id"] for record in reloaded.records],
-        )
+        self.assertEqual([first_id], [record["execution_id"] for record in reloaded.records])
         self.assertEqual({}, reloaded.pending)
 
 
@@ -197,6 +194,28 @@ class ConfirmationResponseHandlerTests(unittest.TestCase):
         self.assertEqual("user_cancelled", cancelled.result["error_type"])
         self.assertIsNone(manager.active_record("handler-session"))
 
+    def test_resume_conflict_does_not_consume_confirmation(self):
+        manager = PendingConfirmationManager()
+        controller = mock.Mock()
+        controller.can_resume.return_value = False
+        record = manager.create(
+            session_id="handler-session",
+            execution_id="handler-execution",
+            original_command="test",
+            reason="confirmation_demo",
+            message="continue?",
+            options=_options(),
+        )
+        handler = ConfirmationResponseHandler(self.Owner(manager, controller))
+
+        result = handler.resolve_selection(
+            "handler-session", confirmation_id=record["confirmation_id"], option_id="continue"
+        )
+
+        self.assertEqual("state_conflict", result.result["status"])
+        self.assertEqual("pending", manager.get_record(record["confirmation_id"])["status"])
+        controller.resume.assert_not_called()
+
     def test_context_fingerprint_is_rechecked_before_resume(self):
         previous = mock.Mock(context_fingerprint="book-a:sheet-a:revision-1")
         same = mock.Mock(context_fingerprint="book-a:sheet-a:revision-1")
@@ -248,6 +267,25 @@ class ConfirmationApiFlowTests(unittest.TestCase):
             records = parser.execution_controller.diagnostics()["records"]
             self.assertEqual(1, len(records))
             self.assertEqual("success", records[0]["status"])
+
+    def test_other_session_command_is_busy_while_confirmation_is_pending(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-confirm-api-") as temp_dir:
+            parser = self._parser(temp_dir)
+            with mock.patch.object(command_api, "parser", parser):
+                first = command_api.parse_command(
+                    "확인 카드 테스트", session_id="session-a"
+                )
+                blocked = command_api.parse_command(
+                    "a separate command", session_id="session-b"
+                )
+                confirmation_id = first["data"]["confirmation"]["confirmation_id"]
+                completed = command_api.resolve_confirmation(
+                    confirmation_id, "continue", "session-a"
+                )
+
+        self.assertEqual("confirmation_required", first["status"])
+        self.assertEqual("busy", blocked["status"])
+        self.assertTrue(completed["success"])
 
     def test_demo_cancel_is_terminal_without_external_change(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-confirm-api-") as temp_dir:

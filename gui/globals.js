@@ -25,6 +25,30 @@ const scanSubOptions = document.getElementById('scan-sub-options');
 const btnUnifiedDict = document.getElementById('btn_open_unified_dict');
 const unifiedDictModal = document.getElementById('unified-dict-modal');
 
+// UI data from Eel, saved JSON, and user input is always assigned through DOM
+// properties.  Keep these tiny helpers in the earliest-loaded GUI script so
+// every renderer shares the same safe construction boundary.
+window.createTextElement = function(tag, text = '', className = '') {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text ?? '';
+    return element;
+};
+
+window.clearElement = function(element) {
+    if (element) element.replaceChildren();
+    return element;
+};
+
+window.appendTextLineBreaks = function(element, text) {
+    const lines = String(text ?? '').split(/\r?\n/);
+    lines.forEach((line, index) => {
+        if (index) element.appendChild(document.createElement('br'));
+        element.appendChild(document.createTextNode(line));
+    });
+    return element;
+};
+
 // The first Eel websocket call can briefly race with a newly opened window.
 // Persisted UI loaders use this bounded retry instead of requiring a reload.
 window.runUiLoadWithRetry = async function(task, attempts = 5) {

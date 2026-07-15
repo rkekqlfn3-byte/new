@@ -126,8 +126,15 @@ async function updateAppSelect(filter = '') {
 
             const row = document.createElement('div');
             row.className = 'list-item';
-            row.setAttribute('data-val', noun);
-            row.innerHTML = `<span style="flex:1;">${favStar}${icon} ${noun}</span><small style="color:#888;font-size:0.75em;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${path}">${displayPath}</small>`;
+            row.dataset.val = noun;
+            const name = document.createElement('span');
+            name.style.flex = '1';
+            name.textContent = `${favStar}${icon} ${noun}`;
+            const location = document.createElement('small');
+            location.style.cssText = 'color:#888;font-size:0.75em;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            location.title = path;
+            location.textContent = displayPath;
+            row.append(name, location);
             row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-radius:6px;transition:background 0.15s;';
             row.addEventListener('mouseover', () => row.style.background = 'rgba(255,255,255,0.07)');
             row.addEventListener('mouseout', () => row.style.background = listDiv.getAttribute('data-selected') === noun ? 'rgba(108,92,231,0.25)' : '');
@@ -189,7 +196,13 @@ async function updateSynonymList() {
     syns.forEach(syn => {
         const badge = document.createElement('span');
         badge.className = "synonym-badge";
-        badge.innerHTML = `${syn} <span class="del-syn" data-syn="${syn}">&times;</span>`;
+        badge.appendChild(document.createTextNode(`${syn} `));
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'del-syn';
+        remove.dataset.syn = syn;
+        remove.textContent = '×';
+        badge.appendChild(remove);
         listDiv.appendChild(badge);
     });
     listDiv.querySelectorAll('.del-syn').forEach(btn => {
@@ -303,7 +316,11 @@ if (btnAiSearch) {
         results.forEach(res => {
             const div = document.createElement('div');
             div.className = "ai-result-item";
-            div.innerHTML = `<strong>${res.name}</strong><small>${res.path}</small>`;
+            const name = document.createElement('strong');
+            name.textContent = res.name || '';
+            const path = document.createElement('small');
+            path.textContent = res.path || '';
+            div.append(name, path);
             div.addEventListener('click', () => {
                 document.getElementById('custom-path-input').value = res.path;
                 div.style.borderColor = "#a6e3a1";
@@ -334,7 +351,9 @@ const learnedMacroSearch = document.getElementById('learned-macro-search');
 function escapeDictionaryHtml(value) {
     const node = document.createElement('div');
     node.textContent = String(value ?? '');
-    return node.innerHTML;
+    return node.innerHTML
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 async function updateMacroList() {
@@ -349,13 +368,15 @@ async function updateMacroList() {
         div.className = 'list-item';
         div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #eee;';
         const typeStr = (mData.type || 'cmd').toUpperCase();
+        const safeMacroId = escapeDictionaryHtml(mId);
+        const safeType = escapeDictionaryHtml(typeStr);
         div.innerHTML = `
             <div>
-                <strong>[${typeStr}] ${mId}</strong>
+                <strong>[${safeType}] ${safeMacroId}</strong>
                 <div style="font-size:0.85em;color:#666;margin-top:2px;">명령어: ${(mData.synonyms || []).map(escapeDictionaryHtml).join(', ')}</div>
                 <div style="font-size:0.85em;color:#888;margin-top:2px;">동작/값: ${escapeDictionaryHtml(mData.data || '')}</div>
             </div>
-            <button class="btn-del-macro" data-id="${mId}" style="background:#ff5555;border:none;color:#fff;border-radius:5px;padding:4px 8px;cursor:pointer;">삭제</button>
+            <button class="btn-del-macro" data-id="${safeMacroId}" style="background:#ff5555;border:none;color:#fff;border-radius:5px;padding:4px 8px;cursor:pointer;">삭제</button>
         `;
         macroListDiv.appendChild(div);
     }
@@ -836,7 +857,7 @@ async function renderActionDictionary(filter = '') {
 
 
         itemDiv.innerHTML = `
-            <div><strong>${macro}</strong></div>
+            <div><strong>${escapeDictionaryHtml(macro)}</strong></div>
             ${codeHtml}
         `;
 
@@ -845,7 +866,7 @@ async function renderActionDictionary(filter = '') {
         (data.synonyms || []).forEach(syn => {
             const badge = document.createElement('span');
             badge.className = 'synonym-badge';
-            badge.innerHTML = `${syn} &times;`;
+            badge.textContent = `${syn} ×`;
             badge.style.cursor = 'pointer';
             badge.addEventListener('click', async () => {
                 if (confirm("'" + syn + "' 동의어를 삭제하시겠습니까?")) {

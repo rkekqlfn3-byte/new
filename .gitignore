@@ -2,18 +2,26 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.pyc
 
 # Build outputs
 build/
 dist/
 releases/
+logs/
+temp/
+tmp/
 *.spec.bak
 
 # Private Jarvis data from legacy source layouts
 data/
 backups/
+user_data/
+runtime_data/
 *.bak
 *.log
+.env
+.env.*
 
 # Generated verification output
 verification/*_report.json

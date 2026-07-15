@@ -3,7 +3,12 @@ window.conversationSummary = window.conversationSummary || "";
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    // Browser serialization does not necessarily escape quotes in text-node
+    // context.  Escape them too because this helper is retained for legacy
+    // static templates that place a value in a data attribute.
+    return div.innerHTML
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // 이 창은 eel을 통해 Python 기능과 연결되므로, AI 응답·저장 대화에서 온
@@ -44,25 +49,84 @@ function sanitizeRenderedHtml(html) {
 }
 
 function formatMessageContent(text, isIncoming, image_data = null) {
-    let contentHtml = '';
-    if (typeof image_data === 'string' && image_data.startsWith('data:image/')) {
-        contentHtml += `<img src="${image_data}" class="chat-image-attachment" onclick="document.getElementById('image-modal').style.display='block'; document.getElementById('modal-img').src=this.src;"><br>`;
-    }
-    if (!text) return contentHtml;
+    if (!text) return '';
 
-    let processed = text.trim();
+    let processed = text.trim().replace('[응/아니오]', '');
     let parsedText = (typeof marked !== 'undefined')
         ? sanitizeRenderedHtml(marked.parse(processed))
         : escapeHtml(processed).replace(/\n/g, '<br>');
-    if (parsedText.includes('[응/아니오]')) {
-        parsedText = parsedText.replace('[응/아니오]', `<div style="margin-top: 10px; display: flex; gap: 10px;">
-            <button class="premium-btn primary" onclick="openLearningReview()">학습 내용 검토</button>
-            <button class="premium-btn" onclick="discardPendingLearning('run_once')">이번만 실행</button>
-            <button class="premium-btn" style="background:#ff5555; color:white; border:none;" onclick="discardPendingLearning('discard')">폐기</button>
-        </div>`);
-    }
-    return contentHtml + parsedText;
+    return parsedText;
 }
+
+function appendLearningPromptActions(bubble) {
+    const actions = document.createElement('div');
+    actions.style.cssText = 'margin-top:10px;display:flex;gap:10px;';
+    const review = window.createTextElement('button', '학습 내용 검토', 'premium-btn primary');
+    review.type = 'button';
+    review.addEventListener('click', openLearningReview);
+    const runOnce = window.createTextElement('button', '이번만 실행', 'premium-btn');
+    runOnce.type = 'button';
+    runOnce.addEventListener('click', () => discardPendingLearning('run_once'));
+    const discard = window.createTextElement('button', '폐기', 'premium-btn');
+    discard.type = 'button';
+    discard.style.cssText = 'background:#ff5555;color:white;border:none;';
+    discard.addEventListener('click', () => discardPendingLearning('discard'));
+    actions.append(review, runOnce, discard);
+    bubble.appendChild(actions);
+}
+
+function isSafeImageData(imageData) {
+    return typeof imageData === 'string'
+        && /^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(imageData);
+}
+
+function appendFormattedMessageContent(bubble, text, isIncoming, imageData = null) {
+    bubble.replaceChildren();
+    if (isSafeImageData(imageData)) {
+        const image = document.createElement('img');
+        image.className = 'chat-image-attachment';
+        image.src = imageData;
+        image.addEventListener('click', () => {
+            const modal = document.getElementById('image-modal');
+            const modalImage = document.getElementById('modal-img');
+            if (modal && modalImage) {
+                modalImage.src = image.src;
+                modal.style.display = 'block';
+            }
+        });
+        bubble.append(image, document.createElement('br'));
+    }
+    const rendered = formatMessageContent(text, isIncoming);
+    if (!rendered) return;
+    // ``formatMessageContent`` accepts either escaped plain text or the
+    // allowlist-sanitized Markdown result.  This is the only chat Markdown
+    // insertion boundary.
+    bubble.insertAdjacentHTML('beforeend', rendered);
+    if (String(text || '').includes('[응/아니오]')) {
+        appendLearningPromptActions(bubble);
+    }
+}
+
+function createChatMessage(text, isIncoming, imageData = null) {
+    const message = document.createElement('div');
+    message.className = `message ${isIncoming ? 'incoming' : 'outgoing'}`;
+    message.dataset.rawContent = String(text || '');
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    if (isIncoming) {
+        const sender = document.createElement('div');
+        sender.className = 'sender-name current-name';
+        sender.textContent = 'Jarvis ⚡';
+        content.appendChild(sender);
+    }
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    appendFormattedMessageContent(bubble, text, isIncoming, imageData);
+    content.appendChild(bubble);
+    message.appendChild(content);
+    return message;
+}
+window.createChatMessage = createChatMessage;
 
 function finalizeStreamMessage(msgDiv, rawText) {
     if (!msgDiv || !rawText) return;
@@ -70,7 +134,7 @@ function finalizeStreamMessage(msgDiv, rawText) {
     const bubble = msgDiv.querySelector('.bubble');
     if (bubble) {
         bubble.style.opacity = '1';
-        bubble.innerHTML = formatMessageContent(rawText, true);
+        appendFormattedMessageContent(bubble, rawText, true);
     }
     scrollToBottom();
 }
@@ -87,38 +151,67 @@ function getConfirmationFromResponse(response) {
     return confirmation && confirmation.confirmation_id ? confirmation : null;
 }
 
-function confirmationCardHtml(confirmation) {
-    const options = Array.isArray(confirmation.options) ? confirmation.options : [];
-    const optionHtml = options.map(option => {
-        const classes = [
-            'confirmation-option',
-            option.recommended ? 'recommended' : '',
-            option.danger ? 'danger' : '',
-            option.cancel ? 'cancel' : ''
+function createConfirmationCard(confirmation) {
+    const card = document.createElement('div');
+    card.className = 'confirmation-card';
+    card.dataset.confirmationId = String(confirmation?.confirmation_id || '');
+    card.appendChild(window.createTextElement(
+        'div', '선택이 필요합니다', 'confirmation-card-heading'
+    ));
+
+    const message = document.createElement('div');
+    message.className = 'confirmation-card-message';
+    window.appendTextLineBreaks(message, confirmation?.message || '계속할까요?');
+    card.appendChild(message);
+
+    if (confirmation?.reason === 'destructive_action') {
+        card.appendChild(window.createTextElement(
+            'div', '⚠️ 기존 데이터가 변경될 수 있습니다.', 'confirmation-warning'
+        ));
+    }
+
+    const options = document.createElement('div');
+    options.className = 'confirmation-options';
+    (Array.isArray(confirmation?.options) ? confirmation.options : []).forEach(option => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = [
+            'confirmation-option', option?.recommended ? 'recommended' : '',
+            option?.danger ? 'danger' : '', option?.cancel ? 'cancel' : '',
         ].filter(Boolean).join(' ');
-        const badge = option.recommended ? '<span class="confirmation-badge">추천</span>' : '';
-        return `<button type="button" class="${classes}" data-option-id="${escapeHtml(option.id || '')}">
-            <span class="confirmation-option-title">${escapeHtml(option.label || '선택')}${badge}</span>
-            ${option.description ? `<span class="confirmation-option-description">${escapeHtml(option.description)}</span>` : ''}
-        </button>`;
-    }).join('');
-    const warning = confirmation.reason === 'destructive_action'
-        ? '<div class="confirmation-warning">⚠️ 기존 데이터가 변경될 수 있습니다.</div>'
-        : '';
-    const remember = confirmation.rememberable
-        ? `<label class="confirmation-remember">
-            <input type="checkbox" class="confirmation-remember-input">
-            <span>앞으로 같은 요청에는 이 방식 사용</span>
-        </label>`
-        : '';
-    return `<div class="confirmation-card" data-confirmation-id="${escapeHtml(confirmation.confirmation_id)}">
-        <div class="confirmation-card-heading">선택이 필요합니다</div>
-        <div class="confirmation-card-message">${escapeHtml(confirmation.message || '계속할까요?').replace(/\n/g, '<br>')}</div>
-        ${warning}
-        <div class="confirmation-options">${optionHtml}</div>
-        ${remember}
-        <div class="confirmation-choice-status" aria-live="polite"></div>
-    </div>`;
+        button.dataset.optionId = String(option?.id || '');
+        const title = window.createTextElement(
+            'span', option?.label || '선택', 'confirmation-option-title'
+        );
+        button.appendChild(title);
+        if (option?.recommended) {
+            button.appendChild(window.createTextElement(
+                'span', '추천', 'confirmation-badge'
+            ));
+        }
+        if (option?.description) {
+            button.appendChild(window.createTextElement(
+                'span', option.description, 'confirmation-option-description'
+            ));
+        }
+        options.appendChild(button);
+    });
+    card.appendChild(options);
+
+    if (confirmation?.rememberable) {
+        const remember = document.createElement('label');
+        remember.className = 'confirmation-remember';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'confirmation-remember-input';
+        remember.append(input, document.createTextNode('앞으로 같은 요청에는 이 방식 사용'));
+        card.appendChild(remember);
+    }
+    const status = document.createElement('div');
+    status.className = 'confirmation-choice-status';
+    status.setAttribute('aria-live', 'polite');
+    card.appendChild(status);
+    return card;
 }
 
 function bindConfirmationCard(card) {
@@ -179,7 +272,10 @@ function markActiveConfirmationResolved(label) {
 function addConfirmationCard(response, existingMessage=null) {
     const confirmation = getConfirmationFromResponse(response);
     if (!confirmation) return false;
-    if (chatArea.querySelector(`[data-confirmation-id="${confirmation.confirmation_id}"]`)) {
+    const alreadyRendered = Array.from(
+        chatArea.querySelectorAll('[data-confirmation-id]')
+    ).some(element => element.dataset.confirmationId === confirmation.confirmation_id);
+    if (alreadyRendered) {
         if (existingMessage) existingMessage.remove();
         return true;
     }
@@ -188,12 +284,19 @@ function addConfirmationCard(response, existingMessage=null) {
     msgDiv.className = 'message incoming confirmation-message';
     msgDiv.dataset.rawContent = confirmation.message || response.message || '';
     msgDiv.dataset.confirmationId = confirmation.confirmation_id;
-    msgDiv.innerHTML = `<div class="message-content">
-        <div class="sender-name current-name">Jarvis ⚡</div>
-        <div class="bubble">${confirmationCardHtml(confirmation)}</div>
-    </div>`;
+    const content = document.createElement('div');
+    content.className = 'message-content';
+    content.appendChild(window.createTextElement(
+        'div', 'Jarvis ⚡', 'sender-name current-name'
+    ));
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    const card = createConfirmationCard(confirmation);
+    bubble.appendChild(card);
+    content.appendChild(bubble);
+    msgDiv.replaceChildren(content);
     if (!existingMessage) chatArea.appendChild(msgDiv);
-    bindConfirmationCard(msgDiv.querySelector('.confirmation-card'));
+    bindConfirmationCard(card);
     scrollToBottom();
     return true;
 }
@@ -233,6 +336,70 @@ function learningStepText(candidate) {
     return steps.length ? steps.map((step, index) => `${index + 1}. ${step.step || '실행'}`).join('\n') : '실행 단계 정보 없음';
 }
 
+function createLearningReviewCard(candidate, index) {
+    const card = document.createElement('section');
+    card.className = 'learning-review-card';
+    card.dataset.index = String(candidate?.index ?? index);
+
+    const heading = document.createElement('div');
+    heading.className = 'learning-review-heading';
+    heading.append(
+        window.createTextElement('strong', candidate?.description || '학습 행동'),
+        window.createTextElement(
+            'span',
+            ['verified', 'passed'].includes(candidate?.verification_status)
+                ? '자동 확인 완료' : '사용자 확인 필요',
+            'learning-status'
+        )
+    );
+    card.appendChild(heading);
+
+    const field = (labelText, className, value, multiline = false, readOnly = false) => {
+        const label = document.createElement('label');
+        label.appendChild(document.createTextNode(labelText));
+        const control = document.createElement(multiline ? 'textarea' : 'input');
+        control.className = `premium-input ${className}`;
+        control.value = String(value ?? '');
+        if (multiline) control.rows = 4;
+        control.readOnly = readOnly;
+        label.appendChild(control);
+        return label;
+    };
+    card.append(
+        field('매크로 이름', 'learning-name', candidate?.name),
+        field('발동 문장 — 한 줄에 하나', 'learning-utterances',
+            (candidate?.utterances || []).join('\n'), true),
+        field('핵심 동사 — 쉼표로 구분', 'learning-verbs',
+            (candidate?.verbs || []).join(', '))
+    );
+
+    const details = document.createElement('div');
+    details.className = 'learning-detail-grid';
+    const nouns = learningListText(candidate?.nouns, item => {
+        const canonical = item?.canonical ? ` → ${item.canonical}` : '';
+        return `${item?.text || ''}${canonical} (${item?.type || 'general'})`;
+    });
+    const slots = learningListText(candidate?.slots,
+        item => `${item?.name || ''}=${item?.value || ''} (${item?.type || ''})`
+    );
+    [
+        ['의도', candidate?.intent], ['대상', candidate?.app],
+        ['명사', nouns], ['슬롯', slots],
+    ].forEach(([label, value]) => {
+        const item = document.createElement('div');
+        item.append(
+            window.createTextElement('b', label),
+            window.createTextElement('span', value)
+        );
+        details.appendChild(item);
+    });
+    card.append(
+        details,
+        field('실행 단계', 'learning-steps', learningStepText(candidate || {}), true, true)
+    );
+    return card;
+}
+
 async function openLearningReview() {
     const modal = document.getElementById('learning-review-modal');
     const list = document.getElementById('learning-review-list');
@@ -245,38 +412,10 @@ async function openLearningReview() {
             return;
         }
         if (error) error.textContent = '';
-        list.innerHTML = review.candidates.map(candidate => {
-            const nouns = learningListText(candidate.nouns, item => {
-                const canonical = item.canonical ? ` → ${item.canonical}` : '';
-                return `${item.text || ''}${canonical} (${item.type || 'general'})`;
-            });
-            const slots = learningListText(candidate.slots, item => `${item.name}=${item.value} (${item.type})`);
-            const verification = ['verified', 'passed'].includes(candidate.verification_status) ? '자동 확인 완료' : '사용자 확인 필요';
-            return `<section class="learning-review-card" data-index="${candidate.index}">
-                <div class="learning-review-heading">
-                    <strong>${escapeHtml(candidate.description || '학습 행동')}</strong>
-                    <span class="learning-status">${escapeHtml(verification)}</span>
-                </div>
-                <label>매크로 이름
-                    <input class="premium-input learning-name" value="${escapeHtml(candidate.name || '')}">
-                </label>
-                <label>발동 문장 — 한 줄에 하나
-                    <textarea class="premium-input learning-utterances" rows="4">${escapeHtml((candidate.utterances || []).join('\n'))}</textarea>
-                </label>
-                <label>핵심 동사 — 쉼표로 구분
-                    <input class="premium-input learning-verbs" value="${escapeHtml((candidate.verbs || []).join(', '))}">
-                </label>
-                <div class="learning-detail-grid">
-                    <div><b>의도</b><span>${escapeHtml(candidate.intent || '')}</span></div>
-                    <div><b>대상</b><span>${escapeHtml(candidate.app || '')}</span></div>
-                    <div><b>명사</b><span>${escapeHtml(nouns)}</span></div>
-                    <div><b>슬롯</b><span>${escapeHtml(slots)}</span></div>
-                </div>
-                <label>실행 단계
-                    <textarea class="premium-input learning-steps" rows="4" readonly>${escapeHtml(learningStepText(candidate))}</textarea>
-                </label>
-            </section>`;
-        }).join('');
+        list.replaceChildren();
+        review.candidates.forEach((candidate, index) => {
+            list.appendChild(createLearningReviewCard(candidate, index));
+        });
         modal.style.display = 'block';
     } catch (reviewError) {
         addSystemError(reviewError.message || String(reviewError));
@@ -326,25 +465,7 @@ document.getElementById('btn-run-once-learning')?.addEventListener('click', () =
 document.getElementById('btn-discard-learning')?.addEventListener('click', () => discardPendingLearning('discard'));
 
 function addMessage(text, isIncoming, image_data=null) {
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `message ${isIncoming ? 'incoming' : 'outgoing'}`;
-    msgDiv.dataset.rawContent = text || '';
-
-    const contentHtml = formatMessageContent(text, isIncoming, image_data);
-
-    let html = '';
-    if (isIncoming) {
-        html += `<div class="message-content">`;
-        html += `<div class="sender-name current-name">Jarvis ⚡</div>`;
-        html += `<div class="bubble">${contentHtml}</div>`;
-        html += `</div>`;
-    } else {
-        html += `<div class="message-content">`;
-        html += `<div class="bubble">${contentHtml}</div>`;
-        html += `</div>`;
-    }
-
-    msgDiv.innerHTML = html;
+    const msgDiv = createChatMessage(text, isIncoming, image_data);
     chatArea.appendChild(msgDiv);
     scrollToBottom();
 }
@@ -355,7 +476,9 @@ function addSystemMessage(msg) {
     const line = document.createElement('div');
     line.className = 'system-error-line';
     line.setAttribute('data-system-note', 'true');
-    line.innerHTML = `<span>ℹ️ ${escapeHtml(msg)}</span>`;
+    const message = document.createElement('span');
+    message.textContent = `ℹ️ ${msg ?? ''}`;
+    line.appendChild(message);
     chatOutput.appendChild(line);
     scrollToBottom();
 }
@@ -364,11 +487,20 @@ function addSystemError(errorMsg) {
     const line = document.createElement('div');
     line.className = 'system-error-line';
     line.setAttribute('data-system-note', 'true');
-    line.innerHTML = `
-        <span>⚠️ 오류</span>
-        <span class="error-detail">${escapeHtml(errorMsg)}</span>
-        <button onclick="this.parentElement.remove(); sendMessage(true)" style="margin-left:10px; padding:2px 8px; font-size:0.8em; cursor:pointer; border:1px solid #ff6b6b; border-radius:4px; background:transparent; color:#ff6b6b;">&#x21ba; 다시 시도</button>
-    `;
+    const title = document.createElement('span');
+    title.textContent = '⚠️ 오류';
+    const detail = document.createElement('span');
+    detail.className = 'error-detail';
+    detail.textContent = errorMsg ?? '';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = '↺ 다시 시도';
+    retry.style.cssText = 'margin-left:10px; padding:2px 8px; font-size:0.8em; cursor:pointer; border:1px solid #ff6b6b; border-radius:4px; background:transparent; color:#ff6b6b;';
+    retry.addEventListener('click', () => {
+        line.remove();
+        sendMessage(true);
+    });
+    line.append(title, detail, retry);
     chatArea.appendChild(line);
     scrollToBottom();
 }
@@ -433,13 +565,14 @@ function receive_stream_chunk(chunk) {
 
     if (currentStreamRawContent === "") {
         bubble.style.opacity = "1";
-        bubble.innerHTML = "";
+        bubble.replaceChildren();
     }
 
     currentStreamRawContent += chunk;
     msgDiv.dataset.rawContent = currentStreamRawContent;
 
-    bubble.innerHTML = escapeHtml(currentStreamRawContent).replace(/\n/g, '<br>');
+    bubble.replaceChildren();
+    window.appendTextLineBreaks(bubble, currentStreamRawContent);
 
     if (!streamScrollTimer) {
         streamScrollTimer = setTimeout(() => {

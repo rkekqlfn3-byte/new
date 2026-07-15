@@ -1,5 +1,11 @@
-import eel
+"""Eel configuration and chat-session persistence endpoints."""
+
 import os
+import re
+from pathlib import Path
+
+import eel
+
 from engine.core import dict_mgr
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import (
@@ -8,9 +14,11 @@ from engine.storage.json_store import (
     safe_read_json,
 )
 
+
 @eel.expose
 def get_ai_config():
     return dict_mgr.config_manager.get_ai_config()
+
 
 @eel.expose
 def save_ai_config(provider, api_key, ollama_model="llama3", routing_mode="auto"):
@@ -18,21 +26,25 @@ def save_ai_config(provider, api_key, ollama_model="llama3", routing_mode="auto"
         provider, api_key, ollama_model, routing_mode
     )
 
+
 @eel.expose
 def get_storage_recovery_events(clear=True):
     return get_recovery_events(clear=bool(clear))
 
+
 USER_MEMORY_PATH = user_data_path("user_memory.json")
+
 
 @eel.expose
 def save_user_memory(mem_user, mem_rules, mem_others):
     data = {
         "user_info": mem_user,
         "rules": mem_rules,
-        "others": mem_others
+        "others": mem_others,
     }
     atomic_write_json(USER_MEMORY_PATH, data)
     return True
+
 
 @eel.expose
 def load_user_memory():
@@ -42,81 +54,133 @@ def load_user_memory():
             return {
                 "user_info": data.get("user_info", data.get("userInfo", "")),
                 "rules": data.get("rules", ""),
-                "others": data.get("others", "")
+                "others": data.get("others", ""),
             }
         except (OSError, AttributeError):
             pass
     return {"user_info": "", "rules": "", "others": ""}
 
+
 CHAT_SESSION_DIR = user_data_path("sessions")
+SESSION_ID_RE = re.compile(r"^session_[A-Za-z0-9_-]{1,80}$")
+
+
+def resolve_session_path(session_id: str) -> Path:
+    """Return the only allowed JSON path for a chat-session identifier.
+
+    All session file operations go through this allowlist.  Invalid input is
+    rejected before any filesystem query, so traversal and drive-qualified
+    paths cannot disclose or modify files outside the session directory.
+    """
+    if not isinstance(session_id, str):
+        raise ValueError("Session ID must be a string.")
+    if not SESSION_ID_RE.fullmatch(session_id):
+        raise ValueError("Invalid session ID.")
+
+    base = Path(CHAT_SESSION_DIR).resolve()
+    path = (base / f"{session_id}.json").resolve()
+    if path.parent != base:
+        raise ValueError("Session path escapes the session directory.")
+    return path
+
+
+def _valid_session_path_or_none(session_id):
+    try:
+        return resolve_session_path(session_id)
+    except (TypeError, ValueError):
+        return None
+
 
 @eel.expose
 def get_chat_sessions():
     sessions = []
-    if not os.path.exists(CHAT_SESSION_DIR):
+    base = Path(CHAT_SESSION_DIR).resolve()
+    if not base.is_dir():
         return sessions
-    for f in os.listdir(CHAT_SESSION_DIR):
-        if f.endswith('.json'):
-            path = os.path.join(CHAT_SESSION_DIR, f)
-            try:
-                data = safe_read_json(path, {})
-                if not isinstance(data, dict) or not data.get("id"):
-                    continue
-                sessions.append({
-                    "id": data.get("id"),
-                    "title": data.get("title", "새로운 대화"),
-                    "timestamp": data.get("timestamp", 0)
-                })
-            except (OSError, AttributeError, TypeError):
-                pass
-    sessions.sort(key=lambda x: x["timestamp"], reverse=True)
+
+    for candidate in base.glob("*.json"):
+        session_id = candidate.stem
+        path = _valid_session_path_or_none(session_id)
+        if path is None or path != candidate.resolve():
+            continue
+        try:
+            data = safe_read_json(path, {})
+            # A file whose embedded ID disagrees with its name is malformed.
+            # Never use its content to derive a path or expose it as a valid
+            # session entry.
+            if not isinstance(data, dict) or data.get("id") != session_id:
+                continue
+            timestamp = data.get("timestamp", 0)
+            if not isinstance(timestamp, (int, float)):
+                timestamp = 0
+            sessions.append({
+                "id": session_id,
+                "title": str(data.get("title") or "New chat"),
+                "timestamp": timestamp,
+            })
+        except (OSError, AttributeError, TypeError, ValueError):
+            continue
+
+    sessions.sort(key=lambda item: item["timestamp"], reverse=True)
     return sessions
+
 
 @eel.expose
 def load_chat_session(session_id):
-    path = os.path.join(CHAT_SESSION_DIR, f"{session_id}.json")
-    if os.path.exists(path):
-        try:
-            data = safe_read_json(path, None)
-            return data if isinstance(data, dict) else None
-        except Exception as e:
-            print(f"Error loading session: {e}")
-    return None
+    path = _valid_session_path_or_none(session_id)
+    if path is None or not path.is_file():
+        return None
+    try:
+        data = safe_read_json(path, None)
+        if not isinstance(data, dict) or data.get("id") != session_id:
+            return None
+        return data
+    except (OSError, AttributeError, TypeError, ValueError):
+        return None
+
 
 @eel.expose
 def save_chat_session(session_id, title, messages, summary="", state=None, **kwargs):
-    os.makedirs(CHAT_SESSION_DIR, exist_ok=True)
-    path = os.path.join(CHAT_SESSION_DIR, f"{session_id}.json")
-    
-    # Load existing to preserve timestamp if it exists
+    path = _valid_session_path_or_none(session_id)
+    if path is None:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+
     existing_data = {}
-    if os.path.exists(path):
+    if path.is_file():
         loaded = safe_read_json(path, {})
-        if isinstance(loaded, dict):
+        if isinstance(loaded, dict) and loaded.get("id") == session_id:
             existing_data = loaded
-        
+
     import time
+
     data = {
         "id": session_id,
-        "title": title,
+        "title": str(title or ""),
         "timestamp": existing_data.get("timestamp", int(time.time() * 1000)),
-        "messages": messages,
-        "summary": summary,
-        "state": state or {}
+        "messages": messages if isinstance(messages, list) else [],
+        "summary": str(summary or ""),
+        "state": state if isinstance(state, dict) else {},
     }
-    atomic_write_json(path, data)
+    try:
+        atomic_write_json(path, data)
+    except OSError:
+        return False
     return True
+
 
 @eel.expose
 def delete_chat_session(session_id):
-    path = os.path.join(CHAT_SESSION_DIR, f"{session_id}.json")
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-            backup_path = f"{path}.bak"
-            if os.path.exists(backup_path):
-                os.remove(backup_path)
-            return True
-        except:
-            return False
-    return False
+    path = _valid_session_path_or_none(session_id)
+    if path is None or not path.is_file():
+        return False
+    backup_path = Path(f"{path}.bak")
+    if backup_path.parent != path.parent:
+        return False
+    try:
+        path.unlink()
+        if backup_path.is_file():
+            backup_path.unlink()
+        return True
+    except OSError:
+        return False

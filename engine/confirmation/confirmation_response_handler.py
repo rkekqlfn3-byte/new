@@ -106,6 +106,36 @@ class ConfirmationResponseHandler:
                     ),
                 )
 
+        execution_id = record.get("execution_id", "")
+        # A confirmation response belongs to the paused execution that
+        # created it.  Verify that this exact execution can regain the single
+        # runtime slot *before* consuming the one-shot confirmation record.
+        # ``begin`` also blocks while pending, so a successful check remains
+        # valid through the immediate resume below.
+        if (
+            execution_id
+            and record.get("status") == "pending"
+            and not self.execution_controller.can_resume(execution_id)
+        ):
+            self.execution_controller.pending_event(
+                execution_id,
+                "confirmation",
+                "resume_blocked",
+                {"confirmation_id": record["confirmation_id"]},
+            )
+            return ConfirmationResolution(
+                session_id=session_id,
+                option_id=option_id,
+                remember_preference=remember_preference,
+                result=failure_result(
+                    "The confirmation response could not safely resume its command.",
+                    action="confirmation",
+                    error_type="busy",
+                    status="state_conflict",
+                    retryable=True,
+                ),
+            )
+
         try:
             consumed = self.manager.consume(
                 session_id, record["confirmation_id"], option_id
@@ -124,8 +154,24 @@ class ConfirmationResponseHandler:
             )
 
         execution_id = consumed.get("execution_id", "")
-        if execution_id:
-            self.execution_controller.resume(execution_id)
+        if execution_id and not self.execution_controller.resume(execution_id):
+            # This branch should be unreachable because a pending execution
+            # reserves the only command slot.  Keep it explicit so an
+            # unexpected state transition is observable rather than allowing
+            # a confirmation to run against the wrong execution.
+            return ConfirmationResolution(
+                session_id=session_id,
+                option_id=option_id,
+                consumed=consumed,
+                remember_preference=remember_preference,
+                result=failure_result(
+                    "The confirmation response was not applied because execution state changed.",
+                    action="confirmation",
+                    error_type="busy",
+                    status="state_conflict",
+                    retryable=True,
+                ),
+            )
 
         selected = next(
             item for item in consumed["options"] if item["id"] == option_id

@@ -128,6 +128,43 @@ class MemoryAndSessionPersistenceTests(unittest.TestCase):
             self.assertTrue(config_api.delete_chat_session("session_test"))
             self.assertIsNone(config_api.load_chat_session("session_test"))
 
+    def test_session_path_rejects_traversal_and_preserves_other_files(self):
+        invalid_ids = [
+            "../dictionaries", "..\\dictionaries", "../../config",
+            "C:\\temp\\x", "/absolute/path", "session_../test",
+            "session_a/b", "session_a\\b", "", " ",
+            "session_" + "a" * 81, None, 42,
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             patch.object(config_api, "CHAT_SESSION_DIR", temp_dir):
+            sentinel = Path(temp_dir).parent / "dictionaries.json"
+            sentinel.write_text('{"protected":true}', encoding="utf-8")
+            for session_id in invalid_ids:
+                with self.assertRaises(ValueError):
+                    config_api.resolve_session_path(session_id)
+                self.assertFalse(config_api.save_chat_session(
+                    session_id, "bad", [], "", {}
+                ))
+                self.assertIsNone(config_api.load_chat_session(session_id))
+                self.assertFalse(config_api.delete_chat_session(session_id))
+            self.assertEqual('{"protected":true}', sentinel.read_text(encoding="utf-8"))
+
+    def test_session_path_accepts_allowlisted_id_and_rejects_name_id_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+             patch.object(config_api, "CHAT_SESSION_DIR", temp_dir):
+            session_id = "session_ABC_def-123"
+            self.assertTrue(config_api.save_chat_session(
+                session_id, "valid", [], "", {}
+            ))
+            self.assertTrue(config_api.resolve_session_path(session_id).is_file())
+            Path(temp_dir, "session_mismatch.json").write_text(
+                '{"id":"session_ABC_def-123","title":"wrong file"}',
+                encoding="utf-8",
+            )
+            sessions = config_api.get_chat_sessions()
+
+        self.assertEqual([session_id], [item["id"] for item in sessions])
+
 
 class DocumentReaderTests(unittest.TestCase):
     def test_text_file_resolution_and_extraction(self):

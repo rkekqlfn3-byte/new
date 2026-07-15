@@ -69,17 +69,19 @@ class ChatSanitizationTests(unittest.TestCase):
         self.assertIn("(https?:|mailto:)", self.chat)
         self.assertIn("noopener noreferrer", self.chat)
 
-    def test_stream_chunks_are_escaped_before_innerhtml(self):
+    def test_stream_chunks_are_inserted_as_text_nodes(self):
         self.assertIn(
-            "escapeHtml(currentStreamRawContent).replace(/\\n/g, '<br>')",
+            "window.appendTextLineBreaks(bubble, currentStreamRawContent);",
             self.chat,
         )
         self.assertNotIn(
             "innerHTML = currentStreamRawContent.replace", self.chat
         )
 
-    def test_image_attachment_requires_data_image_prefix(self):
-        self.assertIn("image_data.startsWith('data:image/')", self.chat)
+    def test_image_attachment_is_restricted_to_raster_data_urls(self):
+        self.assertIn("function isSafeImageData(imageData)", self.chat)
+        self.assertIn("png|jpeg|gif|webp", self.chat)
+        self.assertIn("image.addEventListener('click'", self.chat)
 
 
 if __name__ == "__main__":

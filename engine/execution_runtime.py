@@ -45,6 +45,19 @@ class ExecutionController:
         # from diagnostics after a restart.
         self.pending = {}
 
+    def can_begin_command(self):
+        """Whether the single command slot is free for a new command."""
+        with self._lock:
+            return self.current is None and not self.pending
+
+    def can_resume(self, execution_id):
+        """Check a paused execution without consuming its pending record."""
+        with self._lock:
+            return (
+                self.current is None
+                and str(execution_id or "") in self.pending
+            )
+
     def begin(self, label="command", metadata=None):
         with self._lock:
             # Reject before clearing the cancel event so a rejected second
@@ -53,6 +66,10 @@ class ExecutionController:
                 raise ExecutionBusyError(
                     "이미 실행 중인 작업이 있어 새 명령을 시작할 수 없습니다. "
                     "현재 작업이 끝난 뒤 다시 시도해 주세요."
+                )
+            if self.pending:
+                raise ExecutionBusyError(
+                    "A command is waiting for confirmation. Confirm or cancel it first."
                 )
             self._cancel_event.clear()
             execution_id = uuid.uuid4().hex
@@ -78,6 +95,20 @@ class ExecutionController:
                 "status": str(status),
                 "details": details if isinstance(details, dict) else {},
             })
+
+    def pending_event(self, execution_id, action, status="pending", details=None):
+        """Append diagnostics to a paused execution without changing state."""
+        with self._lock:
+            record = self.pending.get(str(execution_id or ""))
+            if not record:
+                return False
+            record["events"].append({
+                "time": datetime.now().isoformat(timespec="seconds"),
+                "action": str(action),
+                "status": str(status),
+                "details": details if isinstance(details, dict) else {},
+            })
+            return True
 
     def cancel(self):
         with self._lock:
@@ -155,9 +186,13 @@ class ExecutionController:
         with self._lock:
             if self.current is not None:
                 return False
-            record = self.pending.pop(str(execution_id or ""), None)
+            execution_id = str(execution_id or "")
+            record = self.pending.get(execution_id)
             if not record:
                 return False
+            # Remove only after the conflict and existence checks pass.  This
+            # keeps an unresumable request intact for safe error handling.
+            self.pending.pop(execution_id, None)
             record["status"] = "running"
             record["resumed_at"] = datetime.now().isoformat(timespec="seconds")
             record["events"].append({

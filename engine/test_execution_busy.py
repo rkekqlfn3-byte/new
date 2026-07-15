@@ -39,17 +39,20 @@ class ExecutionBusyGuardTests(unittest.TestCase):
             second_id = controller.begin("second")
             self.assertTrue(second_id)
 
-    def test_begin_allowed_while_previous_is_paused_for_confirmation(self):
-        # Protects the existing confirmation flow: a paused command frees
-        # ``current`` so unrelated work may run before the user responds.
+    def test_begin_is_rejected_while_previous_is_paused_for_confirmation(self):
+        # A paused confirmation still owns the only command slot.  Letting a
+        # second command enter here interleaves diagnostics and can make the
+        # first confirmation resume the wrong state.
         with tempfile.TemporaryDirectory(prefix="jarvis-busy-") as temp_dir:
             controller = self._controller(temp_dir)
             first_id = controller.begin("first")
             controller.pause_for_confirmation("confirm-a")
-            second_id = controller.begin("second")
-            self.assertNotEqual(first_id, second_id)
-            controller.finish(True, response="second done")
+            self.assertFalse(controller.can_begin_command())
+            with self.assertRaises(ExecutionBusyError):
+                controller.begin("second")
             self.assertTrue(controller.resume(first_id))
+            controller.finish(True, response="first done")
+            self.assertTrue(controller.can_begin_command())
 
     def test_rejected_begin_preserves_running_cancel_signal(self):
         # The core safety property: a rejected second command must not clear the
