@@ -26,7 +26,7 @@
                 </div>
                 
                 <div class="header-actions">
-                    <button id="btn_refresh" class="btn btn-refresh" title="자비스 완전 재부팅" onclick="document.body.innerHTML='<div class=\'loading-overlay\'><div class=\'spinner\'></div><div>🔄 재부팅 중입니다... 잠시만 기다려주세요!</div></div>'; eel.restart_jarvis()(); setTimeout(function(){ window.close(); }, 500);">🔄 재부팅</button>
+                    <button id="btn_refresh" class="btn btn-refresh" title="자비스 완전 재부팅">🔄 재부팅</button>
                     <button id="btn_ai_settings" class="btn btn-ai-settings" title="AI 두뇌 설정">⚙️ AI 설정</button>
                     <button id="btn_toggle_term" style="display: none;"></button>
                 </div>
@@ -36,8 +36,8 @@
         <div class="main-content">
             <aside class="sidebar glass-panel">
                 <div class="sidebar-tabs">
-                    <button class="sidebar-tab active" data-target="chat-history-tab" onclick="switchSidebarTab('chat-history-tab')">💬 대화 기록</button>
-                    <button class="sidebar-tab" data-target="user-memory-tab" onclick="switchSidebarTab('user-memory-tab')">🧠 영구 기억</button>
+                    <button class="sidebar-tab active" data-target="chat-history-tab">💬 대화 기록</button>
+                    <button class="sidebar-tab" data-target="user-memory-tab">🧠 영구 기억</button>
                 </div>
                 
                 <div id="chat-history-tab" class="sidebar-pane active">
@@ -49,9 +49,9 @@
                 
                 <div id="user-memory-tab" class="sidebar-pane" style="display: none; flex-direction: column; height: 100%;">
                     <div class="memory-subtabs">
-                        <button class="memory-subtab active" onclick="switchMemoryTab('mem-user', this)">👤 정보</button>
-                        <button class="memory-subtab" onclick="switchMemoryTab('mem-rules', this)">📝 규칙</button>
-                        <button class="memory-subtab" onclick="switchMemoryTab('mem-others', this)">💾 기타</button>
+                        <button class="memory-subtab active" data-memory-target="mem-user">👤 정보</button>
+                        <button class="memory-subtab" data-memory-target="mem-rules">📝 규칙</button>
+                        <button class="memory-subtab" data-memory-target="mem-others">💾 기타</button>
                     </div>
                     
                     <textarea id="mem-user" class="premium-input memory-box active" style="flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="사용자 이름, 직업 등 기본 정보를 적어주세요."></textarea>
@@ -61,9 +61,9 @@
                     <button id="btn-save-memory" class="premium-btn primary w-full">기억 저장하기</button>
                 </div>
             </aside>
-            <button class="panel-toggle toggle-left" onclick="const s = document.querySelector('.sidebar'); s.classList.toggle('collapsed'); this.innerText = s.classList.contains('collapsed') ? '›' : '‹';" title="사이드바 열기/닫기">‹</button>
+            <button id="btn-toggle-sidebar" class="panel-toggle toggle-left" title="사이드바 열기/닫기">‹</button>
             <div class="chat-section">
-                <button class="panel-toggle toggle-right" onclick="document.getElementById('btn_toggle_term').click();" title="터미널 열기/닫기">‹</button>
+                <button id="btn-toggle-terminal-pane" class="panel-toggle toggle-right" title="터미널 열기/닫기">‹</button>
                 <main class="chat-area" id="chat-area">
                     <div class="message system-date">오늘</div>
                     <div class="message incoming animate-slide-up">
@@ -129,9 +129,9 @@
             <h2 style="margin-bottom: 15px;">📖 통합 사전 관리</h2>
             
             <div class="tab-container flex-row" style="margin-bottom: 15px;">
-                <button class="tab-btn unified-tab-btn active" onclick="switchUnifiedTab('noun')">📱 명사 사전 (앱/별명)</button>
-                <button class="tab-btn unified-tab-btn" onclick="switchUnifiedTab('verb')">💬 동사 사전 (명령어)</button>
-                <button class="tab-btn unified-tab-btn" onclick="switchUnifiedTab('macro')">⚡ 행동 사전 (매크로)</button>
+                <button class="tab-btn unified-tab-btn active" data-unified-tab="noun">📱 명사 사전 (앱/별명)</button>
+                <button class="tab-btn unified-tab-btn" data-unified-tab="verb">💬 동사 사전 (명령어)</button>
+                <button class="tab-btn unified-tab-btn" data-unified-tab="macro">⚡ 행동 사전 (매크로)</button>
             </div>
             
             <div id="unified-content" style="flex: 1; overflow-y: auto; padding-right: 5px;">
@@ -317,5 +317,6 @@
     <script defer src="js/api.js"></script>
     <script defer src="js/sessions.js"></script>
     <script defer src="js/chat.js"></script>
+    <script defer src="js/app.js"></script>
 </body>
 </html>

@@ -27,9 +27,9 @@ window.switchUnifiedTab = function(tabName) {
     
     document.getElementById('tab-' + tabName).style.display = 'block';
     
-    // Find the button that calls this tab and make it active
+    // Find the button bound to this tab and make it active.
     document.querySelectorAll('.unified-tab-btn').forEach(btn => {
-        if (btn.getAttribute('onclick').includes(tabName)) {
+        if (btn.dataset.unifiedTab === tabName) {
             btn.classList.add('active');
         }
     });
@@ -337,8 +337,10 @@ if (btnAiSearch) {
 const modal = document.getElementById('image-modal');
 const span = document.querySelector('#image-modal .close-modal');
 
-if (span) span.onclick = function() { if (modal) modal.style.display = 'none'; };
-if (modal) modal.onclick = function(e) { if (e.target === modal) modal.style.display = 'none'; };
+if (span) span.addEventListener('click', () => { if (modal) modal.style.display = 'none'; });
+if (modal) modal.addEventListener('click', (event) => {
+    if (event.target === modal) modal.style.display = 'none';
+});
 
 // ===================================================
 // CUSTOM MACRO MANAGEMENT
