@@ -25,31 +25,37 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/6] Auditing release inputs...
+echo [1/7] Auditing release inputs...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.release_security_audit ^
     --project-root . ^
     --json-report verification\phase3_prebuild_audit_report.json
 if errorlevel 1 exit /b 1
 
-echo [2/6] Running regression tests...
+echo [2/7] Running regression tests...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint tests.test_runner all
 if errorlevel 1 exit /b 1
 
-echo [3/6] Stamping Git commit and Windows version metadata...
+echo [3/7] Stamping Git commit and Windows version metadata...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.generate_build_identity --project-root .
 if errorlevel 1 exit /b 1
 
-echo [4/6] Building dist\Jarvis...
+echo [4/7] Building dist\Jarvis...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint PyInstaller --noconfirm --clean Jarvis.spec
 if errorlevel 1 exit /b 1
 
-echo [5/6] Creating dist\Jarvis.zip...
+echo [5/7] Applying bounded distribution cleanup...
+"%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.optimize_distribution ^
+    --dist dist\Jarvis ^
+    --json-report verification\p2_distribution_report.json
+if errorlevel 1 exit /b 1
+
+echo [6/7] Creating dist\Jarvis.zip...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.release_archive ^
     --source dist\Jarvis ^
     --output dist\Jarvis.zip
 if errorlevel 1 exit /b 1
 
-echo [6/6] Auditing EXE and archive...
+echo [7/7] Auditing EXE and archive...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.release_security_audit ^
     --project-root . ^
     --dist dist\Jarvis ^

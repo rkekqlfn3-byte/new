@@ -14,9 +14,14 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['cv2', 'numpy', 'PIL', 'tkinter', 'textual', 'pyautogui'],
+    excludes=[
+        'cv2', 'numpy', 'PIL', 'tkinter', 'textual', 'pyautogui',
+        # Pythonwin's MFC UI and tracing extensions are not imported by Jarvis.
+        # Keep pythoncom/win32api/win32gui for Office COM and Windows control.
+        'win32ui', 'win32trace',
+    ],
     noarchive=False,
-    optimize=0,
+    optimize=1,
 )
 pyz = PYZ(a.pure)
 
@@ -30,7 +35,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX is not part of the locked build toolchain. Keep this explicit so a
+    # machine-local UPX installation cannot silently change release artifacts.
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -43,7 +50,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='Jarvis',
 )
