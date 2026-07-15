@@ -12,9 +12,9 @@ from functools import lru_cache
 from pathlib import Path
 
 
-# The existing V1.1 EXE predates the current P0 source changes. Keep a distinct
-# preview version until the source is committed, rebuilt, and fully validated.
-APP_VERSION = "1.1.0-preview.2"
+# Release candidate for the R0-R4 remediation work. It becomes the runtime
+# current build only after the complete R6 validation gate passes.
+APP_VERSION = "1.1.0-rc.1"
 
 # Persisted user-data schema (see default_data/dictionaries.json schema_version).
 DATA_SCHEMA_VERSION = 4
