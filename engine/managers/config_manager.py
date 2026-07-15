@@ -18,12 +18,11 @@ class ConfigManager:
         with self.lock:
             return {
                 "provider": self.ai_config.get("provider", "openai"),
-                "ollama_model": self.ai_config.get("ollama_model", "llama3"),
                 "routing_mode": self.ai_config.get("routing_mode", "auto"),
                 "has_api_key": bool(str(self.ai_config.get("api_key", "")).strip()),
             }
 
-    def save_ai_config(self, provider, api_key, ollama_model="llama3", routing_mode="auto"):
+    def save_ai_config(self, provider, api_key, routing_mode="auto"):
         with self.lock:
             previous = dict(self.ai_config)
             provider = str(provider or "openai").strip().casefold()
@@ -35,7 +34,6 @@ class ConfigManager:
             new_api_key = str(api_key or "").strip()
             if new_api_key:
                 self.ai_config["api_key"] = new_api_key
-            self.ai_config["ollama_model"] = str(ollama_model or "llama3").strip()[:200] or "llama3"
             self.ai_config["routing_mode"] = (
                 routing_mode if routing_mode in self.ROUTING_MODES else "auto"
             )

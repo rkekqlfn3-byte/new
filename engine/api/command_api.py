@@ -359,7 +359,8 @@ def summarize_memory(current_summary, old_messages):
     config = dict_mgr.get_ai_config()
     provider = config.get("provider", "openai")
     api_key = config.get("api_key", "")
-    ollama_model = config.get("ollama_model", "llama3")
+    if not api_key:
+        return {"success": False, "summary": current_summary}
     
     prompt = (
         "You are an AI memory summarizer. Your task is to seamlessly compress the provided chat history into a concise summary.\n"
@@ -378,8 +379,7 @@ def summarize_memory(current_summary, old_messages):
                 return parser.llm_engine._call_openai(api_key, p, "Summarize Memory", mode="question", temperature=gen_temp)
             elif provider == "gemini" and api_key:
                 return parser.llm_engine._call_gemini(api_key, p, "Summarize Memory", mode="question", temperature=gen_temp)
-            else:
-                return parser.llm_engine._call_ollama(ollama_model, p, "Summarize Memory", mode="question", temperature=gen_temp)
+            raise ValueError("지원하지 않는 AI 제공자입니다.")
 
         res = run_llm(prompt)
         summary_text = res.get("response", current_summary).strip()

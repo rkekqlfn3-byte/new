@@ -28,8 +28,6 @@ if (btnAiSettings) {
         const config = await eel.get_ai_config()();
         if (aiProvider) aiProvider.value = config.provider || "openai";
         renderAiApiKeyState(config);
-        const ollamaEl = document.getElementById('ai-ollama-model');
-        if (ollamaEl) ollamaEl.value = config.ollama_model || "llama3";
         const routingEl = document.getElementById('ai-routing-mode');
         if (routingEl) routingEl.value = config.routing_mode || "auto";
         if (aiSettingsModal) aiSettingsModal.style.display = 'block';
@@ -41,10 +39,9 @@ if (btnSaveAiSettings) {
     btnSaveAiSettings.addEventListener('click', async () => {
         const provider = aiProvider ? aiProvider.value : "openai";
         const apiKey = aiApiKey ? aiApiKey.value.trim() : "";
-        const ollamaModel = document.getElementById('ai-ollama-model') ? document.getElementById('ai-ollama-model').value.trim() : "llama3";
         const routingMode = document.getElementById('ai-routing-mode') ? document.getElementById('ai-routing-mode').value : "auto";
 
-        const success = await eel.save_ai_config(provider, apiKey, ollamaModel, routingMode)();
+        const success = await eel.save_ai_config(provider, apiKey, routingMode)();
         if (success) {
             alert("AI 설정이 저장되었습니다!");
             window._cachedAiConfig = await eel.get_ai_config()();

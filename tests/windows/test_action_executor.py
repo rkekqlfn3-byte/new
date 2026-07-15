@@ -328,6 +328,8 @@ class ActionPlanLearningTests(unittest.TestCase):
     def test_learned_plan_reuses_new_slots_without_ai_or_python(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-plan-test-") as temp_dir:
             parser = self._parser(os.path.join(temp_dir, "dictionaries.json"))
+            parser.dict_mgr.add_custom_noun("계산기", "calc")
+            parser.dict_mgr.add_custom_noun("메모장", "notepad")
             parser.llm_engine.process_command = mock.Mock(return_value=_action_plan_result())
             with mock.patch.object(
                 parser.action_executor, "execute_plan", return_value={

@@ -44,7 +44,6 @@ class TLSProviderTests(unittest.TestCase):
         self.engine = LLMEngine(DummyDictionary({
             "provider": "openai",
             "api_key": "key",
-            "ollama_model": "llama3",
             "routing_mode": "auto",
         }))
         self.certificate_error = urllib.error.URLError(
@@ -66,7 +65,7 @@ class TLSProviderTests(unittest.TestCase):
             self.assertIn("인증서 검증", result["response"])
             self.assertIn("검증을 끄지 않았습니다", result["response"])
 
-    def test_certificate_failure_does_not_hide_behind_ollama_fallback(self):
+    def test_certificate_failure_is_returned_without_fallback(self):
         engine = LLMEngine(RouterDictionary(
             routing_mode="auto", api_key="key", provider="openai"
         ))
@@ -77,14 +76,11 @@ class TLSProviderTests(unittest.TestCase):
             "provider": "openai",
             "tls_certificate_error": True,
         }
-        with mock.patch.object(
-            engine, "_call_openai", return_value=failure
-        ), mock.patch.object(engine, "_call_ollama") as ollama:
+        with mock.patch.object(engine, "_call_openai", return_value=failure):
             result = engine.process_command(
                 "새 명령", mode="command", use_api=False
             )
         self.assertTrue(result["tls_certificate_error"])
-        ollama.assert_not_called()
 
 
 if __name__ == "__main__":

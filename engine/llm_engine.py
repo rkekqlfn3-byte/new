@@ -1,10 +1,8 @@
 import logging
 import os
-import urllib.request
 
 from engine.command_context import CommandContextBuilder
 from engine.llm.gemini_provider import GeminiProvider
-from engine.llm.ollama_provider import OllamaProvider
 from engine.llm.openai_provider import OpenAIProvider
 from engine.llm.prompts import (
     COMMAND_PROMPT_TEMPLATE,
@@ -37,7 +35,6 @@ class LLMEngine:
         self.last_command_context_stats = {}
         self.openai_provider = OpenAIProvider(self.timeout, self._decode_command_content)
         self.gemini_provider = GeminiProvider(self.timeout, self._decode_command_content)
-        self.ollama_provider = OllamaProvider(self.timeout, self._decode_command_content)
         self.service = LLMService(self)
 
     @staticmethod
@@ -122,33 +119,10 @@ class LLMEngine:
             opener=urlopen_verified,
         )
 
-    def _call_ollama(
-        self,
-        model_name,
-        prompt,
-        user_input,
-        image_data=None,
-        mode="command",
-        temperature=0.2,
-        stream_callback=None,
-    ):
-        provider = self._configure_provider(self.ollama_provider)
-        return provider.call(
-            model_name,
-            prompt,
-            user_input,
-            image_data=image_data,
-            mode=mode,
-            temperature=temperature,
-            stream_callback=stream_callback,
-            opener=urllib.request.urlopen,
-        )
-
     def _invoke_provider(
         self,
         provider,
         api_key,
-        ollama_model,
         prompt,
         user_input,
         image_data,
@@ -158,7 +132,6 @@ class LLMEngine:
         return self.service.invoke_provider(
             provider,
             api_key,
-            ollama_model,
             prompt,
             user_input,
             image_data,

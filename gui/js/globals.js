@@ -1,18 +1,4 @@
 
-const apiToggle = document.getElementById('api-toggle');
-const apiToggleLabel = document.getElementById('api-toggle-label');
-if (apiToggle && apiToggleLabel) {
-    apiToggle.addEventListener('change', (e) => {
-        if (e.target.checked) {
-            apiToggleLabel.textContent = "대화: API";
-            apiToggleLabel.style.color = "#6c5ce7";
-        } else {
-            apiToggleLabel.textContent = "대화: Ollama";
-            apiToggleLabel.style.color = "#a1a1aa";
-        }
-    });
-}
-
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
 const cancelExecutionBtn = document.getElementById('cancel-execution-btn');

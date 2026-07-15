@@ -73,8 +73,7 @@ async function sendMessage(isRetry = false) {
     const modeRadio = document.querySelector('input[name="chat-mode"]:checked');
     const mode = modeRadio ? modeRadio.value : "command";
 
-    const apiToggle = document.getElementById('api-toggle');
-    const useApi = apiToggle ? apiToggle.checked : false;
+    const useApi = true;
 
     const loadingId = 'stream-' + Date.now();
     currentStreamId = loadingId;

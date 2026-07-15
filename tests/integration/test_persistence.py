@@ -24,7 +24,7 @@ class DictionaryPersistenceTests(unittest.TestCase):
                 "TEST_MACRO", "테스트", ["테스트 실행"], "hotkey", "ctrl+shift+9"
             ))
             self.assertTrue(manager.config_manager.save_ai_config(
-                "gemini", "test-key", "test-model"
+                "gemini", "test-key", "ai_first"
             ))
 
             reloaded = DictionaryManager(dictionary_path=path)
@@ -32,8 +32,21 @@ class DictionaryPersistenceTests(unittest.TestCase):
             self.assertEqual("test.exe", reloaded.noun_dict["별명앱"])
             self.assertEqual("ctrl+shift+9", reloaded.macro_dict["TEST_MACRO"]["data"])
             self.assertEqual("gemini", reloaded.get_ai_config()["provider"])
-            self.assertEqual("test-model", reloaded.get_ai_config()["ollama_model"])
-            self.assertEqual("auto", reloaded.get_ai_config()["routing_mode"])
+            self.assertEqual(
+                {"provider", "api_key", "routing_mode"},
+                set(reloaded.get_ai_config()),
+            )
+            self.assertEqual("ai_first", reloaded.get_ai_config()["routing_mode"])
+
+    def test_new_dictionary_has_no_apps_before_manual_scan(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "dictionaries.json")
+            manager = DictionaryManager(dictionary_path=path)
+
+            self.assertEqual({}, manager.noun_dict)
+            self.assertEqual([], manager.favorites)
+            self.assertEqual(set(), manager.user_nouns)
+            self.assertFalse(manager.has_scanned)
 
     def test_noun_revision_changes_after_mutation(self):
         with tempfile.TemporaryDirectory() as temp_dir:

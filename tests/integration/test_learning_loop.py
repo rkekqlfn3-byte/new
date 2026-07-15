@@ -66,6 +66,7 @@ class LearningLoopTests(unittest.TestCase):
             parser = self._parser_with_temp_dictionary(
                 os.path.join(temp_dir, "dictionaries.json")
             )
+            parser.dict_mgr.add_custom_noun("계산기", "calc")
             parser.llm_engine.process_command = mock.Mock(return_value=_dynamic_action())
             command = "창을 특별하게 정리해줘"
 

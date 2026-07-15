@@ -58,25 +58,6 @@ body {
     flex-wrap: wrap;
 }
 
-.api-toggle-container {
-    display: flex;
-    align-items: center;
-    background: #f8f9fa;
-    padding: 6px 14px;
-    border-radius: var(--radius-lg);
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
-    border: 1px solid #eee;
-    flex-shrink: 0;
-}
-
-.api-label {
-    font-size: 0.85em;
-    color: var(--text-muted);
-    margin-left: 8px;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
 .header-select {
     font-family: inherit;
     font-size: 13px;

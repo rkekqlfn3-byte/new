@@ -18,7 +18,6 @@ class LLMService:
         self,
         provider,
         api_key,
-        ollama_model,
         prompt,
         user_input,
         image_data,
@@ -26,11 +25,6 @@ class LLMService:
         stream_callback,
     ):
         engine = self.owner
-        if provider == "ollama":
-            return engine._call_ollama(
-                ollama_model, prompt, user_input, image_data, mode,
-                stream_callback=stream_callback,
-            )
         if provider == "openai":
             return engine._call_openai(
                 api_key, prompt, user_input, image_data, mode,
@@ -61,7 +55,6 @@ class LLMService:
         config = engine.dict_mgr.get_ai_config()
         provider = config.get("provider", "openai")
         api_key = config.get("api_key", "").strip()
-        ollama_model = config.get("ollama_model", "llama3")
         routing_mode = config.get("routing_mode", "auto")
 
         system_prompt = "당신은 사용자의 컴퓨터 제어를 돕는 유능한 데스크탑 AI 어시스턴트입니다."
@@ -77,13 +70,14 @@ class LLMService:
                 f"{memory_content}"
             )
 
-        if mode == "command" and routing_mode in {"auto", "ai_first"}:
-            actual_provider = provider if api_key else "ollama"
-        else:
-            actual_provider = provider if use_api else "ollama"
-
-        if actual_provider != "ollama" and not api_key:
-            return {"response": "API 키가 없습니다. [⚙️ AI 설정]에서 먼저 입력해주세요.", "action": "none", "target": None, "no_api_key": True}
+        actual_provider = provider
+        if not api_key:
+            return {
+                "response": "API 키가 없습니다. [⚙️ AI 설정]에서 먼저 입력해주세요.",
+                "action": "none",
+                "target": provider,
+                "no_api_key": True,
+            }
 
         command_context = None
         if mode == "conversation":
@@ -115,43 +109,10 @@ class LLMService:
 
         provider_started = time.perf_counter()
         result = engine._invoke_provider(
-            actual_provider, api_key, ollama_model, prompt, user_input,
+            actual_provider, api_key, prompt, user_input,
             image_data, mode, stream_callback,
         )
-        if (
-            mode == "command"
-            and routing_mode in {"auto", "ai_first"}
-            and actual_provider != "ollama"
-            and result.get("provider_error")
-            and not result.get("tls_certificate_error")
-        ):
-            fallback = engine._invoke_provider(
-                "ollama", api_key, ollama_model, prompt, user_input,
-                image_data, mode, stream_callback,
-            )
-            if not fallback.get("provider_error"):
-                fallback["routing"] = "ollama_fallback"
-                fallback["fallback_from"] = actual_provider
-                engine.last_command_context_stats["provider_ms"] = round(
-                    (time.perf_counter() - provider_started) * 1000, 2
-                )
-                return engine._attach_command_candidates(fallback, command_context)
-            result["response"] = (
-                f"{result.get('response', '클라우드 AI 호출 실패')}\n\n"
-                f"Ollama 대체도 실패했습니다: {fallback.get('response', '')}"
-            )
-            result["fallback_error"] = True
-            engine.last_command_context_stats["provider_ms"] = round(
-                (time.perf_counter() - provider_started) * 1000, 2
-            )
-            return engine._attach_command_candidates(result, command_context)
-
-        result.setdefault(
-            "routing",
-            "ollama_no_api_key"
-            if mode == "command" and actual_provider == "ollama" and not api_key
-            else actual_provider,
-        )
+        result.setdefault("routing", actual_provider)
         if mode == "command":
             engine.last_command_context_stats["provider_ms"] = round(
                 (time.perf_counter() - provider_started) * 1000, 2

@@ -43,20 +43,8 @@ textarea:focus-visible,
     gap: 10px;
 }
 
-.api-toggle-container,
 .header-actions .btn {
     min-height: 44px;
-}
-
-.api-toggle-container {
-    padding: 7px 14px;
-    border-color: #dce2ec;
-    background: #f7f8fc;
-}
-
-.api-label {
-    font-size: 0.9rem;
-    color: #475569;
 }
 
 .header-actions .btn {

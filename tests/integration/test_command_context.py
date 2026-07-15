@@ -16,7 +16,7 @@ class ContextDictionary:
         self.learned_macros = {}
         self.noun_revision = 1
         self.config = {
-            "provider": "openai", "api_key": "test", "ollama_model": "llama3",
+            "provider": "openai", "api_key": "test",
             "routing_mode": "auto",
         }
 

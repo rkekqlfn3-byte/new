@@ -24,15 +24,6 @@
             </div>
             
             <div class="header-right">
-                <div class="api-toggle-container">
-                    <label class="switch tooltip">
-                        <input type="checkbox" id="api-toggle" checked>
-                        <span class="slider round"></span>
-                        <span class="tooltiptext">클라우드 API ↔ 로컬 Ollama</span>
-                    </label>
-                    <span id="api-toggle-label" class="api-label" style="color: #6c5ce7;">대화: API</span>
-                </div>
-                
                 <div class="header-actions">
                     <button id="btn_refresh" class="btn btn-refresh" title="자비스 완전 재부팅">🔄 재부팅</button>
                     <button id="btn_ai_settings" class="btn btn-ai-settings" title="AI 두뇌 설정">⚙️ AI 설정</button>
@@ -291,10 +282,10 @@
                         <label>명령 라우팅 방식</label>
                         <select id="ai-routing-mode" class="premium-input">
                             <option value="auto">자동 학습 — 로컬 우선, 실패 시 AI</option>
-                            <option value="local_only">로컬 전용 — API/Ollama 사용 안 함</option>
+                            <option value="local_only">로컬 전용 — API 사용 안 함</option>
                             <option value="ai_first">AI 우선 — 모든 명령을 AI가 분석</option>
                         </select>
-                        <p class="desc">상단 토글은 질문·대화에서만 API와 Ollama를 선택합니다.</p>
+                        <p class="desc">AI가 필요할 때 아래에서 선택한 클라우드 제공자를 사용합니다.</p>
                     </div>
                     <div class="form-group">
                         <label>제공자 (Provider)</label>
@@ -307,10 +298,6 @@
                         <label>API Key</label>
                         <input type="password" id="ai-api-key" class="premium-input" autocomplete="new-password" placeholder="API 키 입력">
                         <p id="ai-api-key-status" class="desc">저장된 키는 이 화면에 다시 표시하지 않습니다.</p>
-                    </div>
-                    <div class="form-group">
-                        <label>Ollama 모델명 (대화 모드용)</label>
-                        <input type="text" id="ai-ollama-model" class="premium-input" placeholder="예: llama3" value="llama3">
                     </div>
                 </div>
             </div>

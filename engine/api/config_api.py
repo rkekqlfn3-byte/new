@@ -26,10 +26,10 @@ def get_ai_config():
 
 
 @eel.expose
-def save_ai_config(provider, api_key, ollama_model="llama3", routing_mode="auto"):
+def save_ai_config(provider, api_key, routing_mode="auto"):
     try:
         return get_dict_manager().config_manager.save_ai_config(
-            provider, api_key, ollama_model, routing_mode
+            provider, api_key, routing_mode
         )
     except (OSError, TypeError, ValueError):
         logger.exception(

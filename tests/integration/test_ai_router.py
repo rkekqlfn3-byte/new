@@ -17,7 +17,6 @@ class RouterDictionary:
         self.config = {
             "provider": provider,
             "api_key": api_key,
-            "ollama_model": "llama3",
             "routing_mode": routing_mode,
         }
         self.noun_dict = {"메모장": "notepad"}
@@ -33,62 +32,43 @@ class RouterDictionary:
 
 
 class LLMRouterTests(unittest.TestCase):
-    def test_auto_command_uses_cloud_even_when_conversation_toggle_is_off(self):
+    def test_auto_command_uses_configured_cloud_provider(self):
         engine = LLMEngine(RouterDictionary(routing_mode="auto", api_key="key"))
         with mock.patch.object(
             engine, "_call_gemini", return_value={"response": "cloud", "actions": []}
-        ) as cloud, mock.patch.object(engine, "_call_ollama") as ollama:
+        ) as cloud:
             result = engine.process_command("새 명령", mode="command", use_api=False)
         self.assertEqual("cloud", result["response"])
         cloud.assert_called_once()
-        ollama.assert_not_called()
 
-    def test_auto_command_without_key_uses_ollama(self):
+    def test_auto_command_without_key_returns_explicit_error(self):
         engine = LLMEngine(RouterDictionary(routing_mode="auto", api_key=""))
-        with mock.patch.object(
-            engine, "_call_ollama", return_value={"response": "local ai", "actions": []}
-        ) as ollama, mock.patch.object(engine, "_call_gemini") as cloud:
+        with mock.patch.object(engine, "_call_gemini") as cloud:
             result = engine.process_command("새 명령", mode="command", use_api=True)
-        self.assertEqual("local ai", result["response"])
-        self.assertEqual("ollama_no_api_key", result["routing"])
-        ollama.assert_called_once()
+        self.assertTrue(result["no_api_key"])
+        self.assertIn("API 키", result["response"])
         cloud.assert_not_called()
 
-    def test_cloud_failure_falls_back_to_ollama_once(self):
+    def test_cloud_failure_is_returned_without_local_provider_fallback(self):
         engine = LLMEngine(RouterDictionary(routing_mode="auto", api_key="key"))
         with mock.patch.object(
             engine, "_call_gemini",
             return_value={"response": "cloud failed", "provider_error": True},
-        ), mock.patch.object(
-            engine, "_call_ollama", return_value={"response": "fallback", "actions": []}
-        ) as ollama:
+        ) as cloud:
             result = engine.process_command("새 명령", mode="command", use_api=False)
-        self.assertEqual("fallback", result["response"])
-        self.assertEqual("ollama_fallback", result["routing"])
-        self.assertEqual("gemini", result["fallback_from"])
-        ollama.assert_called_once()
+        self.assertEqual("cloud failed", result["response"])
+        self.assertTrue(result["provider_error"])
+        self.assertEqual("gemini", result["routing"])
+        cloud.assert_called_once()
 
-    def test_both_provider_failures_return_combined_explanation(self):
+    def test_conversation_mode_always_uses_configured_cloud_provider(self):
         engine = LLMEngine(RouterDictionary(routing_mode="auto", api_key="key"))
         with mock.patch.object(
             engine, "_call_gemini",
-            return_value={"response": "cloud failed", "provider_error": True},
-        ), mock.patch.object(
-            engine, "_call_ollama",
-            return_value={"response": "ollama failed", "provider_error": True},
-        ):
-            result = engine.process_command("새 명령", mode="command", use_api=False)
-        self.assertTrue(result["fallback_error"])
-        self.assertIn("Ollama 대체도 실패", result["response"])
-
-    def test_conversation_mode_still_respects_api_toggle(self):
-        engine = LLMEngine(RouterDictionary(routing_mode="auto", api_key="key"))
-        with mock.patch.object(
-            engine, "_call_ollama", return_value={"response": "conversation", "action": "none"}
-        ) as ollama, mock.patch.object(engine, "_call_gemini") as cloud:
+            return_value={"response": "conversation", "action": "none"},
+        ) as cloud:
             engine.process_command("대화", mode="conversation", use_api=False)
-        ollama.assert_called_once()
-        cloud.assert_not_called()
+        cloud.assert_called_once()
 
 
 class ParserRouterTests(unittest.TestCase):
@@ -123,6 +103,7 @@ class ParserRouterTests(unittest.TestCase):
     def test_auto_mode_keeps_known_command_local(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-router-test-") as temp_dir:
             parser = self._parser(os.path.join(temp_dir, "dictionary.json"), "auto")
+            parser.dict_mgr.noun_dict["메모장"] = "notepad"
             parser.llm_engine.process_command = mock.Mock()
             with mock.patch("engine.parser.os.startfile") as startfile:
                 parser.parse_and_execute("메모장 열어")

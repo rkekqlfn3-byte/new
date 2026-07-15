@@ -9,7 +9,6 @@
   "ai_config": {
     "provider": "openai",
     "api_key": "",
-    "ollama_model": "llama3",
     "routing_mode": "auto"
   },
   "learned_macros": {}

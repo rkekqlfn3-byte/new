@@ -61,6 +61,8 @@ class TemplateMatcherTests(unittest.TestCase):
     def test_variant_slots_reuse_learned_code_without_ai(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-template-test-") as temp_dir:
             parser = self._parser(os.path.join(temp_dir, "dictionaries.json"))
+            parser.dict_mgr.add_custom_noun("계산기", "calc")
+            parser.dict_mgr.add_custom_noun("메모장", "notepad")
             parser.llm_engine.process_command = mock.Mock(
                 return_value=_templated_dynamic_result()
             )

@@ -109,8 +109,7 @@ class DictionaryManager:
         self.user_nouns = set()
         self.has_scanned = False
         self.ai_config = {
-            "provider": "openai", "api_key": "", "ollama_model": "llama3",
-            "routing_mode": "auto",
+            "provider": "openai", "api_key": "", "routing_mode": "auto",
         }
         self.learned_macros = {}
         self.load()
@@ -228,11 +227,22 @@ class DictionaryManager:
             self.user_nouns = set(data.get("user_nouns", []))
             self.has_scanned = data.get("has_scanned", False)
             loaded_ai_config = data.get("ai_config", {})
+            provider = str(loaded_ai_config.get("provider", "openai")).casefold()
+            routing_mode = str(
+                loaded_ai_config.get("routing_mode", "auto")
+            ).casefold()
+            if provider not in ConfigManager.PROVIDERS:
+                provider = "openai"
+                storage_changed = True
+            if routing_mode not in ConfigManager.ROUTING_MODES:
+                routing_mode = "auto"
+                storage_changed = True
+            if set(loaded_ai_config) - {"provider", "api_key", "routing_mode"}:
+                storage_changed = True
             self.ai_config = {
-                "provider": loaded_ai_config.get("provider", "openai"),
+                "provider": provider,
                 "api_key": loaded_ai_config.get("api_key", ""),
-                "ollama_model": loaded_ai_config.get("ollama_model", "llama3"),
-                "routing_mode": loaded_ai_config.get("routing_mode", "auto"),
+                "routing_mode": routing_mode,
             }
             self.learned_macros = data.get("learned_macros", {})
 
@@ -243,34 +253,6 @@ class DictionaryManager:
             if hasattr(self, "config_manager"):
                 self.config_manager.ai_config = self.ai_config
                 
-        # Inject default websites if not present
-        default_sites = {
-            "유튜브": "https://www.youtube.com",
-            "네이버": "https://www.naver.com",
-            "구글": "https://www.google.com",
-            "카카오": "https://www.kakaocorp.com",
-            "넷플릭스": "https://www.netflix.com",
-            "나무위키": "https://namu.wiki",
-            "쿠팡": "https://www.coupang.com"
-        }
-        for site, url in default_sites.items():
-            if site not in self.noun_dict:
-                self.noun_dict[site] = url
-                
-        # Inject default Windows apps
-        default_windows_apps = {
-            "메모장": "notepad",
-            "계산기": "calc",
-            "그림판": "mspaint",
-            "작업관리자": "taskmgr",
-            "명령프롬프트": "cmd",
-            "제어판": "control",
-            "탐색기": "explorer"
-        }
-        for app, cmd in default_windows_apps.items():
-            if app not in self.noun_dict:
-                self.noun_dict[app] = cmd
-
         # Inject default search engines if not present
         default_search = {
             "구글": "https://www.google.com/search?q=",
@@ -820,9 +802,5 @@ class DictionaryManager:
         return self.config_manager.get_ai_config()
 
     @_manager_locked
-    def save_ai_config(
-        self, provider, api_key, ollama_model="llama3", routing_mode="auto"
-    ):
-        return self.config_manager.save_ai_config(
-            provider, api_key, ollama_model, routing_mode
-        )
+    def save_ai_config(self, provider, api_key, routing_mode="auto"):
+        return self.config_manager.save_ai_config(provider, api_key, routing_mode)
