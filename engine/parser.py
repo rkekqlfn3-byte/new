@@ -2,11 +2,7 @@ import os
 import copy
 import json
 import subprocess  # Kept as a compatibility patch point for older integrations.
-import urllib.parse
-import ctypes
 import re
-import time
-from datetime import datetime
 from engine.managers.dict_manager import DictionaryManager
 from engine.llm_engine import LLMEngine
 from engine.template_matcher import LearnedTemplateMatcher
@@ -26,37 +22,30 @@ from engine.managers.pending_confirmation_manager import (
     PendingConfirmationManager,
     normalize_session_id,
 )
-from engine.confirmation import ConfirmationDispatcher, ConfirmationResponseHandler
+from engine.confirmation import (
+    ConfirmationDispatcher,
+    ConfirmationFactory,
+    ConfirmationResponseHandler,
+)
 from engine.ai_actions import AIActionHandler
 from engine.skills import (
     CandidateRecordingService,
-    DIRECTIVE_PREVIEW,
-    SkillConfirmationRequired,
-    SkillContextChanged,
     SkillExecutor,
     SkillLearningService,
-    SkillPreflightBlocked,
+    LearnedReplayService,
     SkillRunPolicyService,
-    skill_policy_fingerprint,
 )
 from engine.local_commands import LocalCommandAnalyzer
 from engine.pipeline import CommandPipeline
 from engine.managers.native_action_candidate_manager import (
     NativeActionCandidateManager,
 )
-from engine.security import BLOCKED, CONFIRMATION_REQUIRED, DynamicCodePreflight
+from engine.security import DynamicCodePreflight
 from engine.app_actions import (
-    AppActionAmbiguousTarget,
     AppCommandRouter,
-    AppActionError,
     AppActionRegistry,
-    PreparedAction,
 )
 from engine.decision import DecisionEngine, PreferenceManager
-import psutil
-import win32gui
-import win32process
-import win32con
 from engine.builtins import BuiltinMacros
 from engine.parsing.office_command_parser import (
     EXCEL_FORMAT_METHODS,
@@ -88,6 +77,7 @@ class CommandParser:
         self.pending_confirmation_manager = PendingConfirmationManager()
         self.confirmation_response_handler = ConfirmationResponseHandler(self)
         self.confirmation_dispatcher = ConfirmationDispatcher(self)
+        self.confirmation_factory = ConfirmationFactory(self)
         self.ai_action_handler = AIActionHandler(self)
         self.app_action_registry = AppActionRegistry()
         self.decision_engine = DecisionEngine()
@@ -101,6 +91,7 @@ class CommandParser:
         )
         self.candidate_recording_service = CandidateRecordingService(self)
         self.skill_learning_service = SkillLearningService(self)
+        self.learned_replay_service = LearnedReplayService(self)
         self.action_executor = ActionExecutor(
             self.dict_mgr.noun_dict,
             controller=self.execution_controller,
@@ -272,52 +263,9 @@ class CommandParser:
     def _queue_command_macro_confirmation(
         self, macro_name, macro_data, original_command, session_id
     ):
-        command = str(macro_data.get("data", "")).strip()
-        try:
-            self.builtins.validate_command(command)
-        except (TypeError, ValueError) as error:
-            return failure_result(
-                str(error),
-                action="command_line",
-                target=command or macro_name,
-                error_type="validation_error",
-                status="blocked",
-            )
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id(),
-            original_command=original_command,
-            reason="external_program",
-            message=(
-                "등록한 프로그램 실행 매크로를 실행할까요?\n"
-                f"실행 내용: {command}"
-            ),
-            action="command_line",
-            target=command,
-            options=[
-                {
-                    "id": "run",
-                    "label": "실행",
-                    "description": "표시된 프로그램과 인수를 한 번 실행합니다.",
-                    "danger": True,
-                    "aliases": ["실행해", "진행", "계속"],
-                },
-                {
-                    "id": "cancel",
-                    "label": "취소",
-                    "description": "프로그램을 실행하지 않습니다.",
-                    "recommended": True,
-                    "cancel": True,
-                    "aliases": ["취소해", "그만", "하지마"],
-                },
-            ],
-            payload={
-                "kind": "command_macro",
-                "macro_name": str(macro_name or "")[:200],
-                "command": command,
-            },
+        return self.confirmation_factory.queue_command_macro(
+            macro_name, macro_data, original_command, session_id
         )
-        return self._confirmation_result(record)
 
     _parse_native_excel_write_command = staticmethod(parse_native_excel_write_command)
 
@@ -351,117 +299,13 @@ class CommandParser:
         log_callback=None,
         continuation=None,
     ):
-        prepared_actions = {}
-        requests = {}
-        preparation_errors = []
-        for option_id, operation in EXCEL_FORMAT_METHODS.items():
-            try:
-                candidate = copy.deepcopy(request)
-                candidate["operation"] = operation
-                prepared = self.app_command_router.prepare(
-                    candidate.get("target"), operation, candidate.get("params", {})
-                )
-                prepared_actions[option_id] = prepared.to_dict()
-                requests[option_id] = candidate
-            except AppActionAmbiguousTarget as error:
-                return self._queue_app_target_choice(
-                    request,
-                    error,
-                    session_id,
-                    original_command,
-                    continuation=continuation,
-                )
-            except AppActionError as error:
-                preparation_errors.append(error)
-
-        if not prepared_actions:
-            return self._app_action_failure(preparation_errors[0])
-
-        representative = PreparedAction.from_dict(
-            next(iter(prepared_actions.values()))
+        return self.confirmation_factory.queue_app_method(
+            request,
+            session_id,
+            original_command,
+            log_callback=log_callback,
+            continuation=continuation,
         )
-        preference = self.preference_manager.decision(
-            EXCEL_FORMAT_PREFERENCE_KEY
-        )
-        preferred_option = (
-            preference.get("preferred_method")
-            if preference.get("mode") == "recommend" else None
-        )
-        if preferred_option not in prepared_actions:
-            preferred_option = (
-                "conditional_format"
-                if "conditional_format" in prepared_actions
-                else next(iter(prepared_actions))
-            )
-        if log_callback:
-            log_callback(
-                f"[Clarification] Excel {representative.sheet}!{representative.target} 표시 방식 선택 필요"
-            )
-        option_templates = {
-            "conditional_format": {
-                "label": "계속 적용",
-                "description": "값이 바뀌어도 조건에 따라 자동으로 표시합니다.",
-                "aliases": [
-                    "계속", "자동", "자동으로", "조건부 서식", "조건부서식",
-                    "계속 적용", "값이 바뀌어도", "앞으로는 자동으로",
-                ],
-            },
-            "direct_format": {
-                "label": "지금만 표시",
-                "description": "현재 조건에 맞는 셀만 한 번 색칠합니다.",
-                "aliases": [
-                    "지금만", "이번만", "한 번만", "한번만", "현재 값만",
-                    "지금만 표시", "앞으로는 지금만",
-                ],
-            },
-        }
-        options = []
-        for option_id in EXCEL_FORMAT_METHODS:
-            if option_id not in prepared_actions:
-                continue
-            template = option_templates[option_id]
-            options.append({
-                "id": option_id,
-                **template,
-                "recommended": option_id == preferred_option,
-            })
-        options.append({
-            "id": "cancel",
-            "label": "취소",
-            "description": "Excel을 변경하지 않습니다.",
-            "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
-        })
-        disabled_note = (
-            " 이전 자동 적용이 연속으로 실패해 다시 선택을 요청합니다."
-            if preference.get("reason") == "auto_apply_disabled_after_failures"
-            else ""
-        )
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
-            original_command=original_command,
-            reason="persistent_vs_once",
-            message=(
-                "값이 바뀔 때 색상도 자동으로 바뀌게 할까요? "
-                f"대상: {representative.workbook_name} / {representative.sheet} / "
-                f"{representative.target}.{disabled_note}"
-            ),
-            action="app_command",
-            target=(
-                f"{representative.workbook_name}/{representative.sheet}/{representative.target}"
-            ),
-            options=options,
-            rememberable=True,
-            payload={
-                "kind": "app_method_choice",
-                "requests": requests,
-                "prepared_actions": prepared_actions,
-                "preference_key": EXCEL_FORMAT_PREFERENCE_KEY,
-                "continuation": copy.deepcopy(continuation),
-            },
-        )
-        return self._confirmation_result(record)
 
     def _handle_format_method_request(
         self,
@@ -516,82 +360,13 @@ class CommandParser:
         log_callback=None,
         continuation=None,
     ):
-        requests = {}
-        prepared_actions = {}
-        options = []
-        errors = []
-        templates = {
-            "selection": {
-                "label": "선택 영역만",
-                "description": "현재 한글에서 선택한 텍스트 안에서만 바꿉니다.",
-                "aliases": ["선택", "선택 영역", "선택한 곳", "여기만"],
-            },
-            "document": {
-                "label": "현재 문서 전체",
-                "description": "현재 활성 한글 문서 전체에서 일치하는 항목을 바꿉니다.",
-                "aliases": ["문서", "문서 전체", "전체", "현재 문서"],
-                "danger": True,
-            },
-        }
-        for scope in ("selection", "document"):
-            candidate = copy.deepcopy(request)
-            candidate["operation"] = "find_replace"
-            candidate["params"]["scope"] = scope
-            try:
-                prepared = self.app_command_router.prepare(
-                    "hwp", "find_replace", candidate["params"]
-                )
-            except AppActionError as error:
-                errors.append(error)
-                continue
-            requests[scope] = candidate
-            prepared_actions[scope] = prepared.to_dict()
-            template = templates[scope]
-            options.append({
-                "id": scope,
-                **template,
-                "description": (
-                    f"{template['description']} 예상 변경: "
-                    f"{prepared.current_state.get('matching_count', 0)}개"
-                ),
-                "recommended": scope == "selection",
-            })
-        if not prepared_actions:
-            return self._app_action_failure(errors[0])
-        if not any(item.get("recommended") for item in options):
-            options[0]["recommended"] = True
-        representative = PreparedAction.from_dict(
-            next(iter(prepared_actions.values()))
+        return self.confirmation_factory.queue_hwp_scope(
+            request,
+            session_id,
+            original_command,
+            log_callback=log_callback,
+            continuation=continuation,
         )
-        options.append({
-            "id": "cancel",
-            "label": "취소",
-            "description": "한글 문서를 변경하지 않습니다.",
-            "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
-        })
-        if log_callback:
-            log_callback("[Clarification] 한글 찾기·바꾸기 범위 선택 필요")
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
-            original_command=original_command,
-            reason="ambiguous_scope",
-            message=(
-                "어느 범위에서 찾기·바꾸기를 실행할까요? "
-                f"대상 문서: {representative.workbook_name}"
-            ),
-            action="app_command",
-            target=representative.workbook_name,
-            options=options,
-            payload={
-                "kind": "hwp_scope_choice",
-                "requests": requests,
-                "prepared_actions": prepared_actions,
-                "continuation": copy.deepcopy(continuation),
-            },
-        )
-        return self._confirmation_result(record)
 
     def _queue_app_target_choice(
         self,
@@ -601,60 +376,13 @@ class CommandParser:
         original_command,
         continuation=None,
     ):
-        candidate_requests = {}
-        candidate_prepared = {}
-        options = []
-        representative_operation = request.get("operation")
-        if representative_operation == "choose_format_method":
-            representative_operation = "apply_conditional_format"
-        try:
-            for index, column in enumerate(ambiguity.candidates):
-                option_id = f"column_{column.lower()}"
-                candidate = copy.deepcopy(request)
-                candidate["params"].pop("source_range", None)
-                candidate["params"]["column_name"] = column
-                prepared = self.app_command_router.prepare(
-                    candidate.get("target"),
-                    representative_operation,
-                    candidate.get("params", {}),
-                )
-                candidate_requests[option_id] = candidate
-                candidate_prepared[option_id] = prepared.to_dict()
-                options.append({
-                    "id": option_id,
-                    "label": f"{column}열",
-                    "description": f"{column}열의 데이터를 대상으로 사용합니다.",
-                    "recommended": index == 0,
-                    "aliases": [
-                        f"{column}열", column, f"{index + 1}번째", f"{index + 1}번",
-                    ],
-                })
-        except AppActionError as error:
-            return self._app_action_failure(error)
-        options.append({
-            "id": "cancel",
-            "label": "취소",
-            "description": "Excel을 변경하지 않습니다.",
-            "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
-        })
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
-            original_command=original_command,
-            reason="ambiguous_target",
-            message=str(ambiguity),
-            action="app_command",
-            target=ambiguity.target_name or "excel_column",
-            options=options,
-            payload={
-                "kind": "app_target_choice",
-                "requests": candidate_requests,
-                "prepared_actions": candidate_prepared,
-                "continuation": copy.deepcopy(continuation),
-            },
+        return self.confirmation_factory.queue_app_target(
+            request,
+            ambiguity,
+            session_id,
+            original_command,
+            continuation=continuation,
         )
-        return self._confirmation_result(record)
 
     def _prepared_action_success(
         self,
@@ -856,58 +584,13 @@ class CommandParser:
         original_command,
         prior_approvals=None,
     ):
-        reasons = []
-        labels = []
-        approvals = set(prior_approvals or [])
-        analyses = []
-        for item in items:
-            label = str(item.get("label") or "동적 Python 작업")[:120]
-            if label not in labels:
-                labels.append(label)
-            approvals.add(item["fingerprint"])
-            analysis = item["result"].to_dict()
-            analysis["label"] = label
-            analyses.append(analysis)
-            for finding in item["result"].findings:
-                if finding.message not in reasons:
-                    reasons.append(finding.message)
-        message = "동적 Python 코드가 외부 상태를 변경할 수 있습니다. 이번에만 실행할까요?"
-        if labels:
-            message += "\n대상: " + ", ".join(labels[:4])
-        if reasons:
-            message += "\n- " + "\n- ".join(reasons[:5])
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id(),
-            original_command=original_command,
-            reason="dynamic_code_risk",
-            message=message,
-            action="dynamic_code",
-            target=", ".join(labels[:4]) or "동적 Python 작업",
-            options=[
-                {
-                    "id": "run_once",
-                    "label": "이번만 실행",
-                    "description": "표시된 위험을 승인하고 현재 코드와 인자로 한 번만 실행합니다.",
-                    "danger": True,
-                    "aliases": ["예", "네", "응", "ㅇㅇ", "실행", "계속", "이번만"],
-                },
-                {
-                    "id": "cancel",
-                    "label": "취소",
-                    "description": "코드를 실행하지 않고 외부 상태를 그대로 유지합니다.",
-                    "cancel": True,
-                    "aliases": ["아니", "아니요", "그만", "하지마", "취소"],
-                },
-            ],
-            payload={
-                **copy.deepcopy(resume_payload),
-                "kind": "dynamic_code_preflight",
-                "approval_fingerprints": sorted(approvals),
-                "risk_analyses": analyses,
-            },
+        return self.confirmation_factory.queue_dynamic_code(
+            items,
+            resume_payload,
+            session_id,
+            original_command,
+            prior_approvals=prior_approvals,
         )
-        return self._confirmation_result(record)
 
     def _queue_local_learned_dynamic_confirmation(
         self,
@@ -919,19 +602,12 @@ class CommandParser:
         session_id,
         original_command,
     ):
-        return self._queue_dynamic_code_confirmation(
-            [{
-                "label": f"저장된 매크로 {app_name}/{macro_name}",
-                "fingerprint": fingerprint,
-                "result": result,
-            }],
-            {
-                "mode": "local_learned",
-                "app_name": app_name,
-                "macro_name": macro_name,
-                "argument": argument,
-                "expected_code_sha256": result.code_sha256,
-            },
+        return self.confirmation_factory.queue_local_learned_dynamic(
+            app_name,
+            macro_name,
+            argument,
+            result,
+            fingerprint,
             session_id,
             original_command,
         )
@@ -939,101 +615,15 @@ class CommandParser:
     def _resume_local_learned_dynamic(
         self, payload, confirmation_id, log_callback=None
     ):
-        app_name = payload.get("app_name")
-        macro_name = payload.get("macro_name")
-        learned = self._get_learned_macro(app_name, macro_name)
-        if not learned or not learned.get("code"):
-            return failure_result(
-                "확인 후 저장된 매크로를 다시 찾지 못했습니다. 실행하지 않았습니다.",
-                action="learned_macro",
-                target=macro_name,
-                error_type="target_not_found",
-            )
-        argument = payload.get("argument", "")
-        try:
-            execution_result = self.skill_executor.execute(
-                app_name,
-                macro_name,
-                skill=learned,
-                argument=argument,
-                source="confirmation_resume",
-                action="use_learned_macro",
-                target=learned.get("default_target", ""),
-                approved_fingerprints=payload.get("approval_fingerprints", []),
-                expected_code_sha256=payload.get("expected_code_sha256", ""),
-                log_callback=log_callback,
-                original_command=payload.get(
-                    "original_command", f"{app_name}/{macro_name} 확인 후 실행"
-                ),
-            )
-            if execution_result.get("status") == "confirmation_required":
-                return execution_result
-            verified = bool(execution_result.get("verified", False))
-            return success_result(
-                f"확인한 저장 매크로 [{macro_name}]를 이번에만 실행했습니다.",
-                action="learned_macro",
-                target=macro_name,
-                verified=verified,
-                verification_status=execution_result.get(
-                    "verification_status",
-                    "verified" if verified else "confirmation_required",
-                ),
-                data={
-                    "app": app_name,
-                    "confirmation_id": confirmation_id,
-                    "execution_result": execution_result,
-                },
-            )
-        except SkillPreflightBlocked as error:
-            return self._dynamic_preflight_failure(
-                error.preflight, action="learned_macro", target=macro_name
-            )
-        except (SkillConfirmationRequired, SkillContextChanged):
-            return failure_result(
-                "확인한 뒤 매크로 코드나 실행 인자가 달라져 실행하지 않았습니다. 명령을 다시 요청해주세요.",
-                action="learned_macro",
-                target=macro_name,
-                error_type="validation_error",
-                status="context_changed",
-            )
-        except ExecutionCancelled:
-            raise
-        except Exception as error:
-            failure_type = self._failure_type_for_error(error)
-            return failure_result(
-                f"확인한 저장 매크로를 실행하지 못했습니다: {error}",
-                action="learned_macro",
-                target=macro_name,
-                error_type=failure_type,
-                failed_step=getattr(error, "failed_step", None),
-                retryable=getattr(error, "retryable", False),
-                status=getattr(error, "status", "failed"),
-            )
+        return self.learned_replay_service.resume_local_dynamic(
+            payload, confirmation_id, log_callback=log_callback
+        )
 
     def _skill_policy_preview_result(
         self, app_name, macro_name, skill, assessment
     ):
-        plan = skill.get({
-            "native": "native_plan",
-            "action_plan": "plan",
-            "uia": "uia_plan",
-        }.get(assessment.route, ""), [])
-        return success_result(
-            f"[{macro_name}] 작업은 실행하지 않았습니다. 실행 경로와 정책만 미리 보여드립니다.",
-            action="learned_macro_preview",
-            target=macro_name,
-            verified=True,
-            data={
-                "app": app_name,
-                "macro_name": macro_name,
-                "route": assessment.route,
-                "run_policy": assessment.run_policy,
-                "step_count": len(plan) if isinstance(plan, list) else 0,
-                "forced_confirmation_reasons": list(
-                    assessment.forced_reasons
-                ),
-                "executed": False,
-            },
+        return self.learned_replay_service.preview_result(
+            app_name, macro_name, skill, assessment
         )
 
     def _queue_skill_run_policy_confirmation(
@@ -1047,64 +637,15 @@ class CommandParser:
         original_command,
         resume_payload,
     ):
-        options = [{
-            "id": "run_once",
-            "label": "이번만 실행",
-            "description": "저장된 실행 정책은 바꾸지 않고 이번 요청만 실행합니다.",
-            "recommended": True,
-            "aliases": ["이번만", "한 번만", "실행", "진행", "예", "네", "응"],
-        }]
-        if assessment.suggest_auto and not assessment.forced_reasons:
-            options.append({
-                "id": "enable_auto",
-                "label": "앞으로 자동 실행",
-                "description": (
-                    "사용자가 승인한 뒤에만 이 스킬의 run_policy를 auto로 변경합니다."
-                ),
-                "aliases": [
-                    "앞으로 자동", "항상 자동", "자동 실행", "묻지 마",
-                ],
-            })
-        options.append({
-            "id": "cancel",
-            "label": "취소",
-            "description": "스킬을 실행하지 않고 저장된 정책도 유지합니다.",
-            "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
-        })
-        if assessment.suggest_auto:
-            message = (
-                f"[{macro_name}] 작업은 최근 "
-                f"{assessment.consecutive_verified_success}회 연속 자동 검증에 "
-                "성공했습니다. 이번만 실행하거나, 앞으로 확인 없이 자동 실행하도록 "
-                "직접 승인할 수 있습니다."
-            )
-        elif assessment.forced_reasons:
-            message = (
-                f"[{macro_name}] 작업은 안전상 항상 실행 확인이 필요합니다. "
-                f"사유: {', '.join(assessment.forced_reasons)}"
-            )
-        else:
-            message = f"저장된 학습 행동 [{macro_name}]을 이번에 실행할까요?"
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
+        return self.confirmation_factory.queue_skill_run_policy(
+            app_name=app_name,
+            macro_name=macro_name,
+            skill=skill,
+            assessment=assessment,
+            session_id=session_id,
             original_command=original_command,
-            reason=assessment.reason,
-            message=message,
-            action="learned_macro_run_policy",
-            target=macro_name,
-            options=options,
-            payload={
-                "kind": "skill_run_policy",
-                "app_name": app_name,
-                "macro_name": macro_name,
-                "skill_fingerprint": skill_policy_fingerprint(skill),
-                "assessment": assessment.to_dict(),
-                **copy.deepcopy(resume_payload),
-            },
+            resume_payload=resume_payload,
         )
-        return self._confirmation_result(record)
 
     def _local_skill_policy_gate(
         self,
@@ -1117,52 +658,14 @@ class CommandParser:
         session_id,
         original_command,
     ):
-        assessment = self.skill_run_policy.assess(skill, original_command)
-        if assessment.directive == DIRECTIVE_PREVIEW:
-            return self._skill_policy_preview_result(
-                app_name, macro_name, skill, assessment
-            )
-        if assessment.route == "python":
-            decision = self.skill_executor.preflight(
-                app_name,
-                macro_name,
-                skill=skill,
-                argument=argument,
-                action="use_learned_macro",
-                target=skill.get("default_target", ""),
-            )
-            if decision.status == BLOCKED:
-                return self._dynamic_preflight_failure(
-                    decision.result,
-                    action="learned_macro",
-                    target=macro_name,
-                )
-            if decision.status == CONFIRMATION_REQUIRED:
-                return self._queue_local_learned_dynamic_confirmation(
-                    app_name,
-                    macro_name,
-                    argument,
-                    decision.result,
-                    decision.fingerprint,
-                    session_id,
-                    original_command,
-                )
-        if not assessment.requires_confirmation:
-            return None
-        return self._queue_skill_run_policy_confirmation(
+        return self.learned_replay_service.local_policy_gate(
             app_name=app_name,
             macro_name=macro_name,
             skill=skill,
-            assessment=assessment,
+            slots=slots,
+            argument=argument,
             session_id=session_id,
             original_command=original_command,
-            resume_payload={
-                "resume_mode": "local",
-                "slots": dict(slots or {}),
-                "argument": argument,
-                "source": "local_match_policy_resume",
-                "target": skill.get("default_target", ""),
-            },
         )
 
     def _queue_action_plan_confirmation(
@@ -1204,71 +707,9 @@ class CommandParser:
     def _queue_uia_target_choice(
         self, ambiguity, payload, session_id, original_command
     ):
-        selectors = {}
-        options = []
-        for index, candidate in enumerate(ambiguity.candidates, start=1):
-            option_id = f"uia_target_{index}"
-            selector = candidate.get("selector")
-            if not isinstance(selector, dict):
-                continue
-            selectors[option_id] = copy.deepcopy(selector)
-            name = str(candidate.get("name") or "(이름 없음)")
-            control_type = str(candidate.get("control_type") or "Unknown")
-            context = str(
-                candidate.get("parent_name")
-                or candidate.get("ancestor_name")
-                or "상위 정보 없음"
-            )
-            automation_id = str(candidate.get("automation_id") or "")
-            detail = f"{control_type} · {context}"
-            if automation_id:
-                detail += f" · ID {automation_id}"
-            options.append({
-                "id": option_id,
-                "label": f"{index}. {name}"[:80],
-                "description": detail,
-                "aliases": [
-                    str(index), f"{index}번", f"{index}번째", name,
-                ],
-            })
-        if not selectors:
-            return failure_result(
-                "UI 요소 후보의 식별 정보를 만들 수 없어 실행하지 않았습니다.",
-                action="action_plan",
-                error_type="validation_error",
-                status="ambiguous_target",
-            )
-        options.append({
-            "id": "cancel",
-            "label": "취소",
-            "description": "어떤 UI 요소도 선택하거나 클릭하지 않습니다.",
-            "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
-        })
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or payload.get(
-                "execution_id", ""
-            ),
-            original_command=original_command,
-            reason="ambiguous_target",
-            message=str(ambiguity),
-            action="uia_target_choice",
-            target=(
-                ambiguity.diagnostic.get("matched_name")
-                if isinstance(ambiguity.diagnostic, dict) else None
-            ),
-            options=options,
-            payload={
-                **copy.deepcopy(payload),
-                "kind": "uia_target_choice",
-                "candidate_selectors": selectors,
-                "diagnostic": copy.deepcopy(
-                    getattr(ambiguity, "diagnostic", {})
-                ),
-            },
+        return self.confirmation_factory.queue_uia_target(
+            ambiguity, payload, session_id, original_command
         )
-        return self._confirmation_result(record)
 
     def _queue_learned_uia_target_choice(
         self,
@@ -1284,42 +725,17 @@ class CommandParser:
         source="confirmation_resume",
         target="",
     ):
-        diagnostic = getattr(ambiguity, "skill_execution", {})
-        route = (
-            diagnostic.get("selected_route")
-            if isinstance(diagnostic, dict) else ""
-        )
-        plan_key = {
-            "native": "native_plan",
-            "action_plan": "plan",
-            "uia": "uia_plan",
-        }.get(route)
-        plan = skill.get(plan_key) if plan_key and isinstance(skill, dict) else None
-        if not isinstance(plan, list) or not plan:
-            return failure_result(
-                "모호한 UI 요소가 발생한 학습 경로를 복원할 수 없습니다.",
-                action="learned_macro",
-                target=macro_name,
-                error_type="validation_error",
-                status="context_changed",
-            )
-        return self._queue_uia_target_choice(
+        return self.confirmation_factory.queue_learned_uia_target(
             ambiguity,
-            {
-                "resume_mode": "learned_skill",
-                "plan": plan,
-                "plan_key": plan_key,
-                "failed_step": getattr(ambiguity, "failed_step", 1),
-                "slots": dict(slots or {}),
-                "learned_skill": copy.deepcopy(skill),
-                "app_name": app_name,
-                "macro_name": macro_name,
-                "argument": argument,
-                "source": source,
-                "target": target,
-            },
-            session_id,
-            original_command,
+            app_name=app_name,
+            macro_name=macro_name,
+            skill=skill,
+            slots=slots,
+            session_id=session_id,
+            original_command=original_command,
+            argument=argument,
+            source=source,
+            target=target,
         )
 
     def resolve_pending_confirmation(
@@ -1358,44 +774,9 @@ class CommandParser:
         return "execution_error"
 
     def retry_learned_macro_step(self, app_name, macro_name, step_number):
-        app_macros = getattr(self.dict_mgr, "learned_macros", {}).get(app_name, {})
-        learned = app_macros.get(macro_name) if isinstance(app_macros, dict) else None
-        if not isinstance(learned, dict) or not learned.get("plan"):
-            raise ValueError("단계 재시도가 가능한 학습 행동을 찾지 못했습니다.")
-        try:
-            step_number = int(step_number)
-        except (TypeError, ValueError):
-            raise ValueError("재시도 단계 번호가 올바르지 않습니다.")
-        self.execution_controller.begin(
-            f"retry:{app_name}/{macro_name}", {"start_step": step_number}
+        return self.learned_replay_service.retry_step(
+            app_name, macro_name, step_number
         )
-        try:
-            slots = self._build_slot_values(learned.get("learning", {}))
-            result = self.skill_executor.execute(
-                app_name,
-                macro_name,
-                skill=learned,
-                slots=slots,
-                source="retry",
-                start_step=step_number,
-                retry_attempts=1,
-                record_candidate=False,
-            )
-            self.execution_controller.finish(True, extra={"result": result})
-            return result
-        except ExecutionCancelled as error:
-            self.execution_controller.finish(False, "cancelled", error=str(error))
-            raise
-        except Exception as error:
-            failure_type = self._failure_type_for_error(error)
-            self.execution_controller.finish(
-                False, "failed", error=str(error),
-                extra={
-                    "failed_step": getattr(error, "failed_step", step_number),
-                    "retryable": getattr(error, "retryable", False),
-                },
-            )
-            raise
 
     def parse_and_execute(self, user_input, log_callback=None, image_data=None, mode="command", use_api=False, summary="", stream_callback=None, conversation_state=None, session_id=None):
         """Compatibility API returning only the user-facing message."""

@@ -30,6 +30,7 @@ from engine.skills.skill_executor import (
     SkillVerificationFailed,
 )
 from engine.skills.skill_learning_service import SkillLearningService
+from engine.skills.learned_replay_service import LearnedReplayService
 from engine.skills.skill_profile import SkillProfile
 from engine.skills.run_policy import (
     AUTO_SUCCESS_THRESHOLD,
@@ -66,6 +67,7 @@ __all__ = [
     "SkillExecutionError",
     "SkillExecutor",
     "SkillLearningService",
+    "LearnedReplayService",
     "SkillNotFoundError",
     "SkillPreflightBlocked",
     "SkillPreflightDecision",
