@@ -1,4 +1,7 @@
 import logging
+import os
+import subprocess
+import sys
 
 import eel
 from engine.core import get_dict_manager, get_parser
@@ -129,10 +132,14 @@ def remove_macro_synonym(macro_key, synonym):
 
 @eel.expose
 def restart_jarvis():
-    import sys
-    import os
-    import subprocess
     logger.info("앱 재시작 요청을 처리합니다")
-    command = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable] + sys.argv
-    subprocess.Popen(command)
+    frozen = bool(getattr(sys, "frozen", False))
+    command = [sys.executable] if frozen else [sys.executable, *sys.argv]
+    environment = os.environ.copy()
+    if frozen:
+        # A PyInstaller one-file child normally reuses its parent's temporary
+        # extraction directory. The parent removes that directory while
+        # exiting, so an independent restart must request a fresh extraction.
+        environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    subprocess.Popen(command, env=environment)
     os._exit(0)
