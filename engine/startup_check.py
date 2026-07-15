@@ -11,7 +11,7 @@ REQUIRED_MODULES = (
     "eel",
     "olefile",
     "psutil",
-    "PyPDF2",
+    "pypdf",
     "pythoncom",
     "win32api",
     "win32com.client",

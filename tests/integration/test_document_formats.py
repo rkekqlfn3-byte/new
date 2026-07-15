@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from engine.document_reader import extract_text
 
@@ -43,6 +44,40 @@ class DocumentFormatIntegrationTests(unittest.TestCase):
             path = os.path.join(temp_dir, "sample.pdf")
             _write_minimal_pdf(path, "Jarvis PDF Test")
             self.assertIn("Jarvis PDF Test", extract_text(path))
+
+    def test_rejects_pdf_over_file_size_limit(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-doc-test-") as temp_dir:
+            path = os.path.join(temp_dir, "oversized.pdf")
+            _write_minimal_pdf(path, "Jarvis PDF Test")
+            with patch("engine.document_reader.MAX_PDF_FILE_BYTES", 10):
+                result = extract_text(path)
+            self.assertIn("안전 제한", result)
+
+    def test_rejects_pdf_over_page_limit(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-doc-test-") as temp_dir:
+            path = os.path.join(temp_dir, "too-many-pages.pdf")
+            _write_minimal_pdf(path, "Jarvis PDF Test")
+            with patch("engine.document_reader.MAX_PDF_PAGES", 0):
+                result = extract_text(path)
+            self.assertIn("페이지 수", result)
+            self.assertIn("안전 제한", result)
+
+    def test_rejects_pdf_over_extracted_text_limit(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-doc-test-") as temp_dir:
+            path = os.path.join(temp_dir, "too-much-text.pdf")
+            _write_minimal_pdf(path, "Jarvis PDF Test")
+            with patch("engine.document_reader.MAX_PDF_TEXT_CHARS", 5):
+                result = extract_text(path)
+            self.assertIn("추출 텍스트", result)
+            self.assertIn("안전 제한", result)
+
+    def test_corrupt_pdf_returns_readable_failure(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-doc-test-") as temp_dir:
+            path = os.path.join(temp_dir, "corrupt.pdf")
+            with open(path, "wb") as output:
+                output.write(b"%PDF-not-a-real-document")
+            result = extract_text(path)
+            self.assertIn("파일 읽기 실패", result)
 
     def test_extracts_korean_text_from_actual_hwpx_structure(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-doc-test-") as temp_dir:

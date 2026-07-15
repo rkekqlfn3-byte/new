@@ -3,14 +3,19 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 try:
-    import PyPDF2
+    from pypdf import PdfReader
 except ImportError:
-    PyPDF2 = None
+    PdfReader = None
 
 try:
     import olefile
 except ImportError:
     olefile = None
+
+
+MAX_PDF_FILE_BYTES = 100 * 1024 * 1024
+MAX_PDF_PAGES = 2_000
+MAX_PDF_TEXT_CHARS = 5_000_000
 
 def resolve_file_path(file_path):
     if not isinstance(file_path, str) or not file_path.strip():
@@ -64,16 +69,34 @@ def extract_text(file_path):
         return f"파일 읽기 실패 ({ext}): {e}"
 
 def _read_pdf(file_path):
-    if not PyPDF2:
-        return "PyPDF2 라이브러리가 설치되지 않아 PDF를 읽을 수 없습니다."
-    text = ""
+    if PdfReader is None:
+        return "pypdf 라이브러리가 설치되지 않아 PDF를 읽을 수 없습니다."
+    file_size = os.path.getsize(file_path)
+    if file_size > MAX_PDF_FILE_BYTES:
+        raise ValueError(
+            f"PDF 파일 크기가 안전 제한({MAX_PDF_FILE_BYTES}바이트)을 초과했습니다."
+        )
+
+    chunks = []
+    total_chars = 0
     with open(file_path, 'rb') as f:
-        reader = PyPDF2.PdfReader(f)
+        reader = PdfReader(f, strict=False)
+        page_count = len(reader.pages)
+        if page_count > MAX_PDF_PAGES:
+            raise ValueError(
+                f"PDF 페이지 수가 안전 제한({MAX_PDF_PAGES}페이지)을 초과했습니다."
+            )
         for page in reader.pages:
             extracted = page.extract_text()
             if extracted:
-                text += extracted + "\n"
-    return text
+                total_chars += len(extracted) + 1
+                if total_chars > MAX_PDF_TEXT_CHARS:
+                    raise ValueError(
+                        "PDF 추출 텍스트가 안전 제한"
+                        f"({MAX_PDF_TEXT_CHARS}자)을 초과했습니다."
+                    )
+                chunks.append(extracted)
+    return "\n".join(chunks) + ("\n" if chunks else "")
 
 def _read_hwp(file_path):
     if not olefile:

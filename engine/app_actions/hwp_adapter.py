@@ -778,7 +778,7 @@ class HwpAdapter:
             if stream.read(5) != b"%PDF-":
                 raise AppActionVerificationError("생성된 파일이 올바른 PDF 형식이 아닙니다.")
         try:
-            from PyPDF2 import PdfReader
+            from pypdf import PdfReader
 
             page_count = len(PdfReader(path).pages)
         except Exception as error:

@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from PyPDF2 import PdfWriter
+from pypdf import PdfWriter
 
 from engine.api import command_api
 from engine.app_actions.base import AppActionBlocked, AppActionContextChanged
