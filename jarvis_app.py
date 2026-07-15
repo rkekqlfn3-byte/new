@@ -60,6 +60,11 @@ def start_app():
         log_path = configure_logging()
         logger.info("Jarvis starting: %s (log=%s)", runtime_info(), log_path)
 
+        # Construct the process-wide parser only after writable paths exist.
+        from engine.core import initialize_core
+
+        initialize_core()
+
         # Locate bundled resources correctly in both source and PyInstaller runs.
         eel.init(resource_path('gui'))
 

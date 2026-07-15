@@ -1,13 +1,21 @@
 import logging
 
 import eel
-from engine.core import parser, dict_mgr
+from engine.core import get_parser
 from engine.execution_runtime import ExecutionBusyError, ExecutionCancelled
 from engine.execution_result import failure_result
 from engine.managers.pending_confirmation_manager import normalize_session_id
 
 
 logger = logging.getLogger(__name__)
+
+# Optional compatibility injection point for isolated API tests/integrations.
+# Production startup leaves this unset and resolves the explicit core service.
+parser = None
+
+
+def _get_parser():
+    return parser if parser is not None else get_parser()
 
 
 _NON_OWNING_CONFIRMATION_STATUSES = frozenset({
@@ -39,6 +47,7 @@ def _stream_callback(chunk):
 
 
 def _finish_or_pause(result, execution_id=None):
+    parser = _get_parser()
     confirmation = (
         result.get("data", {}).get("confirmation", {})
         if isinstance(result, dict) and isinstance(result.get("data"), dict)
@@ -92,6 +101,7 @@ def _resolve_confirmation_request(
     user_text=None,
     remember_preference=False,
 ):
+    parser = _get_parser()
     record = (
         parser.pending_confirmation_manager.get_record(confirmation_id)
         if confirmation_id else
@@ -152,6 +162,7 @@ def _resolve_confirmation_request(
 
 @eel.expose
 def parse_command(user_input, image_data=None, mode="command", use_api=False, summary="", conversation_state=None, session_id=None):
+    parser = _get_parser()
     print(f"[Python] Received command (Mode: {mode}, API: {use_api})")
     session_id = normalize_session_id(session_id)
     if mode == "command" and parser.get_pending_confirmation(session_id):
@@ -230,6 +241,7 @@ def parse_command(user_input, image_data=None, mode="command", use_api=False, su
 
 @eel.expose
 def get_pending_confirmation(session_id=None):
+    parser = _get_parser()
     confirmation = parser.get_pending_confirmation(session_id)
     return {"pending": bool(confirmation), "confirmation": confirmation}
 
@@ -248,16 +260,19 @@ def resolve_confirmation(
 
 @eel.expose
 def cancel_current_execution():
+    parser = _get_parser()
     return {"success": parser.cancel_current_execution()}
 
 
 @eel.expose
 def get_execution_diagnostics(limit=20):
+    parser = _get_parser()
     return parser.get_execution_diagnostics(limit)
 
 
 @eel.expose
 def get_native_action_candidates(include_observing=True, include_dismissed=False):
+    parser = _get_parser()
     return {
         "success": True,
         "candidates": parser.get_native_action_candidates(
@@ -269,6 +284,7 @@ def get_native_action_candidates(include_observing=True, include_dismissed=False
 
 @eel.expose
 def set_native_action_candidate_status(candidate_id, status, reason=""):
+    parser = _get_parser()
     try:
         return {
             "success": True,
@@ -282,6 +298,7 @@ def set_native_action_candidate_status(candidate_id, status, reason=""):
 
 @eel.expose
 def get_native_action_candidate_spec(candidate_id):
+    parser = _get_parser()
     try:
         return {
             "success": True,
@@ -293,6 +310,7 @@ def get_native_action_candidate_spec(candidate_id):
 
 @eel.expose
 def retry_learned_macro_step(app_name, macro_name, step_number):
+    parser = _get_parser()
     try:
         result = parser.retry_learned_macro_step(app_name, macro_name, step_number)
         return {"success": True, "result": result}
@@ -309,11 +327,13 @@ def retry_learned_macro_step(app_name, macro_name, step_number):
 
 @eel.expose
 def get_pending_learning_review():
+    parser = _get_parser()
     return parser.get_pending_learning_review()
 
 
 @eel.expose
 def approve_pending_learning(edits=None):
+    parser = _get_parser()
     try:
         message = parser.approve_pending_learning(edits)
         return {"success": True, "message": message}
@@ -323,6 +343,7 @@ def approve_pending_learning(edits=None):
 
 @eel.expose
 def reject_pending_learning(reason="discard"):
+    parser = _get_parser()
     return {
         "success": True,
         "message": parser.reject_pending_learning(reason),
@@ -331,6 +352,8 @@ def reject_pending_learning(reason="discard"):
 @eel.expose
 def summarize_memory(current_summary, old_messages):
     import json
+    parser = _get_parser()
+    dict_mgr = parser.dict_mgr
     if not old_messages:
         return {"success": True, "summary": current_summary}
         

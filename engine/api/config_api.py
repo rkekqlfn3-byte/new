@@ -7,7 +7,7 @@ from pathlib import Path
 
 import eel
 
-from engine.core import dict_mgr
+from engine.core import get_dict_manager
 from engine.runtime_paths import user_data_path
 from engine.version import runtime_info
 from engine.storage.json_store import (
@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 
 @eel.expose
 def get_ai_config():
-    return dict_mgr.config_manager.get_public_ai_config()
+    return get_dict_manager().config_manager.get_public_ai_config()
 
 
 @eel.expose
 def save_ai_config(provider, api_key, ollama_model="llama3", routing_mode="auto"):
     try:
-        return dict_mgr.config_manager.save_ai_config(
+        return get_dict_manager().config_manager.save_ai_config(
             provider, api_key, ollama_model, routing_mode
         )
     except (OSError, TypeError, ValueError):
@@ -44,7 +44,7 @@ def clear_ai_api_key(confirmed=False):
     if confirmed is not True:
         return False
     try:
-        return dict_mgr.config_manager.clear_ai_api_key()
+        return get_dict_manager().config_manager.clear_ai_api_key()
     except (OSError, TypeError, ValueError):
         logger.exception(
             "AI API key deletion failed",
