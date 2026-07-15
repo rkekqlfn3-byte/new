@@ -10,7 +10,7 @@ from engine.app_actions.registry import AppActionRegistry
 from engine.decision import PreferenceManager
 from engine.execution_runtime import ExecutionController
 from engine.parser import CommandParser, EXCEL_FORMAT_PREFERENCE_KEY
-from engine.test_excel_core_actions import FakeExcel, adapter_for, seed_sales
+from tests.windows.test_excel_core_actions import FakeExcel, adapter_for, seed_sales
 
 
 class PreferenceManagerTests(unittest.TestCase):

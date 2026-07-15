@@ -105,7 +105,11 @@ P0 수정 전 기준점에서 2026-07-15에 자동 테스트 418개를 실행해
 현재 P0 변경분은 사용자의 진행 순서에 따라 아직 전체 테스트를 실행하지 않았습니다. 따라서 위 수치는 현재 소스의 최종 검증 결과가 아니라 작업 전 기준값입니다. 전체 회귀와 실제 Excel·HWP 검증은 코드 작업 완료 후 P3에서 한 번에 수행합니다.
 
 ```powershell
-.venv\Scripts\python.exe -m engine.test_suite
+.venv\Scripts\python.exe -m tests.test_runner unit
+.venv\Scripts\python.exe -m tests.test_runner integration
+.venv\Scripts\python.exe -m tests.test_runner windows
+.venv\Scripts\python.exe -m tests.test_runner live
+.venv\Scripts\python.exe -m tests.test_runner all
 ```
 
 외부 AI 실시간 테스트는 명시적으로 활성화할 때만 자격 증명과 네트워크를 사용합니다.

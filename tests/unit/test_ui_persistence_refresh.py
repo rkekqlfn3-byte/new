@@ -2,16 +2,22 @@ import unittest
 from pathlib import Path
 
 
-GUI_ROOT = Path(__file__).resolve().parent.parent / "gui"
+GUI_ROOT = Path(__file__).resolve().parents[2] / "gui"
 
 
 class PersistedUiRefreshContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.globals_js = (GUI_ROOT / "globals.js").read_text(encoding="utf-8")
-        cls.sessions_js = (GUI_ROOT / "session_manager.js").read_text(encoding="utf-8")
-        cls.chat_js = (GUI_ROOT / "chat.js").read_text(encoding="utf-8")
-        cls.ui_js = (GUI_ROOT / "ui.js").read_text(encoding="utf-8")
+        js_root = GUI_ROOT / "js"
+        cls.globals_js = (js_root / "globals.js").read_text(encoding="utf-8")
+        cls.sessions_js = (js_root / "sessions.js").read_text(encoding="utf-8")
+        cls.chat_js = "\n".join((
+            (js_root / "chat" / "learning_review.js").read_text(
+                encoding="utf-8"
+            ),
+            (js_root / "chat" / "controller.js").read_text(encoding="utf-8"),
+        ))
+        cls.ui_js = (js_root / "dom.js").read_text(encoding="utf-8")
 
     def test_first_eel_load_has_bounded_retry(self):
         self.assertIn("window.runUiLoadWithRetry", self.globals_js)

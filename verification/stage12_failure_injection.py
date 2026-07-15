@@ -134,16 +134,16 @@ def main():
         },
     ]
     tests = [
-        (3, "실행 전 대상 문서 변경", "engine.test_excel_native_write.ExcelAdapterTests.test_context_change_blocks_stale_prepared_action"),
-        (4, "확인 대기 중 대상 변경", "engine.test_excel_native_write.ExcelParserConfirmationFlowTests.test_changed_cell_is_reconfirmed_before_execution"),
-        (5, "검증 결과 불일치", "engine.test_postconditions.SkillPostconditionIntegrationTests.test_verification_failure_never_uses_fallback"),
-        (6, "롤백 실패", "engine.test_excel_native_write.ExcelAdapterTests.test_rollback_failure_never_turns_a_verification_failure_into_success"),
-        (7, "주 경로 사용 불가", "engine.test_skill_fallback.SkillExecutorFallbackTests.test_primary_unavailable_falls_back_to_uia"),
-        (8, "UI 요소 중복", "engine.test_ui_automation.StructuredUIAutomationTests.test_equal_candidates_are_never_clicked"),
-        (9, "동적 코드 위험 동작", "engine.test_dynamic_code_preflight.DynamicCodePolicyTests.test_shell_registry_credentials_and_recursive_delete_are_blocked"),
-        (10, "success=false 반환", "engine.test_skill_fallback.SkillExecutorFallbackTests.test_returned_failure_is_not_counted_as_success"),
-        (11, "네트워크 오류", "engine.test_ai_router.LLMRouterTests.test_both_provider_failures_return_combined_explanation"),
-        (12, "중복 확인 응답", "engine.test_confirmation_flow.ConfirmationApiFlowTests.test_demo_confirmation_text_and_button_flow_are_one_shot"),
+        (3, "실행 전 대상 문서 변경", "tests.windows.test_excel_native_write.ExcelAdapterTests.test_context_change_blocks_stale_prepared_action"),
+        (4, "확인 대기 중 대상 변경", "tests.windows.test_excel_native_write.ExcelParserConfirmationFlowTests.test_changed_cell_is_reconfirmed_before_execution"),
+        (5, "검증 결과 불일치", "tests.integration.test_postconditions.SkillPostconditionIntegrationTests.test_verification_failure_never_uses_fallback"),
+        (6, "롤백 실패", "tests.windows.test_excel_native_write.ExcelAdapterTests.test_rollback_failure_never_turns_a_verification_failure_into_success"),
+        (7, "주 경로 사용 불가", "tests.integration.test_skill_fallback.SkillExecutorFallbackTests.test_primary_unavailable_falls_back_to_uia"),
+        (8, "UI 요소 중복", "tests.windows.test_ui_automation.StructuredUIAutomationTests.test_equal_candidates_are_never_clicked"),
+        (9, "동적 코드 위험 동작", "tests.integration.test_dynamic_code_preflight.DynamicCodePolicyTests.test_shell_registry_credentials_and_recursive_delete_are_blocked"),
+        (10, "success=false 반환", "tests.integration.test_skill_fallback.SkillExecutorFallbackTests.test_returned_failure_is_not_counted_as_success"),
+        (11, "네트워크 오류", "tests.integration.test_ai_router.LLMRouterTests.test_both_provider_failures_return_combined_explanation"),
+        (12, "중복 확인 응답", "tests.integration.test_confirmation_flow.ConfirmationApiFlowTests.test_demo_confirmation_text_and_button_flow_are_one_shot"),
     ]
     for number, label, test_name in tests:
         result = run_test(test_name)

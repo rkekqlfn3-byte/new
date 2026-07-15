@@ -10,7 +10,7 @@ from engine.decision import DecisionEngine, PreferenceManager
 from engine.execution_runtime import ExecutionController
 from engine.app_actions.registry import AppActionRegistry
 from engine.parser import CommandParser
-from engine.test_excel_core_actions import FakeExcel, adapter_for
+from tests.windows.test_excel_core_actions import FakeExcel, adapter_for
 
 
 def seed_table(excel):

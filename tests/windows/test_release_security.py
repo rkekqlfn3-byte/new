@@ -7,12 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from engine.runtime_paths import _default_user_data_dir
-from engine.test_suite import TEST_MODULES
+from tests.test_runner import TEST_MODULES
 from verification.release_security_audit import audit_default_data, scan_blob
 from verification.runtime_entrypoint import configure_pywin32_dlls
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReleaseDefaultDataTests(unittest.TestCase):
@@ -73,9 +73,8 @@ class ReleaseDefaultDataTests(unittest.TestCase):
 
     def test_build_regression_gate_lists_every_test_module(self):
         discovered = {
-            f"engine.{path.stem}"
-            for path in (PROJECT_ROOT / "engine").glob("test_*.py")
-            if path.name != "test_suite.py"
+            ".".join(path.relative_to(PROJECT_ROOT).with_suffix("").parts)
+            for path in (PROJECT_ROOT / "tests").glob("*/test_*.py")
         }
         self.assertEqual(discovered, set(TEST_MODULES))
 

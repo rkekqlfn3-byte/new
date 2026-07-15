@@ -11,12 +11,16 @@ import unittest
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GUI_DIR = PROJECT_ROOT / "gui"
 
 
 def read_gui_file(name):
     return (GUI_DIR / name).read_text(encoding="utf-8")
+
+
+def read_gui_script(name):
+    return (GUI_DIR / "js" / name).read_text(encoding="utf-8")
 
 
 class MarkedLocalBundleTests(unittest.TestCase):
@@ -42,7 +46,10 @@ class MarkedLocalBundleTests(unittest.TestCase):
 
 class ChatSanitizationTests(unittest.TestCase):
     def setUp(self):
-        self.chat = read_gui_file("chat.js")
+        self.chat = "\n".join((
+            read_gui_script("chat/renderer.js"),
+            read_gui_script("chat/streaming.js"),
+        ))
 
     def test_rendered_markdown_is_sanitized_before_innerhtml(self):
         self.assertIn("function sanitizeRenderedHtml(", self.chat)

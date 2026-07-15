@@ -324,15 +324,15 @@ def main():
         record(18, "롤백", rolled_back)
 
         learning = run_regression_case(
-            "engine.test_learning_loop.LearningLoopTests."
+            "tests.integration.test_learning_loop.LearningLoopTests."
             "test_approved_sentence_runs_locally_next_time_with_saved_target"
         )
         record(19, "학습 매크로 재실행", learning["passed"], mode="isolated_integration", detail=learning)
 
         fallback_names = [
-            "engine.test_skill_fallback.SkillExecutorFallbackTests."
+            "tests.integration.test_skill_fallback.SkillExecutorFallbackTests."
             "test_target_not_found_before_mutation_allows_one_fallback",
-            "engine.test_skill_fallback.SkillExecutorFallbackTests."
+            "tests.integration.test_skill_fallback.SkillExecutorFallbackTests."
             "test_partial_execution_blocks_fallback",
         ]
         fallback_results = [run_regression_case(name) for name in fallback_names]

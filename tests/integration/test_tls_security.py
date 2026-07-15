@@ -12,8 +12,8 @@ from engine.network import (
     is_certificate_verification_error,
 )
 from engine.runtime_paths import PROJECT_ROOT
-from engine.test_ai_router import RouterDictionary
-from engine.test_llm_failures import DummyDictionary
+from tests.integration.test_ai_router import RouterDictionary
+from tests.unit.test_llm_failures import DummyDictionary
 
 
 class TLSContextTests(unittest.TestCase):
