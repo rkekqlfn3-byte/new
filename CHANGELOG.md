@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0-rc.1 — 보정 릴리스 후보
+## 1.1.0-rc.2 — 보정 릴리스 후보
 
 ### 보안과 결과 정확성
 
@@ -17,6 +17,7 @@
 - AI batch 실행을 dispatcher, action executor, 결과 aggregator로 분리
 - confirmation 생성과 학습 행동 재실행을 parser 밖의 서비스로 분리
 - Excel·HWP의 COM-free helper 및 Word·PowerPoint 확장 계약 추가
+- 동결 EXE 검증 probe를 현재 confirmation 정책과 실행 결과 구조에 맞게 갱신
 
 현재 소스의 전체 회귀, 실제 Excel·HWP, 후보 EXE 검증은 R6에서 마지막으로
 실행하며 통과 전에는 기존 실행본을 교체하지 않습니다.

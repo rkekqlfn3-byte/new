@@ -129,7 +129,8 @@ def main():
         active_result = active_object_adapter.execute(active_prepared)
         report["default_active_object_connection_verified"] = (
             active_result["verified"]
-            and active_result["after"]["value"] == "ROT 연결 확인"
+            and workbook.Worksheets("Stage3").Range("D1").Value2
+            == "ROT 연결 확인"
         )
         report["status"] = (
             "passed"

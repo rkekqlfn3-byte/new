@@ -11,7 +11,10 @@ from engine.security import BLOCKED, CONFIRMATION_REQUIRED, SAFE, DynamicCodePre
 def main():
     output = Path(sys.argv[1]).resolve()
     preflight = DynamicCodePreflight()
-    parser = CommandParser.__new__(CommandParser)
+    # Use the real packaged facade. CommandParser now delegates generated-code
+    # validation to AIActionHandler, so bypassing __init__ would test an invalid
+    # object graph instead of the frozen runtime.
+    parser = CommandParser()
     parameterless_action = {
         "target": "현재 Excel 창 제목",
         "app_name": "Excel",

@@ -47,7 +47,15 @@ def main():
         parser.pending_macros = [candidate()]
         learning_message = parser.approve_pending_learning()
 
-    result = parser.execute_command_result(UTTERANCE)
+    session_id = "exe-phase3-learning"
+    result = parser.execute_command_result(UTTERANCE, session_id=session_id)
+    if result.get("status") == "confirmation_required":
+        confirmation = (result.get("data") or {}).get("confirmation") or {}
+        result = parser.resolve_pending_confirmation(
+            session_id,
+            confirmation.get("confirmation_id"),
+            "run_once",
+        )
     reloaded = DictionaryManager()
     record = reloaded.learned_macros[APP_NAME][MACRO_NAME]
     report = {
