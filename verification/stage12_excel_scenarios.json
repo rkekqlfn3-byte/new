@@ -1,0 +1,173 @@
+{
+  "stage": 12,
+  "checked_at": "2026-07-14T21:29:00+09:00",
+  "success": true,
+  "isolation": {
+    "dispatch_ex_only": true,
+    "baseline_excel_pids_preserved": true,
+    "owned_excel_pids": [
+      27908,
+      41676,
+      42416
+    ],
+    "graceful_exit_delays": [
+      27908
+    ],
+    "forced_cleanup_pids": [
+      27908
+    ],
+    "owned_processes_left": [],
+    "temporary_directory_removed": true
+  },
+  "scenario_count": 20,
+  "passed_count": 20,
+  "scenarios": [
+    {
+      "number": 1,
+      "name": "셀 값 입력",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 2,
+      "name": "수식 입력",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 3,
+      "name": "고정값 합계 입력",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 4,
+      "name": "조건부서식",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 5,
+      "name": "직접 색칠",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 6,
+      "name": "범위 서식",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 7,
+      "name": "정렬",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 8,
+      "name": "필터·필터 해제",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 9,
+      "name": "찾기·바꾸기",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 10,
+      "name": "읽기 전용 차단",
+      "mode": "live_com",
+      "passed": true,
+      "detail": {
+        "workbook_read_only": true,
+        "blocked": true,
+        "target_value": null
+      }
+    },
+    {
+      "number": 11,
+      "name": "보호된 시트 차단",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 12,
+      "name": "중복 열 제목",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 13,
+      "name": "병합 셀",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 14,
+      "name": "출력 셀이 원본 범위에 포함",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 15,
+      "name": "여러 Excel 인스턴스",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 16,
+      "name": "확인 대기 중 문서 변경",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 17,
+      "name": "취소",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 18,
+      "name": "롤백",
+      "mode": "live_com",
+      "passed": true
+    },
+    {
+      "number": 19,
+      "name": "학습 매크로 재실행",
+      "mode": "isolated_integration",
+      "passed": true,
+      "detail": {
+        "passed": true,
+        "ran": 1,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    {
+      "number": 20,
+      "name": "fallback 허용·금지",
+      "mode": "isolated_failure_injection",
+      "passed": true,
+      "detail": [
+        {
+          "passed": true,
+          "ran": 1,
+          "failures": 0,
+          "errors": 0
+        },
+        {
+          "passed": true,
+          "ran": 1,
+          "failures": 0,
+          "errors": 0
+        }
+      ]
+    }
+  ],
+  "failures": [],
+  "duration_seconds": 19.42
+}
