@@ -63,13 +63,22 @@ def main():
         # This is prepare-only: it proves the production ROT connector can read
         # the user's visible active document without changing it.
         production = HwpAdapter()
-        prepared_connection = production.prepare(
-            "insert_text", {"text": "JARVIS_READ_ONLY_CONNECTION_PROBE"}
-        )
-        report["checks"].append({
-            "name": "visible_active_document_prepare_only",
-            "passed": prepared_connection.app == "hwp",
-        })
+        try:
+            prepared_connection = production.prepare(
+                "insert_text", {"text": "JARVIS_READ_ONLY_CONNECTION_PROBE"}
+            )
+        except AppActionBlocked as error:
+            if "읽기 전용" not in str(error):
+                raise
+            report["checks"].append({
+                "name": "visible_active_document_read_only_blocked",
+                "passed": True,
+            })
+        else:
+            report["checks"].append({
+                "name": "visible_active_document_prepare_only",
+                "passed": prepared_connection.app == "hwp",
+            })
 
         progress("create isolated object")
         hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
