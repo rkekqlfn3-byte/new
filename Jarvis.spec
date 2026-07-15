@@ -16,9 +16,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'cv2', 'numpy', 'PIL', 'tkinter', 'textual', 'pyautogui',
-        # Pythonwin's MFC UI and tracing extensions are not imported by Jarvis.
-        # Keep pythoncom/win32api/win32gui for Office COM and Windows control.
-        'win32ui', 'win32trace',
+        # Pywinauto imports win32ui from base_wrapper during normal startup.
+        # Only the standalone trace extension is unused by the runtime.
+        'win32trace',
     ],
     noarchive=False,
     optimize=1,

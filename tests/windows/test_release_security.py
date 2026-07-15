@@ -7,7 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from engine.runtime_paths import _default_user_data_dir
+from engine.startup_check import REQUIRED_MODULES
 from tests.test_runner import TEST_MODULES
+from verification.optimize_distribution import EXCLUDED_BINARIES
 from verification.release_security_audit import audit_default_data, scan_blob
 from verification.runtime_entrypoint import configure_pywin32_dlls
 
@@ -84,6 +86,13 @@ class ReleaseDefaultDataTests(unittest.TestCase):
         ).lower()
         self.assertEqual(7, script.count("verification.runtime_entrypoint"))
         self.assertIsInstance(configure_pywin32_dlls(), list)
+
+    def test_build_keeps_pywinauto_win32ui_runtime(self):
+        spec = (PROJECT_ROOT / "Jarvis.spec").read_text(encoding="utf-8")
+        self.assertNotIn("'win32ui'", spec)
+        self.assertIn("win32ui", REQUIRED_MODULES)
+        self.assertNotIn("win32ui.pyd", EXCLUDED_BINARIES)
+        self.assertIn("win32trace.pyd", EXCLUDED_BINARIES)
 
 
 class SeparatedRuntimePathTests(unittest.TestCase):

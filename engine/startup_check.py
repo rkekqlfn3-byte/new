@@ -18,6 +18,7 @@ REQUIRED_MODULES = (
     "win32con",
     "win32gui",
     "win32process",
+    "win32ui",
     "pywinauto",
 )
 REQUIRED_PATHS = (

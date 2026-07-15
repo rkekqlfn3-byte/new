@@ -15,7 +15,7 @@ REMOVABLE_METADATA_FILES = frozenset({
     "REQUESTED",
     "direct_url.json",
 })
-EXCLUDED_BINARIES = frozenset({"win32trace.pyd", "win32ui.pyd"})
+EXCLUDED_BINARIES = frozenset({"win32trace.pyd"})
 
 
 def _inside(root: Path, candidate: Path) -> bool:
