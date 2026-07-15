@@ -10,6 +10,10 @@ def resolve(owner, context):
     payload = context.payload
     requests = payload.get("requests", {})
     prepared_actions = payload.get("prepared_actions", {})
+    continuation = payload.get("continuation")
+    continuation_error = self._validate_app_command_continuation(continuation)
+    if continuation_error is not None:
+        return continuation_error
     request = requests.get(option_id, {})
     previous = None
     try:
@@ -21,6 +25,7 @@ def resolve(owner, context):
                 request,
                 session_id,
                 consumed.get("original_command", ""),
+                continuation=continuation,
             )
         current = self.app_command_router.prepare(
             request.get("target"),
@@ -40,6 +45,7 @@ def resolve(owner, context):
                 session_id,
                 consumed.get("original_command", ""),
                 execution_id=execution_id,
+                continuation=continuation,
             )
         decision = self.decision_engine.evaluate(current)
         if decision.requires_confirmation:
@@ -50,16 +56,19 @@ def resolve(owner, context):
                 session_id,
                 consumed.get("original_command", ""),
                 execution_id=execution_id,
+                continuation=continuation,
             )
-        return self.app_command_router.execute_prepared(
+        result = self.app_command_router.execute_prepared(
             current,
             confirmation_id=consumed["confirmation_id"],
         )
+        return self._complete_app_command_continuation(result, continuation)
     except AppActionError as error:
-        return self._app_action_failure(
+        result = self._app_action_failure(
             error,
             target=(
                 f"{previous.workbook_name}/{previous.sheet}/{previous.target}"
                 if isinstance(previous, PreparedAction) else None
             ),
         )
+        return self._complete_app_command_continuation(result, continuation)

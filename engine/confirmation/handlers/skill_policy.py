@@ -88,6 +88,8 @@ def resolve(owner, context):
             action="use_learned_macro",
             target=payload.get("target", ""),
             log_callback=log_callback,
+            session_id=session_id,
+            original_command=consumed.get("original_command", ""),
         )
     except SkillPreflightBlocked as error:
         return self._dynamic_preflight_failure(
@@ -138,6 +140,8 @@ def resolve(owner, context):
             retryable=getattr(error, "retryable", False),
             status=getattr(error, "status", "failed"),
         )
+    if execution_result.get("status") == "confirmation_required":
+        return execution_result
     verified = bool(execution_result.get("verified", False))
     return success_result(
         f"확인한 학습 행동 [{macro_name}]을 실행했습니다.",

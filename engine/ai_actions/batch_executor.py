@@ -111,7 +111,11 @@ class BatchExecutor:
                         target=target_val,
                         approved_fingerprints=approved_fingerprints,
                         log_callback=log_callback,
+                        session_id=session_id,
+                        original_command=user_input_str,
                     )
+                    if execution_result.get("status") == "confirmation_required":
+                        return execution_result
                     action_results.append(execution_result)
                     response += "\n\n(이거 예전에 오빠가 가르쳐준 매크로야! 0.1초만에 꺼내서 똑같이 실행했어! 🥰)"
                 except KeyError:
@@ -185,7 +189,11 @@ class BatchExecutor:
                             approved_fingerprints=approved_fingerprints,
                             log_callback=log_callback,
                             record_candidate=False,
+                            session_id=session_id,
+                            original_command=user_input_str,
                         )
+                        if execution_result.get("status") == "confirmation_required":
+                            return execution_result
                         action_results.append(execution_result)
                         response += f"\n\n(오빠! 예전에 가르쳐준 매크로 [{app_name}/{macro_name}] 에서 단어만 살짝 바꿔서 응용해 봤어! 똑똑하지? 🥰)"
                     except KeyError:

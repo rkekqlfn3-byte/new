@@ -251,7 +251,11 @@ class CommandPipeline:
                         action="use_learned_macro",
                         target=learned_macro.get("default_target", ""),
                         log_callback=log_callback,
+                        session_id=session_id,
+                        original_command=raw_user_input_str,
                     )
+                    if execution_result.get("status") == "confirmation_required":
+                        return execution_result
                     verified = bool(execution_result.get("verified", False))
                     return success_result(
                         f"사전에 등록된 동의어로 [{matched_macro}] 매크로를 실행했습니다.",

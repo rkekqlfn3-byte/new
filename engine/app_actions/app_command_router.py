@@ -216,7 +216,14 @@ class AppCommandRouter:
         labels = {"excel": "Excel", "hwp": "한글", "word": "Word", "ppt": "PowerPoint"}
         return labels.get(prepared.app, prepared.app or "앱")
 
-    def execute(self, request, session_id, original_command, log_callback=None):
+    def execute(
+        self,
+        request,
+        session_id,
+        original_command,
+        log_callback=None,
+        continuation=None,
+    ):
         """Prepare, decide, execute, and normalize one native app request."""
         prepared = None
         try:
@@ -236,7 +243,12 @@ class AppCommandRouter:
                         f"{prepared.sheet}!{prepared.target} 변경 확인 필요"
                     )
                 return self.owner._queue_prepared_action_confirmation(
-                    prepared, request, decision, session_id, original_command
+                    prepared,
+                    request,
+                    decision,
+                    session_id,
+                    original_command,
+                    continuation=continuation,
                 )
             if log_callback:
                 log_callback(
@@ -263,11 +275,19 @@ class AppCommandRouter:
             return result
         except AppActionAmbiguousTarget as error:
             return self.owner._queue_app_target_choice(
-                request, error, session_id, original_command
+                request,
+                error,
+                session_id,
+                original_command,
+                continuation=continuation,
             )
         except AppActionContextChanged:
             return self.owner._queue_changed_app_context(
-                request, prepared, session_id, original_command
+                request,
+                prepared,
+                session_id,
+                original_command,
+                continuation=continuation,
             )
         except AppActionError as error:
             auto_preference = request.get("_auto_preference")
@@ -289,6 +309,7 @@ class AppCommandRouter:
                         session_id,
                         original_command,
                         log_callback=log_callback,
+                        continuation=continuation,
                     )
             return self.failure(error)
 
@@ -300,6 +321,7 @@ class AppCommandRouter:
         original_command,
         execution_id="",
         preference_selection=None,
+        continuation=None,
     ):
         """Re-prepare a changed document and require a fresh confirmation."""
         try:
@@ -315,6 +337,7 @@ class AppCommandRouter:
                 original_command,
                 execution_id=execution_id,
                 preference_selection=preference_selection,
+                continuation=continuation,
             )
         except AppActionError as error:
             target = None

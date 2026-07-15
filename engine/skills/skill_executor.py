@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass
 
 from engine.action_executor import ActionConfirmationRequired
-from engine.execution_result import normalize_execution_result, normalize_error_type
+from engine.execution_result import (
+    failure_result,
+    normalize_execution_result,
+    normalize_error_type,
+)
 from engine.execution_runtime import ExecutionCancelled
 from engine.security import BLOCKED, CONFIRMATION_REQUIRED, SAFE
 from engine.ui_automation import UIAutomationAmbiguousTarget
@@ -17,6 +22,7 @@ from engine.skills.route_selector import (
     SkillRouteUnavailable,
 )
 from engine.skills.skill_profile import SkillProfile
+from engine.skills.run_policy import skill_policy_fingerprint
 
 
 # Failures where nothing external changed yet, so one alternate route is safe.
@@ -33,6 +39,10 @@ FALLBACK_ALLOWED_CODES = frozenset({
 _ERROR_TYPE_TO_ROUTE_CODE = {
     "target_not_found": "target_not_found",
     "environment_error": "environment_unavailable",
+}
+
+_NATIVE_OPERATION_ALIASES = {
+    ("excel", "set_cell_value"): "write_cell",
 }
 
 
@@ -52,15 +62,7 @@ class SkillStateError(SkillExecutionError):
 
 
 class SkillNativeAppActionUnsupported(SkillStateError):
-    """A stored plan carries an ``app_command`` that needs the live native path.
-
-    Replaying an ``app_command`` from a saved plan is unsafe: the native adapters
-    must inspect the live document, build a ``PreparedAction``, and clear a
-    decision/confirmation gate first (see ``AppCommandRouter``). That path is
-    session-bound and cannot be driven from a replayed skill, so this fails
-    closed with a clear message instead of the generic action-plan error. Wiring
-    learned native app commands back through the router is future expansion work.
-    """
+    """A stored native plan exceeds the single-command V1 replay contract."""
 
     route_failure_code = "app_action_requires_live_path"
     state_changed = False
@@ -274,7 +276,7 @@ class SkillExecutor:
     def _run_route(self, route, skill, params, diagnostic):
         if route == "python":
             return self._run_python_route(skill, params, diagnostic)
-        return self._run_plan_route(route, skill, params)
+        return self._run_plan_route(route, skill, params, diagnostic)
 
     @staticmethod
     def _app_command_steps(plan):
@@ -286,20 +288,85 @@ class SkillExecutor:
             if isinstance(step, dict) and step.get("action") == "app_command"
         ]
 
-    def _run_plan_route(self, route, skill, params):
+    @staticmethod
+    def _normalize_native_plan(route, plan):
+        """Convert the stored native template schema to runtime plan fields."""
+        if route != "native" or not isinstance(plan, list):
+            return plan
+        normalized = []
+        for step in plan:
+            if not isinstance(step, dict):
+                normalized.append(step)
+                continue
+            item = copy.deepcopy(step)
+            if item.get("target_app") and (
+                not item.get("action") or item.get("action") == "app_command"
+            ):
+                item.setdefault("action", "app_command")
+                item.setdefault("target", item.get("target_app"))
+                item.pop("target_app", None)
+            normalized.append(item)
+        return normalized
+
+    def _native_continuation(self, route, skill, params, diagnostic):
+        return {
+            "kind": "learned_native",
+            "app_name": params["app_name"],
+            "macro_name": params["macro_name"],
+            "skill_fingerprint": skill_policy_fingerprint(skill),
+            "route": route,
+            "slots": copy.deepcopy(dict(params["slots"] or {})),
+            "source": params["source"],
+            "record_usage": bool(params["record_usage"]),
+            "record_candidate": bool(params["record_candidate"]),
+            "verification_required": bool(params["verification_required"]),
+            "started_monotonic": params["started_monotonic"],
+            "diagnostic": copy.deepcopy(diagnostic),
+        }
+
+    def _run_native_app_command(self, route, plan, skill, params, diagnostic):
+        if len(plan) != 1 or self._app_command_steps(plan) != [1]:
+            raise SkillNativeAppActionUnsupported(
+                "V1 학습 네이티브 실행은 Excel 또는 한글 app_command 한 단계만 지원합니다."
+            )
+        rendered = self.owner.action_executor.render_plan(
+            plan, dict(params["slots"] or {})
+        )
+        step = rendered[0]
+        target = str(step.get("target") or "").strip().casefold()
+        if target not in {"excel", "hwp"}:
+            raise SkillNativeAppActionUnsupported(
+                "V1 학습 네이티브 실행 대상은 Excel 또는 한글만 지원합니다."
+            )
+        request = {
+            "action": "app_command",
+            "target": target,
+            "operation": _NATIVE_OPERATION_ALIASES.get(
+                (target, step.get("operation", "")),
+                step.get("operation", ""),
+            ),
+            "params": copy.deepcopy(step.get("params", {})),
+        }
+        return self.owner.app_command_router.execute(
+            request,
+            params["session_id"],
+            params["original_command"],
+            log_callback=params["log_callback"],
+            continuation=self._native_continuation(
+                route, skill, params, diagnostic
+            ),
+        )
+
+    def _run_plan_route(self, route, skill, params, diagnostic):
         plan = self._plan_for_route(skill, route)
         if not plan:
             raise SkillRouteUnavailable(
                 f"스킬 실행 경로 '{route}'에 필요한 실행 데이터가 없습니다."
             )
+        plan = self._normalize_native_plan(route, plan)
         if self._app_command_steps(plan):
-            # A replayed plan cannot supply the live-inspected PreparedAction that
-            # app_command requires, so fail closed with an explicit contract
-            # message rather than the generic action-plan rejection.
-            raise SkillNativeAppActionUnsupported(
-                "이 학습 작업에는 네이티브 앱 명령(app_command)이 포함되어 있어 저장된 "
-                "계획만으로는 실행할 수 없습니다. 실행할 때 앱 상태를 직접 조사해 준비·확인하는 "
-                "네이티브 명령으로 다시 요청해 주세요."
+            return self._run_native_app_command(
+                route, plan, skill, params, diagnostic
             )
         return self.owner.action_executor.execute_plan(
             plan,
@@ -409,6 +476,8 @@ class SkillExecutor:
         retry_attempts=None,
         record_usage=True,
         record_candidate=True,
+        session_id=None,
+        original_command="",
     ):
         skill = skill if isinstance(skill, dict) else self.load(app_name, macro_name)
         self._ensure_active(skill, app_name, macro_name)
@@ -438,6 +507,11 @@ class SkillExecutor:
             "record_usage": record_usage,
             "record_candidate": record_candidate,
             "verification_required": profile.verification_required,
+            "session_id": session_id,
+            "original_command": (
+                original_command or f"{app_name}/{macro_name} 학습 행동 실행"
+            ),
+            "started_monotonic": started,
         }
         diagnostic = {
             "app_name": str(app_name or "")[:100],
@@ -483,6 +557,24 @@ class SkillExecutor:
 
             try:
                 raw_result = self._run_route(route, skill, params, diagnostic)
+                normalized = normalize_execution_result(raw_result, action=route)
+                if normalized.get("status") == "confirmation_required":
+                    diagnostic["route_attempts"].append({
+                        "route": route,
+                        "status": "confirmation_required",
+                        "verified": False,
+                    })
+                    pending_diagnostic = dict(diagnostic)
+                    data = dict(normalized.get("data") or {})
+                    data["skill_execution"] = pending_diagnostic
+                    normalized["data"] = data
+                    normalized["skill_execution"] = pending_diagnostic
+                    self.owner.execution_controller.event(
+                        "skill_executor",
+                        "confirmation_required",
+                        pending_diagnostic,
+                    )
+                    return normalized
                 result = self._finish_success(
                     route, skill, params, diagnostic, raw_result, started
                 )
@@ -525,6 +617,86 @@ class SkillExecutor:
         # The chain is always non-empty; reaching here means every attempt
         # raised without qualifying for fallback and re-raised above.
         raise last_error  # pragma: no cover - defensive
+
+    def validate_native_continuation(self, continuation):
+        """Fail closed if a queued learned-native plan changed while waiting."""
+        continuation = (
+            continuation if isinstance(continuation, dict) else {}
+        )
+        app_name = continuation.get("app_name")
+        macro_name = continuation.get("macro_name")
+        try:
+            skill = self.load(app_name, macro_name)
+        except SkillNotFoundError as error:
+            return None, failure_result(
+                str(error),
+                action="learned_macro",
+                target=macro_name,
+                error_type="target_not_found",
+                status="context_changed",
+            )
+        if skill_policy_fingerprint(skill) != continuation.get(
+            "skill_fingerprint"
+        ):
+            return None, failure_result(
+                "확인하는 동안 학습 행동의 네이티브 계획이 바뀌어 실행하지 않았습니다.",
+                action="learned_macro",
+                target=macro_name,
+                error_type="validation_error",
+                status="context_changed",
+            )
+        return skill, None
+
+    def complete_native_confirmation(self, continuation, raw_result):
+        """Finish verification and usage accounting after native approval."""
+        continuation = (
+            continuation if isinstance(continuation, dict) else {}
+        )
+        skill, validation_error = self.validate_native_continuation(
+            continuation
+        )
+        if validation_error is not None:
+            return validation_error
+        app_name = continuation.get("app_name")
+        macro_name = continuation.get("macro_name")
+
+        route = continuation.get("route") or "native"
+        diagnostic = copy.deepcopy(continuation.get("diagnostic") or {})
+        params = {
+            "app_name": app_name,
+            "macro_name": macro_name,
+            "source": continuation.get("source", "confirmation_resume"),
+            "slots": copy.deepcopy(continuation.get("slots") or {}),
+            "record_usage": bool(continuation.get("record_usage", True)),
+            "record_candidate": bool(
+                continuation.get("record_candidate", False)
+            ),
+            "verification_required": bool(
+                continuation.get("verification_required", False)
+            ),
+        }
+        started = continuation.get("started_monotonic")
+        if not isinstance(started, (int, float)):
+            started = time.monotonic()
+        try:
+            return self._finish_success(
+                route, skill, params, diagnostic, raw_result, started
+            )
+        except Exception as error:  # converted to command result boundary
+            self._finish_failure(
+                route, skill, params, diagnostic, error, started
+            )
+            existing = getattr(error, "result", None)
+            if isinstance(existing, dict):
+                return existing
+            return failure_result(
+                str(error),
+                action="learned_macro",
+                target=macro_name,
+                error_type=self.owner._failure_type_for_error(error),
+                status=getattr(error, "status", "failed"),
+                data={"execution_result": raw_result},
+            )
 
     def _finish_success(self, route, skill, params, diagnostic, raw_result, started):
         normalized = normalize_execution_result(raw_result, action=route)

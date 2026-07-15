@@ -195,18 +195,34 @@ class ActionExecutor:
                     )
 
             for field in action_spec(action).get("required", ()):
-                if not step.get(field):
+                value = step.get(field)
+                if (
+                    action == "app_command"
+                    and field == "params"
+                    and "params_template" in step
+                ):
+                    value = step.get("params_template")
+                if not value:
                     return f"{prefix}의 {field} 값이 비어 있습니다."
 
             if action == "app_command":
                 if not isinstance(step.get("operation"), str):
                     return f"{prefix}의 operation은 문자열이어야 합니다."
-                if not isinstance(step.get("params"), dict):
-                    return f"{prefix}의 params는 객체 형식이어야 합니다."
-                unknown = self._nested_placeholders(step.get("params")) - allowed_slots
+                if "params" in step and "params_template" in step:
+                    return (
+                        f"{prefix}의 params와 params_template은 동시에 사용할 수 없습니다."
+                    )
+                params_template = step.get(
+                    "params_template", step.get("params")
+                )
+                if not isinstance(params_template, dict):
+                    return (
+                        f"{prefix}의 params_template은 객체 형식이어야 합니다."
+                    )
+                unknown = self._nested_placeholders(params_template) - allowed_slots
                 if unknown:
                     return (
-                        f"{prefix}의 params에 등록되지 않은 슬롯이 있습니다: "
+                        f"{prefix}의 params_template에 등록되지 않은 슬롯이 있습니다: "
                         f"{', '.join(sorted(unknown))}"
                     )
 
@@ -270,9 +286,20 @@ class ActionExecutor:
             item["keys"] = [self._render(key, slots) for key in item.get("keys", [])]
             if item.get("action") == "app_command":
                 item["operation"] = self._render(item.get("operation", ""), slots)
-                item["params"] = self._render_nested(item.get("params", {}), slots)
+                params_template = item.pop(
+                    "params_template", item.get("params", {})
+                )
+                item["params"] = self._render_nested(params_template, slots)
             rendered.append(item)
         return rendered
+
+    def render_plan(self, plan, slots=None):
+        """Validate and render a declarative plan without executing it."""
+        slots = dict(slots or {})
+        issue = self.validate_plan(plan, slot_names=slots.keys())
+        if issue:
+            raise ActionPlanError(issue)
+        return self._render_plan(plan, slots)
 
     def _resolve_registered_target(self, target):
         resolved = self._noun_index().get(str(target).strip().lower())
@@ -886,10 +913,7 @@ class ActionExecutor:
         self.ui_automation.begin_command()
         started = time.monotonic()
         slots = dict(slots or {})
-        issue = self.validate_plan(plan, slot_names=slots.keys())
-        if issue:
-            raise ActionPlanError(issue)
-        rendered = self._render_plan(plan, slots)
+        rendered = self.render_plan(plan, slots)
         if not isinstance(start_step, int) or start_step < 1 or start_step > len(rendered):
             raise ActionPlanError("재시작 단계 번호가 행동 계획 범위를 벗어났습니다.")
         if retry_attempts is not None:

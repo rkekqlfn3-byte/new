@@ -34,7 +34,8 @@ ACTION_SPECS = {
     "create_folder": _policy(1, ("execution_error", "environment_error"), required=("target",)),
     "write_text_file": _policy(required=("target", "text")),
     # Native app commands are executed only with a PreparedAction approved by
-    # the parser-side decision flow. The write itself is never auto-retried.
+    # the parser-side decision flow. ``params_template`` is the stored form and
+    # is rendered to ``params`` before preparation. Writes are never retried.
     "app_command": _policy(
         required=("target", "operation", "params"), native_action=True,
     ),

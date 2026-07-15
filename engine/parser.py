@@ -344,7 +344,12 @@ class CommandParser:
     _parse_native_hwp_save_command = staticmethod(parse_native_hwp_save_command)
 
     def _queue_app_method_choice(
-        self, request, session_id, original_command, log_callback=None
+        self,
+        request,
+        session_id,
+        original_command,
+        log_callback=None,
+        continuation=None,
     ):
         prepared_actions = {}
         requests = {}
@@ -360,7 +365,11 @@ class CommandParser:
                 requests[option_id] = candidate
             except AppActionAmbiguousTarget as error:
                 return self._queue_app_target_choice(
-                    request, error, session_id, original_command
+                    request,
+                    error,
+                    session_id,
+                    original_command,
+                    continuation=continuation,
                 )
             except AppActionError as error:
                 preparation_errors.append(error)
@@ -449,12 +458,18 @@ class CommandParser:
                 "requests": requests,
                 "prepared_actions": prepared_actions,
                 "preference_key": EXCEL_FORMAT_PREFERENCE_KEY,
+                "continuation": copy.deepcopy(continuation),
             },
         )
         return self._confirmation_result(record)
 
     def _handle_format_method_request(
-        self, request, session_id, original_command, log_callback=None
+        self,
+        request,
+        session_id,
+        original_command,
+        log_callback=None,
+        continuation=None,
     ):
         preference = self.preference_manager.decision(
             EXCEL_FORMAT_PREFERENCE_KEY
@@ -473,21 +488,33 @@ class CommandParser:
                 log_callback(
                     f"[Preference] {preferred_method} 선호를 자동 적용합니다."
                 )
-            return self._execute_native_app_command(
+            result = self._execute_native_app_command(
                 candidate,
                 session_id,
                 original_command,
                 log_callback=log_callback,
+                continuation=continuation,
+            )
+            if result.get("status") == "confirmation_required":
+                return result
+            return self._complete_app_command_continuation(
+                result, continuation
             )
         return self._queue_app_method_choice(
             request,
             session_id,
             original_command,
             log_callback=log_callback,
+            continuation=continuation,
         )
 
     def _queue_hwp_scope_choice(
-        self, request, session_id, original_command, log_callback=None
+        self,
+        request,
+        session_id,
+        original_command,
+        log_callback=None,
+        continuation=None,
     ):
         requests = {}
         prepared_actions = {}
@@ -561,12 +588,18 @@ class CommandParser:
                 "kind": "hwp_scope_choice",
                 "requests": requests,
                 "prepared_actions": prepared_actions,
+                "continuation": copy.deepcopy(continuation),
             },
         )
         return self._confirmation_result(record)
 
     def _queue_app_target_choice(
-        self, request, ambiguity, session_id, original_command
+        self,
+        request,
+        ambiguity,
+        session_id,
+        original_command,
+        continuation=None,
     ):
         candidate_requests = {}
         candidate_prepared = {}
@@ -618,6 +651,7 @@ class CommandParser:
                 "kind": "app_target_choice",
                 "requests": candidate_requests,
                 "prepared_actions": candidate_prepared,
+                "continuation": copy.deepcopy(continuation),
             },
         )
         return self._confirmation_result(record)
@@ -639,6 +673,25 @@ class CommandParser:
     def _app_action_failure(self, error, target=None):
         return self.app_command_router.failure(error, target)
 
+    def _complete_app_command_continuation(self, result, continuation=None):
+        if not isinstance(continuation, dict):
+            return result
+        if continuation.get("kind") != "learned_native":
+            return result
+        return self.skill_executor.complete_native_confirmation(
+            continuation, result
+        )
+
+    def _validate_app_command_continuation(self, continuation=None):
+        if not isinstance(continuation, dict):
+            return None
+        if continuation.get("kind") != "learned_native":
+            return None
+        _, error = self.skill_executor.validate_native_continuation(
+            continuation
+        )
+        return error
+
     def _queue_prepared_action_confirmation(
         self,
         prepared,
@@ -648,6 +701,7 @@ class CommandParser:
         original_command,
         execution_id="",
         preference_selection=None,
+        continuation=None,
     ):
         record = self.pending_confirmation_manager.create(
             session_id=normalize_session_id(session_id),
@@ -665,6 +719,7 @@ class CommandParser:
                 "request": copy.deepcopy(request),
                 "prepared_action": prepared.to_dict(),
                 "preference_selection": copy.deepcopy(preference_selection),
+                "continuation": copy.deepcopy(continuation),
             },
         )
         return self._confirmation_result(record)
@@ -677,6 +732,7 @@ class CommandParser:
         original_command,
         execution_id="",
         preference_selection=None,
+        continuation=None,
     ):
         return self.app_command_router.queue_changed_context(
             request,
@@ -685,16 +741,23 @@ class CommandParser:
             original_command,
             execution_id=execution_id,
             preference_selection=preference_selection,
+            continuation=continuation,
         )
 
     def _execute_native_app_command(
-        self, request, session_id, original_command, log_callback=None
+        self,
+        request,
+        session_id,
+        original_command,
+        log_callback=None,
+        continuation=None,
     ):
         return self.app_command_router.execute(
             request,
             session_id,
             original_command,
             log_callback=log_callback,
+            continuation=continuation,
         )
 
     @staticmethod
@@ -899,7 +962,12 @@ class CommandParser:
                 approved_fingerprints=payload.get("approval_fingerprints", []),
                 expected_code_sha256=payload.get("expected_code_sha256", ""),
                 log_callback=log_callback,
+                original_command=payload.get(
+                    "original_command", f"{app_name}/{macro_name} 확인 후 실행"
+                ),
             )
+            if execution_result.get("status") == "confirmation_required":
+                return execution_result
             verified = bool(execution_result.get("verified", False))
             return success_result(
                 f"확인한 저장 매크로 [{macro_name}]를 이번에만 실행했습니다.",

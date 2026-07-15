@@ -67,6 +67,8 @@ def resolve(owner, context):
                 target=payload.get("target", ""),
                 log_callback=log_callback,
                 start_step=failed_step,
+                session_id=session_id,
+                original_command=consumed.get("original_command", ""),
             )
         else:
             execution_result = self.action_executor.execute_plan(
@@ -101,6 +103,9 @@ def resolve(owner, context):
             retryable=getattr(error, "retryable", False),
             status=getattr(error, "status", "failed"),
         )
+
+    if execution_result.get("status") == "confirmation_required":
+        return execution_result
 
     candidate = payload.get("learning_candidate")
     if isinstance(candidate, dict):

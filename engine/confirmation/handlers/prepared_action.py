@@ -9,6 +9,10 @@ def resolve(owner, context):
     payload = context.payload
     request = payload.get("request", {})
     preference_selection = payload.get("preference_selection")
+    continuation = payload.get("continuation")
+    continuation_error = self._validate_app_command_continuation(continuation)
+    if continuation_error is not None:
+        return continuation_error
     previous = None
     try:
         previous = PreparedAction.from_dict(
@@ -33,12 +37,14 @@ def resolve(owner, context):
                 consumed.get("original_command", ""),
                 execution_id=execution_id,
                 preference_selection=preference_selection,
+                continuation=continuation,
             )
-        return self.app_command_router.execute_prepared(
+        result = self.app_command_router.execute_prepared(
             current,
             confirmation_id=consumed["confirmation_id"],
             preference_selection=preference_selection,
         )
+        return self._complete_app_command_continuation(result, continuation)
     except AppActionContextChanged:
         return self._queue_changed_app_context(
             request,
@@ -47,12 +53,14 @@ def resolve(owner, context):
             consumed.get("original_command", ""),
             execution_id=execution_id,
             preference_selection=preference_selection,
+            continuation=continuation,
         )
     except AppActionError as error:
-        return self._app_action_failure(
+        result = self._app_action_failure(
             error,
             target=(
                 f"{previous.workbook_name}/{previous.sheet}/{previous.target}"
                 if isinstance(previous, PreparedAction) else None
             ),
         )
+        return self._complete_app_command_continuation(result, continuation)
