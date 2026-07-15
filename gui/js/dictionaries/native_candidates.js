@@ -12,7 +12,9 @@ function nativeCandidateStatus(record) {
     }
     if (record.status === 'implemented') return '구현 완료';
     if (record.status === 'merged') return '기존 네이티브 기능과 병합';
-    return `관찰 중 · 정상 종료 ${record.process_success_count || 0}/${record.threshold || 3}`;
+    const successCount = safeDictionaryInteger(record.process_success_count);
+    const threshold = safeDictionaryInteger(record.threshold, 3, 1);
+    return `관찰 중 · 정상 종료 ${successCount}/${threshold}`;
 }
 
 function nativeCandidateRiskLabel(value) {
@@ -87,12 +89,22 @@ async function loadNativeActionCandidates() {
             .map(item => `${item.name}:${item.type}`)
             .join(', ') || '필수 슬롯 없음';
         const templates = (record.utterance_templates || []).join(' · ') || '개인 값이 없는 템플릿 없음';
+        const processSuccessCount = safeDictionaryInteger(record.process_success_count);
+        const threshold = safeDictionaryInteger(record.threshold, 3, 1);
+        const verifiedSuccessCount = safeDictionaryInteger(record.verified_success_count);
+        const userConfirmedCount = safeDictionaryInteger(record.user_confirmed_count);
+        const failureCount = safeDictionaryInteger(record.failure_count);
+        const distinctDocumentCount = safeDictionaryInteger(record.distinct_document_count);
         const processProgress = Math.min(
             100,
-            ((record.process_success_count || 0) / (record.threshold || 3)) * 100
+            (processSuccessCount / threshold) * 100
         );
-        const failureRate = Math.round((record.failure_rate || 0) * 1000) / 10;
-        const testObservations = (record.test_process_success_count || 0) + (record.test_failure_count || 0);
+        const rawFailureRate = Number(record.failure_rate);
+        const failureRate = Number.isFinite(rawFailureRate)
+            ? Math.min(100, Math.max(0, Math.round(rawFailureRate * 1000) / 10))
+            : 0;
+        const testObservations = safeDictionaryInteger(record.test_process_success_count)
+            + safeDictionaryInteger(record.test_failure_count);
         const spec = record.implementation_spec || {};
         const specHtml = Object.keys(spec).length ? `
             <div class="native-candidate-spec">
@@ -113,8 +125,8 @@ async function loadNativeActionCandidates() {
             </div>
             <div class="native-candidate-progress"><span style="width:${processProgress}%"></span></div>
             <div class="native-candidate-meta">
-                <span><b>정상 종료</b> ${record.process_success_count || 0}회 · <b>자동 검증 성공</b> ${record.verified_success_count || 0}회 · <b>사용자 확인</b> ${record.user_confirmed_count || 0}회</span>
-                <span><b>실패</b> ${record.failure_count || 0}회 · 실패율 ${failureRate}% · <b>서로 다른 문서</b> ${record.distinct_document_count || 0}개</span>
+                <span><b>정상 종료</b> ${processSuccessCount}회 · <b>자동 검증 성공</b> ${verifiedSuccessCount}회 · <b>사용자 확인</b> ${userConfirmedCount}회</span>
+                <span><b>실패</b> ${failureCount}회 · 실패율 ${failureRate}% · <b>서로 다른 문서</b> ${distinctDocumentCount}개</span>
                 ${testObservations ? `<span><b>테스트 관찰</b> ${testObservations}회 — 검토 준비 횟수에는 포함하지 않음</span>` : ''}
                 <span><b>실제 실행 경로</b> ${escapeDictionaryHtml(record.selected_route || 'python')} · <b>필수 슬롯</b> ${escapeDictionaryHtml(slots)}</span>
                 <span><b>위험도</b> ${nativeCandidateRiskLabel(record.risk_level)} · <b>복구 용이성</b> ${nativeCandidateReversibilityLabel(record.reversibility)} · <b>롤백 필요</b> ${record.rollback_required ? '예' : '아니요'}</span>

@@ -32,9 +32,12 @@ async function updateLearnedMacroList(filter = '') {
         card.className = 'learned-library-card';
         card.dataset.app = record.app;
         card.dataset.name = record.name;
-        const lastUsed = record.last_used_at ? record.last_used_at.replace('T', ' ') : '기록 없음';
+        const lastUsed = record.last_used_at ? String(record.last_used_at).replace('T', ' ') : '기록 없음';
         const nouns = (record.nouns || []).map(item => item.text).filter(Boolean).join(', ') || '없음';
         const slots = (record.slots || []).map(item => `${item.name}=${item.value}`).join(', ') || '없음';
+        const verifiedSuccessCount = safeDictionaryInteger(record.verified_success_count);
+        const consecutiveSuccess = safeDictionaryInteger(record.consecutive_verified_success);
+        const stepCount = safeDictionaryInteger(record.step_count, 0, 0, 10000);
         card.innerHTML = `
             <div class="learned-library-heading">
                 <div>
@@ -43,7 +46,7 @@ async function updateLearnedMacroList(filter = '') {
                 </div>
                 <span class="learning-status">${escapeDictionaryHtml(learnedStateLabel(record.state))} · ${escapeDictionaryHtml(learnedVerificationLabel(record.verification_status))} · ${escapeDictionaryHtml(learnedRunPolicyLabel(record.run_policy))}</span>
             </div>
-            <div class="learned-library-stats">${escapeDictionaryHtml(learnedStatusText(record))}<br>자동 검증 성공 ${record.verified_success_count || 0}회 · 연속 ${record.consecutive_verified_success || 0}회 · 마지막 사용: ${escapeDictionaryHtml(lastUsed)}</div>
+            <div class="learned-library-stats">${escapeDictionaryHtml(learnedStatusText(record))}<br>자동 검증 성공 ${verifiedSuccessCount}회 · 연속 ${consecutiveSuccess}회 · 마지막 사용: ${escapeDictionaryHtml(lastUsed)}</div>
             <label>매크로 이름<input class="premium-input learned-library-name" value="${escapeDictionaryHtml(record.name)}"></label>
             <label>발동 문장 — 한 줄에 하나<textarea class="premium-input learned-library-utterances" rows="4">${escapeDictionaryHtml((record.utterances || []).join('\n'))}</textarea></label>
             <label>핵심 동사 — 쉼표로 구분<input class="premium-input learned-library-verbs" value="${escapeDictionaryHtml((record.verbs || []).join(', '))}"></label>
@@ -62,7 +65,7 @@ async function updateLearnedMacroList(filter = '') {
             <div class="learning-review-error" aria-live="polite"></div>
             <div class="learned-library-actions">
                 <button class="premium-btn primary btn-save-learned">수정 저장</button>
-                ${record.step_count ? `<input class="premium-input learned-retry-step" type="number" min="1" max="${record.step_count}" value="1" title="재시작 단계"><button class="premium-btn btn-retry-learned">단계부터 재시도</button>` : ''}
+                ${stepCount ? `<input class="premium-input learned-retry-step" type="number" min="1" max="${stepCount}" value="1" title="재시작 단계"><button class="premium-btn btn-retry-learned">단계부터 재시도</button>` : ''}
                 <button class="premium-btn warning btn-delete-learned">완전 삭제</button>
             </div>`;
         learnedMacroListDiv.appendChild(card);

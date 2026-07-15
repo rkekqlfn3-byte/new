@@ -91,5 +91,37 @@ class ChatSanitizationTests(unittest.TestCase):
         self.assertIn("image.addEventListener('click'", self.chat)
 
 
+class DictionaryDomSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.macros = read_gui_script("dictionaries/macros.js")
+        self.actions = read_gui_script("dictionaries/action_dictionary.js")
+        self.learned = read_gui_script("dictionaries/learned_skills.js")
+        self.candidates = read_gui_script("dictionaries/native_candidates.js")
+
+    def test_action_errors_are_inserted_as_text(self):
+        self.assertIn("error.textContent", self.actions)
+        self.assertIn("actionDictList.replaceChildren(error)", self.actions)
+        self.assertNotIn("${e.message}", self.actions)
+        self.assertNotIn("itemDiv.innerHTML", self.actions)
+
+    def test_dictionary_numeric_values_are_normalized_before_templates(self):
+        self.assertIn("function safeDictionaryInteger(", self.macros)
+        self.assertIn(
+            "safeDictionaryInteger(record.step_count", self.learned
+        )
+        self.assertNotIn("${record.step_count}", self.learned)
+        for field in (
+            "process_success_count", "verified_success_count",
+            "user_confirmed_count", "failure_count", "distinct_document_count",
+        ):
+            self.assertIn(f"safeDictionaryInteger(record.{field}", self.candidates)
+
+    def test_dictionary_strings_use_text_nodes_or_escaping(self):
+        self.assertIn("name.textContent = macro", self.actions)
+        self.assertIn("codeBox.textContent = data.description", self.actions)
+        self.assertIn("escapeDictionaryHtml(record.description", self.learned)
+        self.assertIn("escapeDictionaryHtml(record.description", self.candidates)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

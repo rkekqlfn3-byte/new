@@ -22,6 +22,12 @@ function escapeDictionaryHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function safeDictionaryInteger(value, fallback = 0, min = 0, max = 1000000) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(max, Math.max(min, Math.trunc(numeric)));
+}
+
 async function updateMacroList() {
     if (!macroListDiv) return;
     macroListDiv.innerHTML = '';
