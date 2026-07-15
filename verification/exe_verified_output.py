@@ -8,6 +8,10 @@ import sys
 import tempfile
 from unittest.mock import patch
 
+
+_ISOLATED_DATA = tempfile.TemporaryDirectory(prefix="jarvis-exe-verified-data-")
+os.environ["JARVIS_DATA_DIR"] = _ISOLATED_DATA.name
+
 from engine.execution_result import success_result
 from engine.macro_runner import MacroRunner
 from engine.parser import CommandParser
@@ -36,10 +40,19 @@ def main():
         verification_status="confirmation_required",
     )
     with (
-        patch.object(parser.action_executor, "execute_plan", return_value=plan_result),
+        patch.object(
+            parser.action_executor, "execute_plan", return_value=plan_result
+        ),
         patch.object(parser.dict_mgr, "record_learned_macro_result"),
     ):
-        learned_result = parser.execute_command_result("검증 테스트 실행")
+        waiting = parser.execute_command_result(
+            "검증 테스트 실행", session_id="exe-verified-output"
+        )
+        learned_result = parser.resolve_pending_confirmation(
+            "exe-verified-output",
+            waiting["data"]["confirmation"]["confirmation_id"],
+            "run_once",
+        )
     leftovers = sorted(set(glob.glob(pattern)) - before)
     report = {
         "success": result["success"],
@@ -51,7 +64,12 @@ def main():
         "stderr_length": len(result["stderr"]),
         "learned_success": learned_result["success"],
         "learned_verified": learned_result["verified"],
-        "learned_verification_status": learned_result["verification_status"],
+        "learned_status": learned_result.get("status"),
+        "learned_action": learned_result.get("action"),
+        "learned_message": learned_result.get("message"),
+        "learned_verification_status": learned_result.get(
+            "verification_status", ""
+        ),
         "temporary_leftovers": leftovers,
     }
     report["all_passed"] = (
@@ -64,7 +82,8 @@ def main():
         and report["stderr_length"] <= 4000
         and report["learned_success"]
         and not report["learned_verified"]
-        and report["learned_verification_status"] == "confirmation_required"
+        and report["learned_verification_status"]
+        == "manual_confirmation_required"
         and not leftovers
     )
     rendered = json.dumps(report, ensure_ascii=False, indent=2)

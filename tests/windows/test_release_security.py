@@ -94,6 +94,12 @@ class ReleaseDefaultDataTests(unittest.TestCase):
         self.assertNotIn("win32ui.pyd", EXCLUDED_BINARIES)
         self.assertIn("win32trace.pyd", EXCLUDED_BINARIES)
 
+    def test_frozen_worker_dispatch_precedes_user_data_imports(self):
+        source = (PROJECT_ROOT / "jarvis_app.py").read_text(encoding="utf-8")
+        dispatch = source.index("if is_macro_worker():")
+        self.assertLess(dispatch, source.index("from engine.logging_config"))
+        self.assertLess(dispatch, source.index("from engine.runtime_paths"))
+
 
 class SeparatedRuntimePathTests(unittest.TestCase):
     def test_explicit_data_override_is_used_for_source_and_exe(self):
