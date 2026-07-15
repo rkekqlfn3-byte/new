@@ -74,15 +74,43 @@ class WindowsBuiltinIntegrationTests(unittest.TestCase):
         self.assertEqual(expected, fake_user32.keybd_event.call_args_list)
 
     def test_shutdown_and_cancel_use_expected_windows_commands(self):
-        with mock.patch("engine.builtins.os.system", return_value=0) as system:
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch("engine.builtins.subprocess.run", return_value=completed) as run:
             shutdown_response = self.builtins.handle_shutdown()
             cancel_response = self.builtins.handle_cancel_shutdown()
 
-        self.assertEqual([mock.call("shutdown /s /t 60"), mock.call("shutdown /a")], system.call_args_list)
+        self.assertEqual(2, run.call_count)
+        self.assertEqual(["shutdown.exe", "/s", "/t", "60"], run.call_args_list[0].args[0])
+        self.assertEqual(["shutdown.exe", "/a"], run.call_args_list[1].args[0])
+        for call in run.call_args_list:
+            self.assertFalse(call.kwargs["shell"])
         self.assertTrue(shutdown_response["message"].strip())
         self.assertTrue(cancel_response["message"].strip())
         self.assertTrue(shutdown_response["success"])
         self.assertTrue(cancel_response["success"])
+        self.assertTrue(shutdown_response["verified"])
+        self.assertTrue(cancel_response["verified"])
+
+    def test_shutdown_failure_is_not_reported_as_success(self):
+        completed = subprocess.CompletedProcess(
+            [], 5, stdout="", stderr="Access is denied"
+        )
+        with mock.patch("engine.builtins.subprocess.run", return_value=completed):
+            response = self.builtins.handle_shutdown()
+
+        self.assertFalse(response["success"])
+        self.assertEqual("execution_error", response["error_type"])
+        self.assertEqual(5, response["data"]["returncode"])
+
+    def test_shutdown_process_error_is_not_reported_as_success(self):
+        with mock.patch(
+            "engine.builtins.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("shutdown.exe", 10),
+        ):
+            response = self.builtins.handle_cancel_shutdown()
+
+        self.assertFalse(response["success"])
+        self.assertEqual("environment_error", response["error_type"])
 
 
 if __name__ == "__main__":

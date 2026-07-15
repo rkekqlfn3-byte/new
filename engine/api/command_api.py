@@ -31,7 +31,6 @@ _NON_OWNING_CONFIRMATION_STATUSES = frozenset({
 
 
 def _log_to_terminal(msg):
-    print(msg)
     logger.info("%s", msg)
     try:
         eel.log_terminal(msg)()
@@ -163,7 +162,7 @@ def _resolve_confirmation_request(
 @eel.expose
 def parse_command(user_input, image_data=None, mode="command", use_api=False, summary="", conversation_state=None, session_id=None):
     parser = _get_parser()
-    print(f"[Python] Received command (Mode: {mode}, API: {use_api})")
+    logger.info("Received command mode=%s api=%s", mode, bool(use_api))
     session_id = normalize_session_id(session_id)
     if mode == "command" and parser.get_pending_confirmation(session_id):
         return _resolve_confirmation_request(
@@ -396,6 +395,6 @@ def summarize_memory(current_summary, old_messages):
             "success": True,
             "summary": summary_text
         }
-    except Exception as e:
-        print(f"Error in summarize_memory: {e}")
+    except Exception:
+        logger.exception("대화 메모리 요약 실패")
         return {"success": False, "summary": current_summary}

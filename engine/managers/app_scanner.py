@@ -1,7 +1,11 @@
+import logging
 import os
 import re
 import winreg
 import time
+
+
+logger = logging.getLogger(__name__)
 
 COMMON_APP_MAP = {
     "bandizip": "반디집",
@@ -115,8 +119,8 @@ def scan_windows_apps(noun_dict):
                         continue
             except OSError:
                 continue
-    except Exception as e:
-        print(f"Error scanning registry apps: {e}")
+    except Exception as error:
+        logger.warning("레지스트리 앱 검색 실패: %s", error)
 
     # 1.5 Deep Scan Program Files for .exe
     try:
@@ -142,8 +146,8 @@ def scan_windows_apps(noun_dict):
                         if clean_name not in noun_dict:
                             noun_dict[clean_name] = full_path
                             apps_found += 1
-    except Exception as e:
-        print(f"Error scanning Program Files: {e}")
+    except Exception as error:
+        logger.warning("Program Files 앱 검색 실패: %s", error)
 
     # 2. Scan Start Menu & Desktop for shortcuts (.lnk)
     try:
@@ -173,8 +177,8 @@ def scan_windows_apps(noun_dict):
                         ):
                             noun_dict[clean_name] = full_path
                             apps_found += 1
-    except Exception as e:
-        print(f"Error scanning shortcuts: {e}")
+    except Exception as error:
+        logger.warning("바로가기 앱 검색 실패: %s", error)
         
     return apps_found
 
@@ -210,7 +214,7 @@ def scan_recent_windows_apps(noun_dict, hours=24):
                             ):
                                 noun_dict[clean_name] = full_path
                                 apps_found += 1
-    except Exception as e:
-        print(f"Error scanning recent apps: {e}")
+    except Exception as error:
+        logger.warning("최근 앱 검색 실패: %s", error)
         
     return apps_found

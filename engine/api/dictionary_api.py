@@ -1,5 +1,10 @@
+import logging
+
 import eel
 from engine.core import get_dict_manager, get_parser
+
+
+logger = logging.getLogger(__name__)
 
 @eel.expose
 def scan_apps(force=False):
@@ -127,7 +132,7 @@ def restart_jarvis():
     import sys
     import os
     import subprocess
-    print("[System] 앱 재시작. 전체 프로세스를 종료하고 다시 시작합니다...")
+    logger.info("앱 재시작 요청을 처리합니다")
     command = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable] + sys.argv
     subprocess.Popen(command)
     os._exit(0)

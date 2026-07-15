@@ -1,7 +1,11 @@
 import json
+import logging
 import os
 import re
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 
 PROFILE_DIR_RE = re.compile(r"^Profile (\d+)$", re.IGNORECASE)
@@ -66,7 +70,7 @@ def scan_chrome_bookmarks(noun_dict, user_data_dir=None):
             with open(bookmark_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
         except (OSError, json.JSONDecodeError) as error:
-            print(f"Error scanning Chrome profile {profile_name}: {error}")
+            logger.warning("Chrome 프로필 북마크 검색 실패 profile=%s: %s", profile_name, error)
             continue
 
         roots = data.get("roots", {})

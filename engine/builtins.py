@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 import urllib.parse
@@ -12,6 +13,10 @@ import win32process
 import win32con
 from engine.hotkeys import press_hotkey
 from engine.execution_result import failure_result, normalize_execution_result, success_result
+
+
+logger = logging.getLogger(__name__)
+
 
 class BuiltinMacros:
     _BLOCKED_COMMAND_EXECUTABLES = frozenset({
@@ -185,8 +190,8 @@ class BuiltinMacros:
                     target_exe_name = os.path.basename(resolved_path).lower().replace(".exe", "")
                 else:
                     target_exe_name = app_name
-            except Exception as e:
-                print(f"Error resolving lnk: {e}")
+            except Exception as error:
+                logger.debug("바로가기 대상을 확인하지 못했습니다: %s", error)
                 target_exe_name = app_name
         else:
             target_exe_name = os.path.basename(app_path).lower().replace(".exe", "")
@@ -215,9 +220,35 @@ class BuiltinMacros:
         win32gui.EnumWindows(enum_window_callback, target_pids)
 
         if not target_hwnds:
+            failed_pids = []
             for pid in target_pids:
-                try: psutil.Process(pid).kill()
-                except: pass
+                try:
+                    psutil.Process(pid).kill()
+                except psutil.NoSuchProcess:
+                    continue
+                except (psutil.AccessDenied, OSError) as error:
+                    failed_pids.append(pid)
+                    logger.debug(
+                        "백그라운드 프로세스 종료 실패 pid=%s: %s", pid, error
+                    )
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                if not any(psutil.pid_exists(pid) for pid in target_pids):
+                    break
+                time.sleep(0.1)
+            failed_pids.extend(
+                pid for pid in target_pids if psutil.pid_exists(pid)
+            )
+            failed_pids = sorted(set(failed_pids))
+            if failed_pids:
+                return failure_result(
+                    "창이 없는 백그라운드 프로세스를 종료하지 못했습니다.",
+                    action="close_app",
+                    target=app_name,
+                    error_type="environment_error",
+                    retryable=False,
+                    data={"failed_pids": failed_pids},
+                )
             return success_result(
                 "창이 없는 백그라운드 프로세스라 강제로 종료했습니다.",
                 action="close_app", target=app_name, verified=True,
@@ -294,16 +325,64 @@ class BuiltinMacros:
         ctypes.windll.user32.keybd_event(0xAD, 0, 0, 0)
         return success_result("음소거 설정을 변경했습니다.", action="mute", verified=False)
 
+    @staticmethod
+    def _run_shutdown_command(arguments, *, action, success_message):
+        try:
+            completed = subprocess.run(
+                ["shutdown.exe", *arguments],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                shell=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            logger.warning("Windows 종료 명령 실행 실패 action=%s: %s", action, error)
+            return failure_result(
+                f"Windows 종료 명령을 실행하지 못했습니다: {error}",
+                action=action,
+                error_type="environment_error",
+                retryable=False,
+            )
+
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            logger.warning(
+                "Windows 종료 명령 거부 action=%s code=%s detail=%s",
+                action,
+                completed.returncode,
+                detail,
+            )
+            message = "Windows가 종료 명령을 처리하지 못했습니다."
+            if detail:
+                message = f"{message} {detail}"
+            return failure_result(
+                message,
+                action=action,
+                error_type="execution_error",
+                retryable=False,
+                data={"returncode": completed.returncode},
+            )
+
+        return success_result(success_message, action=action, verified=True)
+
     def handle_shutdown(self, *args):
-        os.system("shutdown /s /t 60")
-        return success_result(
-            "60초 뒤에 컴퓨터가 종료되도록 예약했습니다. 취소하려면 '취소해'라고 말씀해 주세요.",
-            action="shutdown", verified=False,
+        return self._run_shutdown_command(
+            ["/s", "/t", "60"],
+            action="shutdown",
+            success_message=(
+                "60초 뒤에 컴퓨터가 종료되도록 예약했습니다. "
+                "취소하려면 '취소해'라고 말씀해 주세요."
+            ),
         )
 
     def handle_cancel_shutdown(self, *args):
-        os.system("shutdown /a")
-        return success_result("종료 예약을 취소했습니다.", action="cancel_shutdown", verified=False)
+        return self._run_shutdown_command(
+            ["/a"],
+            action="cancel_shutdown",
+            success_message="종료 예약을 취소했습니다.",
+        )
 
     def handle_time(self, *args):
         now = datetime.now()
