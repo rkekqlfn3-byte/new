@@ -1,0 +1,180 @@
+/* ===================================================
+   READABILITY & CONSISTENCY PASS
+   =================================================== */
+body {
+    font-size: 15px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+    outline: 3px solid rgba(108, 92, 231, 0.28);
+    outline-offset: 2px;
+}
+
+/* Header controls share one visual rhythm. */
+.app-header {
+    min-height: 80px;
+    padding: 13px 20px;
+    background: rgba(255, 255, 255, 0.97);
+    border-bottom: 1px solid #dde3ee;
+}
+
+.header-title {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 1.45rem;
+    line-height: 1.25;
+}
+
+.header-right {
+    gap: 10px;
+}
+
+.api-toggle-container,
+.header-actions .btn {
+    min-height: 44px;
+}
+
+.api-toggle-container {
+    padding: 7px 14px;
+    border-color: #dce2ec;
+    background: #f7f8fc;
+}
+
+.api-label {
+    font-size: 0.9rem;
+    color: #475569;
+}
+
+.header-actions .btn {
+    min-width: 108px;
+    padding: 10px 15px;
+    border-radius: 14px;
+    font-size: 0.9rem;
+}
+
+/* Sidebar navigation and history. */
+.sidebar {
+    padding: 16px;
+    border-right-color: #dfe5ef;
+}
+
+.sidebar-tabs {
+    gap: 4px;
+    padding: 5px;
+    background: #edf1f7;
+}
+
+.sidebar-tab {
+    min-height: 42px;
+    padding: 9px 6px;
+    font-size: 0.9rem;
+    color: #4b596c;
+}
+
+#btn-new-chat,
+#btn-save-memory {
+    min-height: 46px;
+    font-size: 0.95rem;
+    background: #ffffff;
+    color: var(--text-dark);
+    border: 1px solid #d8dfeb;
+    box-shadow: var(--shadow-sm);
+}
+
+#btn-save-memory {
+    background: var(--primary-gradient);
+    color: #ffffff;
+    border-color: transparent;
+}
+
+.session-item {
+    min-height: 58px;
+    padding: 11px 12px;
+    border-color: #e1e6ef;
+}
+
+.session-title {
+    font-size: 0.92rem;
+    line-height: 1.35;
+}
+
+.session-date {
+    color: #66758a;
+    font-size: 0.75rem;
+}
+
+/* Conversation content. */
+#chat-area {
+    padding: clamp(20px, 3vw, 30px);
+    gap: 18px;
+}
+
+.message {
+    max-width: 82%;
+}
+
+.message.system-date {
+    margin: 4px 0 12px;
+    padding: 6px 16px;
+    background: #eceafd;
+    color: #5144ad;
+    border: 1px solid #ddd9fb;
+    font-size: 0.82rem;
+}
+
+/* P0-4: 에러 격리 라인 — AI 컨텍스트에 포함되지 않음 */
+.system-error-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    align-self: center;
+    margin: 6px auto;
+    padding: 7px 16px;
+    background: rgba(255, 80, 80, 0.08);
+    border: 1px solid rgba(255, 80, 80, 0.3);
+    border-radius: 20px;
+    font-size: 0.82rem;
+    color: #e05555;
+    max-width: 80%;
+    text-align: center;
+    animation: fadeIn 0.3s ease;
+}
+.system-error-line .error-detail {
+    color: #aaa;
+    font-size: 0.78rem;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sender-name {
+    color: #526174;
+    font-size: 0.86rem;
+}
+
+.bubble {
+    padding: 13px 17px;
+    font-size: 1rem;
+    line-height: 1.62;
+    border: 1px solid #e4e8f0;
+    box-shadow: 0 3px 12px rgba(31, 41, 55, 0.07);
+}
+
+.message.outgoing .bubble {
+    border-color: transparent;
+}

@@ -1,0 +1,176 @@
+/* ===================================================
+   RESPONSIVE OPTIMIZATIONS (반응형 대응)
+   =================================================== */
+@media screen and (max-width: 768px) {
+    /* 1. 말풍선 텍스트 넘침 방지 */
+    .message .bubble {
+        word-break: break-word;
+        white-space: pre-wrap;
+        max-width: 100%;
+        overflow-wrap: break-word;
+    }
+
+    /* 2. 모달 내 그리드 강제 세로화 (1열) */
+    /* 3. 상단 헤더 반응형 */
+    #header-name {
+        font-size: 1.1em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 150px;
+    }
+
+    /* 4. 모달창 크기 유동적 조절 */
+    .premium-modal-content {
+        width: 95% !important;
+        margin: 5% auto !important;
+        padding: 20px !important;
+    }
+
+    /* 5. 텍스트 입력창 너비 고정 해제 */
+    input.premium-input, textarea.premium-input, select.premium-input {
+        width: 100% !important;
+        box-sizing: border-box;
+    }
+}
+
+
+/* ===================================================
+   CHAT MODE: EMOTIONS, LOVE METER, INNER THOUGHTS
+   =================================================== */
+
+/* Love Meter Floating Animation */
+@keyframes floatUp {
+    0% { transform: translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateY(-30px) scale(1.5); opacity: 0; }
+}
+.love-floating {
+    position: absolute;
+    color: #ff9ff3;
+    font-weight: bold;
+    font-size: 1.2em;
+    pointer-events: none;
+    animation: floatUp 1.5s ease-out forwards;
+    text-shadow: 0 0 5px rgba(255,105,180,0.8);
+}
+
+/* Conversation Status Bar */
+.conversation-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    margin: 0 8px 4px;
+    background: rgba(108, 92, 231, 0.12);
+    border: 1px solid rgba(108, 92, 231, 0.25);
+    border-radius: 12px;
+    font-size: 0.85em;
+    flex-shrink: 0;
+}
+.love-meter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+    padding: 4px 12px;
+    background: rgba(255, 105, 180, 0.15);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 105, 180, 0.3);
+}
+.love-meter .love-icon {
+    animation: pulse 2s ease-in-out infinite;
+}
+#love-meter-score {
+    font-weight: bold;
+    color: #ff9ff3;
+    min-width: 24px;
+    text-align: center;
+}
+.location-display {
+    color: #a29bfe;
+    font-style: italic;
+}
+.emotion-display {
+    color: #fdcb6e;
+}
+
+/* Pulse animation for the heart */
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+}
+
+/* Inner Thought Bubble */
+.inner-thought {
+    display: block;
+    margin: 8px 0;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 15px;
+    border-top-left-radius: 0px;
+    font-style: italic;
+    color: #dcdde1;
+    font-size: 0.9em;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+}
+.incoming .inner-thought {
+    background: rgba(108, 92, 231, 0.1);
+    border-color: rgba(108, 92, 231, 0.3);
+}
+
+/* Emotion Filters */
+.emotion-happy {
+    animation: happyBounce 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    box-shadow: 0 0 15px rgba(253, 203, 110, 0.6) !important;
+    border-color: #fdcb6e !important;
+}
+@keyframes happyBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+.emotion-sad {
+    filter: grayscale(40%) sepia(20%) hue-rotate(180deg) brightness(0.8);
+    box-shadow: 0 0 10px rgba(9, 132, 227, 0.4) !important;
+}
+
+.emotion-angry {
+    animation: angryShake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+    box-shadow: 0 0 20px rgba(214, 48, 49, 0.8) !important;
+    border-color: #d63031 !important;
+}
+@keyframes angryShake {
+    10%, 90% { transform: translate3d(-2px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+.emotion-blush {
+    animation: blushFloat 2s ease-in-out infinite;
+    box-shadow: 0 0 15px rgba(253, 121, 168, 0.8) !important;
+    border-color: #fd79a8 !important;
+    /* Optional: add a slight pink tint using pseudo element or filter */
+}
+@keyframes blushFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+/* Dynamic Background Container */
+body {
+    transition: background-image 1.5s ease-in-out;
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+}
+#chat-area {
+    /* Keep the main conversation surface clean unless a dedicated scene view is open. */
+    background: #ffffff;
+    border-radius: 0;
+    padding: 24px;
+}
+
+/* Character keyword generator */
