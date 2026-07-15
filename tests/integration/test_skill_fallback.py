@@ -285,7 +285,7 @@ class SkillExecutorFallbackTests(unittest.TestCase):
         candidate_success.assert_not_called()
         candidate_failure.assert_called_once()
 
-    def test_returned_confirmation_is_not_counted_as_success(self):
+    def test_returned_confirmation_stays_pending_without_usage_record(self):
         skill = {"state": "active", "code": "print(1)",
                  "verification_status": "user_confirmed",
                  "learning": {"intent": "CONFIRM_RETURN", "slots": []}}
@@ -298,13 +298,15 @@ class SkillExecutorFallbackTests(unittest.TestCase):
             self.parser.dict_mgr, "record_learned_macro_result",
         ) as record, mock.patch.object(
             self.parser.candidate_recording_service, "record_success",
-        ) as candidate_success:
-            with self.assertRaises(Exception):
-                self.executor.execute("시스템", "확인반환", skill=skill)
+        ) as candidate_success, mock.patch.object(
+            self.parser.candidate_recording_service, "record_failure",
+        ) as candidate_failure:
+            result = self.executor.execute("시스템", "확인반환", skill=skill)
+        self.assertEqual("confirmation_required", result["status"])
+        self.assertFalse(result["success"])
         candidate_success.assert_not_called()
-        record.assert_called_once_with(
-            "시스템", "확인반환", False, "execution_error"
-        )
+        candidate_failure.assert_not_called()
+        record.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@ class ReleaseDefaultDataTests(unittest.TestCase):
         script = (PROJECT_ROOT / "build_dist.bat").read_text(
             encoding="utf-8"
         ).lower()
-        self.assertEqual(5, script.count("verification.runtime_entrypoint"))
+        self.assertEqual(7, script.count("verification.runtime_entrypoint"))
         self.assertIsInstance(configure_pywin32_dlls(), list)
 
 

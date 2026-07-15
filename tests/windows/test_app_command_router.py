@@ -119,7 +119,12 @@ class AppCommandRouterTests(unittest.TestCase):
         self.assertEqual("confirmation_required", result["status"])
         self.assertEqual([], adapter.execute_calls)
         owner._queue_prepared_action_confirmation.assert_called_once_with(
-            adapter.prepared, request, decision, "session-b", "원본 명령"
+            adapter.prepared,
+            request,
+            decision,
+            "session-b",
+            "원본 명령",
+            continuation=None,
         )
 
     def test_unsupported_app_returns_common_blocked_result(self):

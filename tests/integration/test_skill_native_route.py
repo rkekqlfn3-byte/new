@@ -1,11 +1,11 @@
 """Contract tests for replaying learned native/UIA skills.
 
-Two guarantees:
+Three guarantees:
 1. A learned skill that only stores ``native_plan``/``uia_plan`` (no explicit
    execution_profile) selects that route instead of failing route selection.
-2. A stored plan that carries an ``app_command`` step fails closed with a clear
-   contract message, because replaying it cannot supply the live-inspected
-   PreparedAction the native adapters require.
+2. A single Excel/HWP ``app_command`` is replayed through the live native
+   command router, including the legacy operation alias.
+3. A compound native plan still fails closed and never falls back.
 """
 
 import os
@@ -110,8 +110,8 @@ class LearnedNativeRouteTests(unittest.TestCase):
             "action_plan", result["data"]["skill_execution"]["selected_route"]
         )
 
-    # 4. Contract: an app_command in a stored plan fails closed and clearly.
-    def test_app_command_in_stored_plan_is_rejected_with_clear_contract(self):
+    # 4. A single stored app_command is replayed through the live native route.
+    def test_single_app_command_replays_through_native_router(self):
         skill = {
             "state": "active",
             "native_plan": self._app_command_plan(),
@@ -119,20 +119,25 @@ class LearnedNativeRouteTests(unittest.TestCase):
         }
         with mock.patch.object(
             self.parser.action_executor, "execute_plan",
-        ) as run:
-            with self.assertRaises(SkillNativeAppActionUnsupported) as raised:
-                self.executor.execute("엑셀", "네이티브앱", skill=skill)
+        ) as run, mock.patch.object(
+            self.parser.app_command_router, "execute",
+            return_value=_verified(action="excel_native"),
+        ) as native_run:
+            result = self.executor.execute("엑셀", "네이티브앱", skill=skill)
         run.assert_not_called()
-        self.assertEqual("validation_error", raised.exception.error_type)
-        self.assertFalse(raised.exception.state_changed)
-        self.assertIn("app_command", str(raised.exception))
+        native_run.assert_called_once()
+        request = native_run.call_args.args[0]
+        self.assertEqual("excel", request["target"])
+        self.assertEqual("write_cell", request["operation"])
+        self.assertEqual({"cell": "A1", "value": "10"}, request["params"])
+        self.assertTrue(result["success"])
 
-    # 5. The contract failure never triggers a fallback route.
-    def test_app_command_rejection_does_not_fall_back(self):
+    # 5. A compound native plan exceeds the V1 contract and never falls back.
+    def test_compound_app_command_rejection_does_not_fall_back(self):
         skill = {
             "state": "active",
-            "native_plan": self._app_command_plan(),
-            "uia_plan": self._app_command_plan(),
+            "native_plan": self._app_command_plan() + self._deterministic_step(),
+            "uia_plan": self._deterministic_step(),
             "execution_profile": {
                 "primary_route": "native",
                 "fallback_routes": ["uia"],
@@ -142,10 +147,16 @@ class LearnedNativeRouteTests(unittest.TestCase):
         }
         with mock.patch.object(
             self.parser.action_executor, "execute_plan",
-        ) as run:
-            with self.assertRaises(SkillNativeAppActionUnsupported):
+        ) as run, mock.patch.object(
+            self.parser.app_command_router, "execute",
+        ) as native_run:
+            with self.assertRaises(SkillNativeAppActionUnsupported) as raised:
                 self.executor.execute("엑셀", "폴백앱", skill=skill)
         run.assert_not_called()
+        native_run.assert_not_called()
+        self.assertEqual("validation_error", raised.exception.error_type)
+        self.assertFalse(raised.exception.state_changed)
+        self.assertIn("한 단계만", str(raised.exception))
 
 
 if __name__ == "__main__":

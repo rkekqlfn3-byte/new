@@ -93,7 +93,7 @@ class CommandPipeline:
         user_input_str = raw_user_input_str.lower()
 
         # Check if waiting for learning approval
-        if getattr(self, "pending_macros", []):
+        if getattr(parser, "pending_macros", []):
             approval_words = {"예", "네", "y", "yes", "응", "학습", "저장", "맞아", "그래", "ㅇㅇ", "ㅇ"}
             rejection_words = {"아니", "아니오", "아니요", "틀렸어", "취소", "버려", "ㄴㄴ", "ㄴ", "하지마"}
             if user_input_str in approval_words:
