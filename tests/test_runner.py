@@ -23,6 +23,7 @@ TEST_GROUPS = {
         "tests.unit.test_learning_schema",
         "tests.unit.test_llm_failures",
         "tests.unit.test_native_candidate_workflow",
+        "tests.unit.test_office_helpers",
         "tests.unit.test_ui_persistence_refresh",
     ),
     "integration": (

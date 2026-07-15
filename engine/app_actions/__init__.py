@@ -12,6 +12,7 @@ from engine.app_actions.base import (
 )
 from engine.app_actions.registry import AppActionRegistry
 from engine.app_actions.app_command_router import AppCommandRouter
+from engine.app_actions.contracts import NativeAppAdapter, OfficeExtensionContract
 
 __all__ = [
     "AppActionAmbiguousTarget",
@@ -23,5 +24,7 @@ __all__ = [
     "AppActionRegistry",
     "AppActionUnavailable",
     "AppActionVerificationError",
+    "NativeAppAdapter",
+    "OfficeExtensionContract",
     "PreparedAction",
 ]

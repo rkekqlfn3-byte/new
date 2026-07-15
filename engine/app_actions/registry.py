@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from engine.app_actions.base import AppActionBlocked, PreparedAction
+from engine.app_actions.contracts import NativeAppAdapter
 from engine.app_actions.excel_adapter import ExcelAdapter
 from engine.app_actions.hwp_adapter import HwpAdapter
 
 
 class AppActionRegistry:
-    def __init__(self, adapters=None):
+    def __init__(self, adapters: dict[str, NativeAppAdapter] | None = None):
         self._adapters = {"excel": ExcelAdapter(), "hwp": HwpAdapter()}
         if isinstance(adapters, dict):
             self._adapters.update({str(key).casefold(): value for key, value in adapters.items()})

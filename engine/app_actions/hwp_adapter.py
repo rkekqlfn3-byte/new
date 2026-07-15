@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import re
 import shutil
 import tempfile
 import threading
 from contextlib import contextmanager
-from datetime import datetime
 
 from engine.app_actions.base import (
     AppActionBlocked,
@@ -19,6 +16,12 @@ from engine.app_actions.base import (
     AppActionUnavailable,
     AppActionVerificationError,
     PreparedAction,
+)
+from engine.app_actions.office_helpers import (
+    count_hwp_matches,
+    prepared_at_timestamp,
+    replace_hwp_text,
+    stable_state_fingerprint,
 )
 
 
@@ -127,20 +130,13 @@ class HwpAdapter:
         finally:
             hwp = None
 
-    @staticmethod
-    def _created_at():
-        return datetime.now().astimezone().isoformat(timespec="seconds")
+    _created_at = staticmethod(prepared_at_timestamp)
 
     @staticmethod
     def _digest_text(value):
         return hashlib.sha256(str(value).encode("utf-8")).hexdigest().upper()
 
-    @staticmethod
-    def _state_fingerprint(snapshot):
-        encoded = json.dumps(
-            snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest().upper()
+    _state_fingerprint = staticmethod(stable_state_fingerprint)
 
     @staticmethod
     def _selection_info(hwp):
@@ -427,15 +423,8 @@ class HwpAdapter:
             metadata={"window_handle": base["window_handle"]},
         )
 
-    @staticmethod
-    def _replace_text(value, find, replace, match_case):
-        flags = 0 if match_case else re.IGNORECASE
-        return re.sub(re.escape(find), lambda _: replace, value, flags=flags)
-
-    @staticmethod
-    def _match_count(value, find, match_case):
-        flags = 0 if match_case else re.IGNORECASE
-        return len(re.findall(re.escape(find), value, flags=flags))
+    _replace_text = staticmethod(replace_hwp_text)
+    _match_count = staticmethod(count_hwp_matches)
 
     def _prepare_find_replace(self, hwp, params):
         _, base, document_text, selection = self._context(hwp)

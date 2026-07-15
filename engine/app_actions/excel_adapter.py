@@ -10,7 +10,6 @@ import re
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime
 
 import psutil
 
@@ -23,6 +22,13 @@ from engine.app_actions.base import (
     AppActionUnavailable,
     AppActionVerificationError,
     PreparedAction,
+)
+from engine.app_actions.office_helpers import (
+    excel_format_state_matches,
+    excel_range_bounds,
+    prepared_at_timestamp,
+    replace_excel_text,
+    stable_state_fingerprint,
 )
 from engine.app_actions.value_normalizer import (
     excel_column_letters,
@@ -202,12 +208,7 @@ class ExcelAdapter:
             ) from last_error
         raise AppActionUnavailable(generic_message) from last_error
 
-    @staticmethod
-    def _state_fingerprint(snapshot: dict) -> str:
-        encoded = json.dumps(
-            snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest().upper()
+    _state_fingerprint = staticmethod(stable_state_fingerprint)
 
     @staticmethod
     def _address(range_object) -> str:
@@ -285,9 +286,7 @@ class ExcelAdapter:
             and excel_values_equal(snapshot.get("current_value"), desired["value"])
         )
 
-    @staticmethod
-    def _created_at():
-        return datetime.now().astimezone().isoformat(timespec="seconds")
+    _created_at = staticmethod(prepared_at_timestamp)
 
     @staticmethod
     def _is_empty(snapshot):
@@ -425,21 +424,7 @@ class ExcelAdapter:
             )
         return matches[0], name
 
-    @staticmethod
-    def _range_bounds(address):
-        text = str(address or "").replace("$", "").upper()
-        match = re.fullmatch(
-            r"([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?", text
-        )
-        if not match:
-            raise AppActionBlocked("Excel 범위 주소를 해석하지 못했습니다.")
-        first_column, first_row, last_column, last_row = match.groups()
-        return (
-            excel_column_number(first_column),
-            int(first_row),
-            excel_column_number(last_column or first_column),
-            int(last_row or first_row),
-        )
+    _range_bounds = staticmethod(excel_range_bounds)
 
     def _resolve_table_range(self, sheet, params, column_name=None):
         explicit = params.get("table_range")
@@ -521,22 +506,7 @@ class ExcelAdapter:
             "alignment": self._safe_property(cell, "HorizontalAlignment"),
         }
 
-    @staticmethod
-    def _format_state_matches(state, desired):
-        for key, value in desired.items():
-            if key in {"font_size"}:
-                try:
-                    if math.isclose(float(state.get(key)), float(value)):
-                        continue
-                except (TypeError, ValueError):
-                    pass
-                return False
-            if key == "bold":
-                if bool(state.get(key)) != bool(value):
-                    return False
-            elif state.get(key) != value:
-                return False
-        return True
+    _format_state_matches = staticmethod(excel_format_state_matches)
 
     @staticmethod
     def _normalize_alignment(value):
@@ -840,14 +810,7 @@ class ExcelAdapter:
             metadata={"application_hwnd": base["application_hwnd"]},
         )
 
-    @staticmethod
-    def _replace_text(value, old, new, whole_cell, match_case):
-        if whole_cell:
-            matches = value == old if match_case else value.casefold() == old.casefold()
-            return new if matches else None
-        flags = 0 if match_case else re.IGNORECASE
-        replaced, count = re.subn(re.escape(old), lambda _: new, value, flags=flags)
-        return replaced if count else None
+    _replace_text = staticmethod(replace_excel_text)
 
     def _prepare_find_replace_in_app(self, application, params):
         _, sheet, base = self._common_context(application)
