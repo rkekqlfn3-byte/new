@@ -56,6 +56,12 @@ COMMAND_PROMPT_TEMPLATE = """{system_prompt}
    **중요**: 'dynamic_code'나 'adapted_macro' 반환 시 `explanation_steps` 배열을 반드시 함께 반환.
 6. (단순 앱 실행): 사전에 등록된 단순 앱 실행은 'open_app'. target은 반드시 사전의 정확한 이름.
 
+[Office COM 생명주기 규칙]
+- win32com 또는 comtypes를 사용하는 모든 동적 코드는 작업 스레드에서 `pythoncom.CoInitialize()`를 먼저 호출하고, 반드시 `try/finally`의 `finally`에서 `pythoncom.CoUninitialize()`를 호출하세요.
+- 실행 중인 Excel/HWP에는 `GetActiveObject` 또는 실행 객체 테이블로만 연결하고, 사용자 Application에 `Quit()`을 호출하거나 사용자가 연 문서를 닫지 마세요.
+- 동적 코드에서 새 Excel/HWP를 `Dispatch`/`DispatchEx`로 만들지 마세요. 새 인스턴스가 필요한 동작은 JARVIS의 네이티브 앱 액션으로 처리하세요.
+- `_oleobj_` 같은 내부 COM 포인터의 `Release()`를 직접 호출하지 말고 일반적인 Python 참조 정리만 사용하세요.
+
 CRITICAL INSTRUCTION:
 절대 마크다운(```json)을 사용하지 말고 아래 JSON 형식 단 하나만 출력하세요.
 {{"response": "친절한 전체 답변 한 줄", "actions": [{{"action": "open_app" | "action_plan" | "dynamic_code" | "use_learned_macro" | "adapted_macro" | "read_and_analyze" | "none", "target": "앱/파일경로", "app_name": "앱 이름", "macro_name": "매크로 이름", "description": "설명", "code": "파이썬 코드", "explanation_steps": [{{"step": "설명", "code_snippet": "코드"}}], "plan": [{{"action": "move_window", "target": "{{app}}", "direction": "{{direction}}", "keys": [], "text": "", "seconds": 0, "x": 0, "y": 0, "width": 0, "height": 0}}], "learning": {{"intent": "MOVE_WINDOW", "argument_mode": "json", "verbs": ["옮겨", "이동해"], "nouns": [{{"text": "계산기", "canonical": "계산기", "type": "app"}}], "utterances": ["계산기를 오른쪽으로 옮겨", "{{app}}을 {{direction}}으로 옮겨"], "slots": [{{"name": "app", "type": "app", "value": "계산기", "required": true}}, {{"name": "direction", "type": "direction", "value": "오른쪽", "required": true}}]}}}}]}}"""

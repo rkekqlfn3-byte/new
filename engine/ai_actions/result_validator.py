@@ -222,6 +222,31 @@ class ResultValidator:
             compile(code, "<jarvis-generated-code>", "exec")
         except SyntaxError as error:
             return f"파이썬 문법 오류가 있습니다: {error.msg} (줄 {error.lineno})"
+        lowered_code = code.casefold()
+        if "oleobj" in lowered_code or re.search(
+            r"\.release\s*\(", lowered_code
+        ):
+            return (
+                "COM 내부 포인터를 직접 Release()하면 이중 해제 위험이 있습니다. "
+                "일반 참조 정리와 소유권 기반 종료를 사용해야 합니다."
+            )
+        uses_com = any(
+            token in lowered_code
+            for token in ("win32com", "comtypes", "pythoncom")
+        )
+        if uses_com and not all(
+            token in lowered_code
+            for token in (
+                "coinitialize(",
+                "couninitialize(",
+                "try:",
+                "finally:",
+            )
+        ):
+            return (
+                "COM 자동화 코드는 작업 스레드에서 pythoncom.CoInitialize()를 호출하고 "
+                "try/finally에서 pythoncom.CoUninitialize()를 반드시 호출해야 합니다."
+            )
         descriptor = " ".join(
             str(act.get(field, ""))
             for field in ("target", "app_name", "macro_name", "description")
@@ -231,6 +256,22 @@ class ResultValidator:
             or "엑셀" in descriptor
             or "excel.application" in code.casefold()
         )
+        hwp_specific = (
+            "hwp" in descriptor
+            or "한글" in descriptor
+            or "hwpframe.hwpobject" in lowered_code
+        )
+        if (excel_specific or hwp_specific) and re.search(
+            r"\bdispatch(?:ex)?\s*\(", code, flags=re.IGNORECASE
+        ):
+            return (
+                "동적 Office 코드는 새 Application을 만들지 말고 실행 중인 사용자 "
+                "인스턴스에 연결해야 합니다."
+            )
+        if (excel_specific or hwp_specific) and re.search(
+            r"\.quit\s*\(", code, flags=re.IGNORECASE
+        ):
+            return "사용자가 실행한 Office 인스턴스에 Quit()을 호출할 수 없습니다."
         if excel_specific and re.search(
             r"\bGetForegroundWindow\s*\(", code, flags=re.IGNORECASE
         ):

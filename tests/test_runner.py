@@ -19,6 +19,7 @@ TEST_GROUPS = {
     "unit": (
         "tests.unit.test_execution_busy",
         "tests.unit.test_gui_markdown_safety",
+        "tests.unit.test_browser_launcher",
         "tests.unit.test_learning_quality",
         "tests.unit.test_learning_schema",
         "tests.unit.test_llm_failures",
@@ -62,6 +63,7 @@ TEST_GROUPS = {
         "tests.windows.test_action_registry",
         "tests.windows.test_app_command_router",
         "tests.windows.test_browser_scanner",
+        "tests.windows.test_com_lifecycle",
         "tests.windows.test_excel_aux_actions",
         "tests.windows.test_excel_core_actions",
         "tests.windows.test_excel_native_write",

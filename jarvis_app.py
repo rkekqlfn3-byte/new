@@ -2,6 +2,7 @@ import os
 import logging
 import socket
 import sys
+import time
 import traceback
 from pathlib import Path
 from engine.macro_worker import is_macro_worker, run_macro_worker
@@ -34,6 +35,12 @@ if is_macro_worker():
     sys.exit(run_macro_worker())
 
 import eel
+from engine.browser_launcher import (
+    BrowserLaunchError,
+    BrowserLauncher,
+    format_browser_failure,
+    show_browser_failure,
+)
 from engine.logging_config import configure_logging, redact_text
 from engine.runtime_paths import USER_DATA_DIR, initialize_user_data, resource_path
 from engine.version import runtime_info
@@ -52,6 +59,62 @@ def _write_startup_error(error):
         )),
         encoding="utf-8",
     )
+
+
+def _browser_preference():
+    value = os.environ.get("JARVIS_BROWSER_MODE", "chrome").strip().casefold()
+    if value in {"none", "false", "off"}:
+        return None
+    return "edge" if value == "edge" else "chrome"
+
+
+def _wait_for_gui_server(port, timeout=5.0):
+    deadline = time.monotonic() + max(0.1, float(timeout))
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return True
+        except OSError:
+            eel.sleep(0.05)
+    return False
+
+
+def _start_gui(browser_port, log_path, launcher=None):
+    preference = _browser_preference()
+    logger.info(
+        "Starting Eel browser strategy=%s preference=%s port=%s",
+        "disabled" if preference is None else "fallback",
+        preference,
+        browser_port,
+    )
+    eel.start(
+        'index.html',
+        mode=None,
+        block=False,
+        size=(1200, 800),
+        port=browser_port,
+        shutdown_delay=1.0,
+    )
+    if preference is not None:
+        if not _wait_for_gui_server(browser_port):
+            message = (
+                "Jarvis의 로컬 GUI 서버가 시작되지 않았습니다.\n\n"
+                "다른 프로그램이 포트를 점유했는지 확인하고 Jarvis를 다시 실행하세요.\n"
+                f"로그 위치: {log_path}"
+            )
+            show_browser_failure(message, title="Jarvis GUI 시작 오류")
+            raise BrowserLaunchError(message)
+        active_launcher = launcher or BrowserLauncher(preferred=preference)
+        result = active_launcher.launch(
+            f"http://127.0.0.1:{browser_port}/index.html"
+        )
+        if not result.success:
+            message = format_browser_failure(result, log_path)
+            show_browser_failure(message)
+            raise BrowserLaunchError(message)
+
+    while True:
+        eel.sleep(1.0)
 
 def start_app():
     try:
@@ -73,18 +136,8 @@ def start_app():
         import engine.api.config_api  # noqa: F401
         import engine.api.dictionary_api  # noqa: F401
 
-        browser_mode = os.environ.get("JARVIS_BROWSER_MODE", "chrome")
-        if browser_mode.lower() in {"none", "false", "off"}:
-            browser_mode = None
         browser_port = _resolve_browser_port()
-        logger.info("Starting Eel browser mode=%s port=%s", browser_mode, browser_port)
-        eel.start(
-            'index.html',
-            mode=browser_mode,
-            size=(1200, 800),
-            port=browser_port,
-            shutdown_delay=1.0,
-        )
+        _start_gui(browser_port, log_path)
     except KeyboardInterrupt:
         logger.info("Jarvis closed by keyboard interrupt")
         print("Jarvis Closed.")

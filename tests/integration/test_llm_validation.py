@@ -165,8 +165,14 @@ class LLMActionValidationTests(unittest.TestCase):
                 "code": (
                     "import win32api\n"
                     "import win32com.client\n"
-                    "excel = win32com.client.GetActiveObject('Excel.Application')\n"
-                    "win32api.MessageBox(0, excel.Caption, 'JARVIS', 0)"
+                    "import pythoncom\n"
+                    "pythoncom.CoInitialize()\n"
+                    "try:\n"
+                    "    excel = win32com.client.GetActiveObject('Excel.Application')\n"
+                    "    win32api.MessageBox(0, excel.Caption, 'JARVIS', 0)\n"
+                    "finally:\n"
+                    "    excel = None\n"
+                    "    pythoncom.CoUninitialize()"
                 ),
                 "explanation_steps": [{
                     "step": "Excel 창 제목 표시",
@@ -188,6 +194,57 @@ class LLMActionValidationTests(unittest.TestCase):
         self.assertEqual([], issues)
         self.assertEqual(1, len(actions))
         self.assertNotIn("sys.argv", actions[0]["code"])
+
+    def test_office_code_requires_balanced_com_apartment(self):
+        action = {
+            "target": "실행 중인 Excel",
+            "app_name": "Excel",
+            "code": (
+                "import win32com.client\n"
+                "excel = win32com.client.GetActiveObject('Excel.Application')\n"
+                "print(excel.Caption)"
+            ),
+            "explanation_steps": [{
+                "step": "Excel 조회",
+                "code_snippet": "print(excel.Caption)",
+            }],
+            "learning": {"argument_mode": "json", "slots": []},
+        }
+
+        issue = self.parser._validate_generated_code(
+            action, require_external_target=True
+        )
+
+        self.assertIn("CoInitialize", issue)
+        self.assertIn("CoUninitialize", issue)
+
+    def test_office_code_cannot_quit_attached_application(self):
+        action = {
+            "target": "실행 중인 Excel",
+            "app_name": "Excel",
+            "code": (
+                "import pythoncom\n"
+                "import win32com.client\n"
+                "pythoncom.CoInitialize()\n"
+                "try:\n"
+                "    excel = win32com.client.GetActiveObject('Excel.Application')\n"
+                "    excel.Quit()\n"
+                "finally:\n"
+                "    excel = None\n"
+                "    pythoncom.CoUninitialize()"
+            ),
+            "explanation_steps": [{
+                "step": "Excel 종료",
+                "code_snippet": "excel.Quit()",
+            }],
+            "learning": {"argument_mode": "json", "slots": []},
+        }
+
+        issue = self.parser._validate_generated_code(
+            action, require_external_target=True
+        )
+
+        self.assertIn("Quit()", issue)
 
     def test_excel_title_rejects_jarvis_foreground_window_lookup(self):
         action = {

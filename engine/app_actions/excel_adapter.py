@@ -7,7 +7,6 @@ import json
 import math
 import os
 import re
-import threading
 import time
 from contextlib import contextmanager
 
@@ -22,6 +21,11 @@ from engine.app_actions.base import (
     AppActionUnavailable,
     AppActionVerificationError,
     PreparedAction,
+)
+from engine.app_actions.com_lifecycle import (
+    OfficeApplicationLease,
+    application_lease,
+    com_apartment,
 )
 from engine.app_actions.office_helpers import (
     excel_format_state_matches,
@@ -90,6 +94,20 @@ def _default_application_getter():
     return win32com.client.GetActiveObject("Excel.Application")
 
 
+def create_owned_excel_application(application_factory=None):
+    """Create a dedicated Excel instance whose lifetime belongs to Jarvis."""
+    if application_factory is None:
+        import win32com.client
+
+        application_factory = win32com.client.DispatchEx
+    application = application_factory("Excel.Application")
+    return OfficeApplicationLease(
+        application=application,
+        owns_application=True,
+        application_kind="excel",
+    )
+
+
 def _default_process_counter():
     count = 0
     for process in psutil.process_iter(["name"]):
@@ -119,11 +137,11 @@ class ExcelAdapter:
         process_counter=None,
         discovery_attempts=6,
         discovery_retry_delay=0.15,
+        com_runtime=None,
     ):
-        self._owns_com_initialization = application_getter is None
-        self._com_state = threading.local()
         self._application_getter = application_getter or _default_application_getter
         self._process_counter = process_counter or _default_process_counter
+        self._com_runtime = com_runtime
         self._discovery_attempts = max(1, min(int(discovery_attempts), 10))
         self._discovery_retry_delay = max(
             0.0, min(float(discovery_retry_delay), 0.5)
@@ -131,18 +149,16 @@ class ExcelAdapter:
 
     @contextmanager
     def _application(self):
-        if self._owns_com_initialization and not getattr(
-            self._com_state, "initialized", False
-        ):
-            try:
-                import pythoncom
+        with com_apartment(self._com_runtime):
+            with self._application_reference() as application:
+                yield application
 
-                pythoncom.CoInitialize()
-                self._com_state.initialized = True
-            except ImportError:
-                pass
+    @contextmanager
+    def _application_reference(self):
+        lease = None
         try:
-            application = self._application_getter()
+            lease = application_lease(self._application_getter(), "excel")
+            application = lease.application
         except Exception as error:
             raise AppActionUnavailable(
                 "실행 중인 Excel을 찾지 못했습니다. Excel에서 통합문서를 먼저 열어주세요."
@@ -154,6 +170,7 @@ class ExcelAdapter:
         try:
             yield application
         finally:
+            lease.cleanup()
             application = None
 
     @staticmethod

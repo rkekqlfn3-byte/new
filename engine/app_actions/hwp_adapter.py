@@ -6,7 +6,6 @@ import hashlib
 import os
 import shutil
 import tempfile
-import threading
 from contextlib import contextmanager
 
 from engine.app_actions.base import (
@@ -16,6 +15,11 @@ from engine.app_actions.base import (
     AppActionUnavailable,
     AppActionVerificationError,
     PreparedAction,
+)
+from engine.app_actions.com_lifecycle import (
+    OfficeApplicationLease,
+    application_lease,
+    com_apartment,
 )
 from engine.app_actions.office_helpers import (
     count_hwp_matches,
@@ -85,6 +89,20 @@ def _default_hwp_getter():
     return candidates[0]
 
 
+def create_owned_hwp_application(application_factory=None):
+    """Create a dedicated HWP automation instance owned by Jarvis."""
+    if application_factory is None:
+        import win32com.client
+
+        application_factory = win32com.client.DispatchEx
+    application = application_factory("HWPFrame.HwpObject")
+    return OfficeApplicationLease(
+        application=application,
+        owns_application=True,
+        application_kind="hwp",
+    )
+
+
 class HwpAdapter:
     supported_operations = frozenset({
         "insert_text",
@@ -95,28 +113,29 @@ class HwpAdapter:
     })
 
     def __init__(
-        self, object_getter=None, require_visible=True, enable_pdf_export=False
+        self,
+        object_getter=None,
+        require_visible=True,
+        enable_pdf_export=False,
+        com_runtime=None,
     ):
         self._object_getter = object_getter or _default_hwp_getter
-        self._owns_com_initialization = object_getter is None
-        self._com_state = threading.local()
+        self._com_runtime = com_runtime
         self._require_visible = bool(require_visible)
         self._enable_pdf_export = bool(enable_pdf_export)
 
     @contextmanager
     def _hwp(self):
-        if self._owns_com_initialization and not getattr(
-            self._com_state, "initialized", False
-        ):
-            try:
-                import pythoncom
+        with com_apartment(self._com_runtime):
+            with self._hwp_reference() as hwp:
+                yield hwp
 
-                pythoncom.CoInitialize()
-                self._com_state.initialized = True
-            except ImportError:
-                pass
+    @contextmanager
+    def _hwp_reference(self):
+        lease = None
         try:
-            hwp = self._object_getter()
+            lease = application_lease(self._object_getter(), "hwp")
+            hwp = lease.application
         except AppActionError:
             raise
         except Exception as error:
@@ -128,6 +147,7 @@ class HwpAdapter:
         try:
             yield hwp
         finally:
+            lease.cleanup()
             hwp = None
 
     _created_at = staticmethod(prepared_at_timestamp)
