@@ -19,8 +19,14 @@
 - Excel·HWP의 COM-free helper 및 Word·PowerPoint 확장 계약 추가
 - 동결 EXE 검증 probe를 현재 confirmation 정책과 실행 결과 구조에 맞게 갱신
 
-현재 소스의 전체 회귀, 실제 Excel·HWP, 후보 EXE 검증은 R6에서 마지막으로
-실행하며 통과 전에는 기존 실행본을 교체하지 않습니다.
+### 최종 검증
+
+- 자동 테스트 435개: 432개 통과, 외부 AI 3개 skip, 실패 0개
+- `pip-audit` 알려진 취약점 0건
+- 실제 Excel 20/20, 한글 8/8 통과
+- 후보 EXE 기동, frozen worker, timeout·취소·재시도·잠금, TLS, Excel COM 통과
+- 기존 사용자 데이터 33개 파일 사전·사후 바이트 동일
+- 태그 `v1.1.0-rc.2`, 빌드 commit `ceb6c17d14f495d167a3c12417464c124bde0d90`
 
 ## 1.1.0 — 2026-07-15 이전 실행본
 
@@ -29,8 +35,8 @@
 - 학습 네이티브 실행 경로 보강
 - Excel·한글 네이티브 편집, 확인·검증·복구 기반
 
-현재 `JARVIS_RUNTIME\current`의 보존 실행본은 커밋 `a096e93`에서 만든
-이전 빌드이며 위 보정 변경을 포함하지 않습니다.
+이 빌드는 R6 교체 전 current였으며, 현재는 `JARVIS_RUNTIME\previous`에
+직전 정상 백업으로 보존돼 있습니다.
 
 ## 1.0 — 2026-07-14
 
