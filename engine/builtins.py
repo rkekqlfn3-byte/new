@@ -3,6 +3,7 @@ import subprocess
 import urllib.parse
 import ctypes
 import re
+import shlex
 import time
 from datetime import datetime
 import psutil
@@ -13,6 +14,20 @@ from engine.hotkeys import press_hotkey
 from engine.execution_result import failure_result, normalize_execution_result, success_result
 
 class BuiltinMacros:
+    _BLOCKED_COMMAND_EXECUTABLES = frozenset({
+        "bash", "bcdedit", "cscript", "diskpart", "forfiles", "format",
+        "mshta", "msiexec", "net", "netsh", "node", "nodejs",
+        "powershell", "pwsh", "py",
+        "python", "pythonw", "reg", "regsvr32", "rundll32", "sc",
+        "schtasks", "shutdown", "taskkill", "vssadmin", "wbadmin", "wmic",
+        "wscript", "wsl", "cmd", "sh",
+    })
+    _BLOCKED_SCRIPT_EXTENSIONS = frozenset({
+        ".bat", ".cmd", ".hta", ".js", ".jse", ".msi", ".ps1", ".vbs",
+        ".vbe", ".wsf", ".wsh",
+    })
+    _SHELL_METACHARACTERS = re.compile(r"[&|<>^\r\n]")
+
     def __init__(self, dict_mgr, parser):
         self.dict_mgr = dict_mgr
         self.parser = parser
@@ -25,21 +40,79 @@ class BuiltinMacros:
                 f"단축키 '{macro_data['data']}'을(를) 실행했습니다.",
                 action="hotkey", target=macro_data["data"], verified=False,
             )
-        except Exception as e:
+        except (KeyError, AttributeError, TypeError, ValueError, OSError) as e:
             return failure_result(
                 f"단축키 실행 중 오류가 발생했습니다: {e}",
                 action="hotkey", target=macro_data.get("data"),
                 error_type="execution_error",
             )
 
-    def execute_cmd(self, macro_data):
+    @staticmethod
+    def _split_command_line(command):
+        if os.name != "nt":
+            return shlex.split(command)
+
+        argc = ctypes.c_int()
+        command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+        command_line_to_argv.argtypes = [
+            ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int),
+        ]
+        command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
+        argv_pointer = command_line_to_argv(command, ctypes.byref(argc))
+        if not argv_pointer:
+            raise ValueError("프로그램 실행 인수를 해석할 수 없습니다.")
         try:
-            subprocess.Popen(macro_data["data"], shell=True)
+            return [argv_pointer[index] for index in range(argc.value)]
+        finally:
+            local_free = ctypes.windll.kernel32.LocalFree
+            local_free.argtypes = [ctypes.c_void_p]
+            local_free.restype = ctypes.c_void_p
+            local_free(ctypes.cast(argv_pointer, ctypes.c_void_p))
+
+    @classmethod
+    def validate_command(cls, value):
+        command = str(value or "").strip()
+        if not command:
+            raise ValueError("실행할 프로그램이 비어 있습니다.")
+        if len(command) > 1000 or "\x00" in command:
+            raise ValueError("프로그램 실행 문자열이 올바르지 않습니다.")
+        if cls._SHELL_METACHARACTERS.search(command):
+            raise ValueError(
+                "연결·리디렉션 문자가 포함된 시스템 명령은 실행할 수 없습니다."
+            )
+
+        arguments = cls._split_command_line(command)
+        if not arguments or not str(arguments[0]).strip():
+            raise ValueError("실행할 프로그램을 찾을 수 없습니다.")
+        executable = os.path.expandvars(str(arguments[0]).strip().strip('"'))
+        executable_name = os.path.basename(executable).casefold()
+        stem, extension = os.path.splitext(executable_name)
+        if stem in cls._BLOCKED_COMMAND_EXECUTABLES:
+            raise ValueError(
+                f"보안상 '{executable_name}' 시스템 명령은 매크로로 실행할 수 없습니다."
+            )
+        if extension in cls._BLOCKED_SCRIPT_EXTENSIONS:
+            raise ValueError(
+                f"보안상 '{extension}' 스크립트는 매크로로 실행할 수 없습니다."
+            )
+        arguments[0] = executable
+        return arguments
+
+    def execute_cmd(self, macro_data, approved=False):
+        if not approved:
+            return failure_result(
+                "프로그램 실행 확인을 거치지 않아 매크로를 차단했습니다.",
+                action="command_line", target=macro_data.get("data"),
+                error_type="validation_error", status="blocked",
+            )
+        try:
+            arguments = self.validate_command(macro_data.get("data"))
+            subprocess.Popen(arguments, shell=False)
             return success_result(
-                f"명령어 '{macro_data['data']}'을(를) 실행했습니다.",
+                f"프로그램 '{macro_data['data']}'을(를) 실행했습니다.",
                 action="command_line", target=macro_data["data"], verified=False,
             )
-        except Exception as e:
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
             return failure_result(
                 f"명령어 실행 중 오류가 발생했습니다: {e}",
                 action="command_line", target=macro_data.get("data"),

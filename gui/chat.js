@@ -146,7 +146,10 @@ function sendDirectMessage(text) {
 
 function getConfirmationFromResponse(response) {
     if (!response || typeof response !== 'object') return null;
-    if (response.status !== 'confirmation_required') return null;
+    if (
+        response.status !== 'confirmation_required'
+        && response.data?.confirmation_pending !== true
+    ) return null;
     const confirmation = response.data?.confirmation;
     return confirmation && confirmation.confirmation_id ? confirmation : null;
 }
@@ -164,7 +167,7 @@ function createConfirmationCard(confirmation) {
     window.appendTextLineBreaks(message, confirmation?.message || '계속할까요?');
     card.appendChild(message);
 
-    if (confirmation?.reason === 'destructive_action') {
+    if (['destructive_action', 'external_program'].includes(confirmation?.reason)) {
         card.appendChild(window.createTextElement(
             'div', '⚠️ 기존 데이터가 변경될 수 있습니다.', 'confirmation-warning'
         ));
@@ -237,10 +240,23 @@ function bindConfirmationCard(card) {
                 const result = await eel.resolve_confirmation(
                     confirmationId, optionId, currentSessionId, rememberPreference
                 )();
+                const nextConfirmation = getConfirmationFromResponse(result);
+                const currentStillPending = Boolean(
+                    result?.data?.confirmation_pending
+                    && nextConfirmation?.confirmation_id === confirmationId
+                );
+                if (currentStillPending) {
+                    card.dataset.busy = 'false';
+                    buttons.forEach(item => { item.disabled = false; });
+                    if (status) status.textContent = '처리되지 않았습니다. 다시 선택할 수 있습니다.';
+                    addSystemError(
+                        result?.message || '확인 응답을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.'
+                    );
+                    return;
+                }
                 card.dataset.consumed = 'true';
                 card.classList.add('consumed');
                 if (status) status.textContent = `선택 완료: ${label}`;
-                const nextConfirmation = getConfirmationFromResponse(result);
                 if (nextConfirmation) {
                     addConfirmationCard(result);
                 } else {

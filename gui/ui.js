@@ -713,7 +713,7 @@ if (macroTypeSelect && macroDataInput) {
     macroTypeSelect.addEventListener('change', () => {
         const t = macroTypeSelect.value;
         if (t === 'hotkey') macroDataInput.placeholder = "어떤 단축키를 누를까요? (예: win+shift+s)";
-        else if (t === 'cmd') macroDataInput.placeholder = "어떤 시스템 명령을 실행할까요? (예: calc 또는 shutdown /s)";
+        else if (t === 'cmd') macroDataInput.placeholder = "실행할 프로그램과 인수 (예: calc 또는 notepad 메모.txt) — 실행 전 확인";
         else macroDataInput.placeholder = "어떤 주문들을 연속으로 할까요? 쉼표로 구분 (예: 볼륨 줄여, 유튜브 열어)";
     });
 }
@@ -756,7 +756,11 @@ if (btnAddMacro) {
         const mId = macroNameInput && macroNameInput.value.trim()
             ? macroNameInput.value.trim()
             : `CUSTOM_${Date.now()}`;
-        await eel.add_custom_macro(mId, synonyms[0], synonyms, mType, mData)();
+        const result = await eel.add_custom_macro(mId, synonyms[0], synonyms, mType, mData)();
+        if (result?.success === false || result !== true) {
+            alert(result?.message || '매크로를 저장하지 못했습니다.');
+            return;
+        }
         alert("매크로 '" + mId + "'(이)가 추가되었습니다!");
         ['macro-name-input','macro-data-input','macro-synonyms-input'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
         updateMacroList();
@@ -772,14 +776,32 @@ const btnAiSettings = document.getElementById('btn_ai_settings');
 const aiSettingsModal = document.getElementById('ai-settings-modal');
 const closeAiSettings = document.querySelector('.close-ai-settings');
 const btnSaveAiSettings = document.getElementById('btn-save-ai-settings');
+const btnClearAiApiKey = document.getElementById('btn-clear-ai-api-key');
 const aiProvider = document.getElementById('ai-provider');
 const aiApiKey = document.getElementById('ai-api-key');
+const aiApiKeyStatus = document.getElementById('ai-api-key-status');
+
+function renderAiApiKeyState(config) {
+    const hasApiKey = Boolean(config?.has_api_key);
+    if (aiApiKey) {
+        aiApiKey.value = '';
+        aiApiKey.placeholder = hasApiKey
+            ? '새 키 입력 시 기존 키 교체'
+            : 'API 키 입력';
+    }
+    if (aiApiKeyStatus) {
+        aiApiKeyStatus.textContent = hasApiKey
+            ? 'API 키가 저장되어 있습니다. 빈칸으로 저장하면 기존 키를 유지합니다.'
+            : '저장된 API 키가 없습니다.';
+    }
+    if (btnClearAiApiKey) btnClearAiApiKey.disabled = !hasApiKey;
+}
 
 if (btnAiSettings) {
     btnAiSettings.addEventListener('click', async () => {
         const config = await eel.get_ai_config()();
         if (aiProvider) aiProvider.value = config.provider || "openai";
-        if (aiApiKey) aiApiKey.value = config.api_key || "";
+        renderAiApiKeyState(config);
         const ollamaEl = document.getElementById('ai-ollama-model');
         if (ollamaEl) ollamaEl.value = config.ollama_model || "llama3";
         const routingEl = document.getElementById('ai-routing-mode');
@@ -791,7 +813,6 @@ if (closeAiSettings) closeAiSettings.addEventListener('click', () => { if (aiSet
 
 if (btnSaveAiSettings) {
     btnSaveAiSettings.addEventListener('click', async () => {
-        const config = await eel.get_ai_config()();
         const provider = aiProvider ? aiProvider.value : "openai";
         const apiKey = aiApiKey ? aiApiKey.value.trim() : "";
         const ollamaModel = document.getElementById('ai-ollama-model') ? document.getElementById('ai-ollama-model').value.trim() : "llama3";
@@ -801,10 +822,25 @@ if (btnSaveAiSettings) {
         if (success) {
             alert("AI 설정이 저장되었습니다!");
             window._cachedAiConfig = await eel.get_ai_config()();
+            renderAiApiKeyState(window._cachedAiConfig);
             if (aiSettingsModal) aiSettingsModal.style.display = 'none';
         } else {
             alert("설정 저장에 실패했습니다.");
         }
+    });
+}
+
+if (btnClearAiApiKey) {
+    btnClearAiApiKey.addEventListener('click', async () => {
+        if (!confirm('저장된 API 키를 삭제할까요? 이 작업은 되돌릴 수 없습니다.')) return;
+        const success = await eel.clear_ai_api_key(true)();
+        if (!success) {
+            alert('API 키 삭제에 실패했습니다.');
+            return;
+        }
+        window._cachedAiConfig = await eel.get_ai_config()();
+        renderAiApiKeyState(window._cachedAiConfig);
+        alert('저장된 API 키를 삭제했습니다.');
     });
 }
 

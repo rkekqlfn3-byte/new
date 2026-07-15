@@ -128,11 +128,15 @@ class ConfirmationResponseHandler:
                 option_id=option_id,
                 remember_preference=remember_preference,
                 result=failure_result(
-                    "The confirmation response could not safely resume its command.",
+                    "확인 응답을 안전하게 이어서 실행할 수 없습니다. 잠시 후 다시 선택해주세요.",
                     action="confirmation",
                     error_type="busy",
                     status="state_conflict",
                     retryable=True,
+                    data={
+                        "confirmation_pending": True,
+                        "confirmation": self.manager.public_record(record),
+                    },
                 ),
             )
 
@@ -141,6 +145,18 @@ class ConfirmationResponseHandler:
                 session_id, record["confirmation_id"], option_id
             )
         except PendingConfirmationError as error:
+            pending = self.manager.get_record(record["confirmation_id"])
+            is_still_pending = bool(
+                pending
+                and pending.get("status") == "pending"
+                and pending.get("session_id") == session_id
+            )
+            data = {}
+            if is_still_pending:
+                data = {
+                    "confirmation_pending": True,
+                    "confirmation": self.manager.public_record(pending),
+                }
             return ConfirmationResolution(
                 session_id=session_id,
                 option_id=option_id,
@@ -150,6 +166,8 @@ class ConfirmationResponseHandler:
                     action="confirmation",
                     error_type="validation_error",
                     status=getattr(error, "status", "confirmation_error"),
+                    retryable=is_still_pending,
+                    data=data,
                 ),
             )
 
@@ -159,6 +177,7 @@ class ConfirmationResponseHandler:
             # reserves the only command slot.  Keep it explicit so an
             # unexpected state transition is observable rather than allowing
             # a confirmation to run against the wrong execution.
+            self.execution_controller.drop_pending(execution_id)
             return ConfirmationResolution(
                 session_id=session_id,
                 option_id=option_id,
@@ -169,7 +188,8 @@ class ConfirmationResponseHandler:
                     action="confirmation",
                     error_type="busy",
                     status="state_conflict",
-                    retryable=True,
+                    retryable=False,
+                    data={"confirmation_id": consumed["confirmation_id"]},
                 ),
             )
 

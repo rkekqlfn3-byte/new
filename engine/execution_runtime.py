@@ -7,7 +7,7 @@ from datetime import datetime
 
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
-from engine.version import APP_VERSION
+from engine.version import runtime_info
 
 
 DIAGNOSTICS_PATH = user_data_path("execution_diagnostics.json")
@@ -73,9 +73,12 @@ class ExecutionController:
                 )
             self._cancel_event.clear()
             execution_id = uuid.uuid4().hex
+            identity = runtime_info()
             self.current = {
                 "execution_id": execution_id,
-                "app_version": APP_VERSION,
+                "app_version": identity["app_version"],
+                "git_commit": identity["git_commit"],
+                "build_kind": identity["build_kind"],
                 "label": str(label)[:200],
                 "status": "running",
                 "started_at": datetime.now().isoformat(timespec="seconds"),
@@ -129,9 +132,23 @@ class ExecutionController:
             self._cancel_event.wait(min(0.05, deadline - time.monotonic()))
         self.check_cancelled()
 
-    def finish(self, success, status=None, response="", error="", extra=None):
+    def finish(
+        self,
+        success,
+        status=None,
+        response="",
+        error="",
+        extra=None,
+        expected_execution_id=None,
+    ):
         with self._lock:
             if not self.current:
+                return None
+            if (
+                expected_execution_id is not None
+                and self.current.get("execution_id")
+                != str(expected_execution_id or "")
+            ):
                 return None
             record = dict(self.current)
             started = record.pop("started_monotonic", time.monotonic())
@@ -156,11 +173,21 @@ class ExecutionController:
             return record
 
     def pause_for_confirmation(
-        self, confirmation_id, response="", extra=None
+        self,
+        confirmation_id,
+        response="",
+        extra=None,
+        expected_execution_id=None,
     ):
         """Move the running execution into an in-memory waiting state."""
         with self._lock:
             if not self.current:
+                return None
+            if (
+                expected_execution_id is not None
+                and self.current.get("execution_id")
+                != str(expected_execution_id or "")
+            ):
                 return None
             record = self.current
             execution_id = record["execution_id"]

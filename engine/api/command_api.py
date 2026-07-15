@@ -1,3 +1,5 @@
+import logging
+
 import eel
 from engine.core import parser, dict_mgr
 from engine.execution_runtime import ExecutionBusyError, ExecutionCancelled
@@ -5,19 +7,35 @@ from engine.execution_result import failure_result
 from engine.managers.pending_confirmation_manager import normalize_session_id
 
 
+logger = logging.getLogger(__name__)
+
+
+_NON_OWNING_CONFIRMATION_STATUSES = frozenset({
+    "confirmation_not_found",
+    "confirmation_conflict",
+    "confirmation_expired",
+    "confirmation_already_consumed",
+    "confirmation_session_mismatch",
+    "confirmation_invalid_option",
+    "confirmation_error",
+    "state_conflict",
+})
+
+
 def _log_to_terminal(msg):
     print(msg)
+    logger.info("%s", msg)
     try:
         eel.log_terminal(msg)()
     except Exception:
-        pass
+        logger.debug("Could not forward terminal log to Eel", exc_info=True)
 
 
 def _stream_callback(chunk):
     try:
         eel.receive_stream_chunk(chunk)()
     except Exception:
-        pass
+        logger.debug("Could not forward stream chunk to Eel", exc_info=True)
 
 
 def _finish_or_pause(result, execution_id=None):
@@ -37,7 +55,13 @@ def _finish_or_pause(result, execution_id=None):
                 "session_id": confirmation.get("session_id", "default"),
                 "result": result,
             },
+            expected_execution_id=execution_id,
         )
+        return result
+
+    # These results describe only the submitted confirmation response. They do
+    # not own the paused/resumed command and must never finish its runtime slot.
+    if result.get("status") in _NON_OWNING_CONFIRMATION_STATUSES:
         return result
 
     is_non_failure_confirmation = result.get("status") == "confirmation_required"
@@ -56,6 +80,7 @@ def _finish_or_pause(result, execution_id=None):
             "retryable": result.get("retryable", False),
             "result": result,
         },
+        expected_execution_id=execution_id,
     )
     return result
 
@@ -93,12 +118,22 @@ def _resolve_confirmation_request(
                 "failed_step": None,
                 "retryable": False,
             },
+            expected_execution_id=execution_id,
         )
         return failure_result(
             "현재 실행을 취소했습니다.", action="confirmation",
             error_type="user_cancelled",
         )
     except Exception as error:
+        logger.exception(
+            "Confirmation response handling failed",
+            extra={
+                "execution_id": execution_id or "-",
+                "session_id": session_id,
+                "route": "confirmation",
+                "error_type": parser._failure_type_for_error(error),
+            },
+        )
         parser.execution_controller.finish(
             False, "failed", error=str(error), extra={
                 "execution_id": execution_id,
@@ -107,9 +142,10 @@ def _resolve_confirmation_request(
                 "failed_step": getattr(error, "failed_step", None),
                 "retryable": getattr(error, "retryable", False),
             },
+            expected_execution_id=execution_id,
         )
         return failure_result(
-            f"확인 응답 처리 중 오류가 발생했습니다: {error}",
+            "확인 응답 처리 중 오류가 발생했습니다. 로그를 확인해주세요.",
             action="confirmation",
             error_type=parser._failure_type_for_error(error),
         )
@@ -159,13 +195,23 @@ def parse_command(user_input, image_data=None, mode="command", use_api=False, su
                 "failed_step": None,
                 "retryable": False,
             },
+            expected_execution_id=execution_id,
         )
         return failure_result(
             "현재 실행을 취소했습니다.", action="command",
             error_type="user_cancelled",
         )
     except Exception as e:
-        _log_to_terminal(f"[Error] 대화 처리 실패: {e}")
+        logger.exception(
+            "Command handling failed",
+            extra={
+                "execution_id": execution_id,
+                "session_id": session_id,
+                "route": "command",
+                "error_type": parser._failure_type_for_error(e),
+            },
+        )
+        _log_to_terminal("[Error] 대화 처리에 실패했습니다. 로그를 확인해주세요.")
         parser.execution_controller.finish(
             False, "failed", error=str(e), extra={
                 "execution_id": execution_id,
@@ -173,10 +219,11 @@ def parse_command(user_input, image_data=None, mode="command", use_api=False, su
                 "error_type": parser._failure_type_for_error(e),
                 "failed_step": getattr(e, "failed_step", None),
                 "retryable": getattr(e, "retryable", False),
-            }
+            },
+            expected_execution_id=execution_id,
         )
         return failure_result(
-            f"대화 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.\n오류: {e}",
+            "대화 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
             action="command", error_type=parser._failure_type_for_error(e),
         )
 

@@ -56,6 +56,13 @@ def get_macros():
 
 @eel.expose
 def add_custom_macro(macro_id, name, synonyms, macro_type, data):
+    if macro_type not in {"hotkey", "cmd", "compound"}:
+        return {"success": False, "message": "지원하지 않는 매크로 유형입니다."}
+    if macro_type == "cmd":
+        try:
+            parser.builtins.validate_command(data)
+        except (TypeError, ValueError) as error:
+            return {"success": False, "message": str(error)}
     return dict_mgr.macro_manager.add_custom_macro(macro_id, name, synonyms, macro_type, data)
 
 @eel.expose

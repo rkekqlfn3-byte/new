@@ -21,31 +21,35 @@ echo ==============================================
 "%JARVIS_PYTHON%" -c "import PyInstaller, eel" >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Build dependencies are missing.
-    echo Run: pip install -r requirements.txt pyinstaller
+    echo Run: pip install -r requirements-build.txt
     exit /b 1
 )
 
-echo [1/5] Auditing release inputs...
+echo [1/6] Auditing release inputs...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.release_security_audit ^
     --project-root . ^
     --json-report verification\phase3_prebuild_audit_report.json
 if errorlevel 1 exit /b 1
 
-echo [2/5] Running regression tests...
+echo [2/6] Running regression tests...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint engine.test_suite
 if errorlevel 1 exit /b 1
 
-echo [3/5] Building dist\Jarvis...
+echo [3/6] Stamping Git commit and Windows version metadata...
+"%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.generate_build_identity --project-root .
+if errorlevel 1 exit /b 1
+
+echo [4/6] Building dist\Jarvis...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint PyInstaller --noconfirm --clean Jarvis.spec
 if errorlevel 1 exit /b 1
 
-echo [4/5] Creating dist\Jarvis.zip...
+echo [5/6] Creating dist\Jarvis.zip...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.release_archive ^
     --source dist\Jarvis ^
     --output dist\Jarvis.zip
 if errorlevel 1 exit /b 1
 
-echo [5/5] Auditing EXE and archive...
+echo [6/6] Auditing EXE and archive...
 "%JARVIS_PYTHON%" -m verification.runtime_entrypoint verification.release_security_audit ^
     --project-root . ^
     --dist dist\Jarvis ^

@@ -1,9 +1,15 @@
 import os
+import logging
 import socket
 import sys
 import traceback
 from pathlib import Path
 from engine.macro_worker import is_macro_worker, run_macro_worker
+from engine.logging_config import configure_logging, redact_text
+from engine.version import runtime_info
+
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_browser_port():
@@ -33,10 +39,17 @@ import eel
 from engine.runtime_paths import USER_DATA_DIR, initialize_user_data, resource_path
 
 def _write_startup_error(error):
+    if any(
+        getattr(handler, "_jarvis_rotating_handler", False)
+        for handler in logging.getLogger().handlers
+    ):
+        return
     log_path = Path(USER_DATA_DIR).parent / "jarvis-startup.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(
-        "".join(traceback.format_exception(type(error), error, error.__traceback__)),
+        redact_text("".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        )),
         encoding="utf-8",
     )
 
@@ -44,6 +57,8 @@ def start_app():
     try:
         # Initialize writable data before importing singleton-backed APIs.
         initialize_user_data()
+        log_path = configure_logging()
+        logger.info("Jarvis starting: %s (log=%s)", runtime_info(), log_path)
 
         # Locate bundled resources correctly in both source and PyInstaller runs.
         eel.init(resource_path('gui'))
@@ -57,6 +72,7 @@ def start_app():
         if browser_mode.lower() in {"none", "false", "off"}:
             browser_mode = None
         browser_port = _resolve_browser_port()
+        logger.info("Starting Eel browser mode=%s port=%s", browser_mode, browser_port)
         eel.start(
             'index.html',
             mode=browser_mode,
@@ -65,11 +81,14 @@ def start_app():
             shutdown_delay=1.0,
         )
     except KeyboardInterrupt:
+        logger.info("Jarvis closed by keyboard interrupt")
         print("Jarvis Closed.")
     except SystemExit:
+        logger.info("Jarvis closed")
         print("Jarvis Closed.")
     except Exception as e:
-        print("Eel connection error:", e)
+        logger.exception("Jarvis startup failed")
+        print("Jarvis startup failed. See the application log for details.")
         _write_startup_error(e)
         sys.exit(1)
 

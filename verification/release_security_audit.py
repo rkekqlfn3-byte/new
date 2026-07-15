@@ -13,6 +13,8 @@ import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from engine.version import APP_VERSION
+
 
 PRIVATE_SOURCE_DIRS = {
     ".git", ".venv", "__pycache__", "backups", "build", "data", "dist"
@@ -161,6 +163,10 @@ def audit_release_inputs(project_root: Path, known_secrets):
     else:
         if "default_data" not in spec_text:
             findings.append(Finding("default_data_not_bundled", "Jarvis.spec", "깨끗한 초기 템플릿이 빌드 입력에 없습니다."))
+        if "build_identity.json" not in spec_text:
+            findings.append(Finding("build_identity_not_bundled", "Jarvis.spec", "Git 빌드 식별 정보가 빌드 입력에 없습니다."))
+        if "Jarvis_version_info.txt" not in spec_text:
+            findings.append(Finding("windows_version_not_bundled", "Jarvis.spec", "Windows 버전 리소스가 설정되지 않았습니다."))
         if re.search(r"['\"]data[\\/]", spec_text, re.IGNORECASE):
             findings.append(Finding("private_data_in_build_spec", "Jarvis.spec", "쓰기 가능한 legacy data 폴더를 직접 포함합니다."))
 
@@ -195,6 +201,26 @@ def _audit_release_json(blob: bytes, path: str):
     ]
 
 
+def _audit_build_identity(blob: bytes, path: str):
+    try:
+        value = json.loads(blob.decode("utf-8-sig"))
+    except (UnicodeError, json.JSONDecodeError):
+        return [Finding("invalid_build_identity", path, "빌드 식별 JSON을 읽을 수 없습니다.")]
+    findings = []
+    if value.get("app_version") != APP_VERSION:
+        findings.append(Finding(
+            "build_version_mismatch", path,
+            f"expected={APP_VERSION}, actual={value.get('app_version')}",
+        ))
+    if not re.fullmatch(r"[0-9a-f]{40,64}", str(value.get("git_commit", ""))):
+        findings.append(Finding("invalid_build_commit", path, "Git commit 형식이 올바르지 않습니다."))
+    if value.get("git_dirty") is not False:
+        findings.append(Finding("dirty_build_identity", path, "깨끗한 소스 빌드가 아닙니다."))
+    if not str(value.get("built_at_utc", "")).strip():
+        findings.append(Finding("missing_build_time", path, "UTC 빌드 시각이 없습니다."))
+    return findings
+
+
 def _forbidden_path_finding(parts, path):
     lowered = {part.casefold() for part in parts}
     if lowered & FORBIDDEN_RELEASE_PARTS:
@@ -226,11 +252,28 @@ def audit_distribution(dist_dir: Path, known_secrets):
 
     bundled_default = dist_dir / "_internal" / "default_data"
     findings.extend(audit_default_data(bundled_default, "dist/_internal/default_data"))
+    identity_path = dist_dir / "_internal" / "build_identity.json"
+    if not identity_path.is_file():
+        findings.append(Finding(
+            "missing_build_identity", "dist/_internal/build_identity.json",
+            "배포본에 빌드 식별 정보가 없습니다.",
+        ))
+    else:
+        try:
+            findings.extend(_audit_build_identity(
+                identity_path.read_bytes(), "dist/_internal/build_identity.json"
+            ))
+        except OSError:
+            findings.append(Finding(
+                "distribution_read_error", "dist/_internal/build_identity.json",
+                "빌드 식별 정보를 읽지 못했습니다.",
+            ))
     return findings
 
 
 def audit_archive(archive_path: Path, known_secrets):
     findings = []
+    identity_found = False
     if not archive_path.is_file():
         return [Finding("missing_archive", str(archive_path), "배포 압축 파일이 없습니다.")]
     try:
@@ -246,8 +289,20 @@ def audit_archive(archive_path: Path, known_secrets):
                 findings.extend(scan_blob(blob, info.filename, known_secrets, generic=True))
                 if info.filename.casefold().endswith(".json"):
                     findings.extend(_audit_release_json(blob, info.filename))
+                normalized_name = info.filename.replace("\\", "/").casefold()
+                if (
+                    normalized_name == "_internal/build_identity.json"
+                    or normalized_name.endswith("/_internal/build_identity.json")
+                ):
+                    identity_found = True
+                    findings.extend(_audit_build_identity(blob, info.filename))
     except (OSError, zipfile.BadZipFile) as error:
         findings.append(Finding("invalid_archive", str(archive_path), type(error).__name__))
+    if archive_path.is_file() and not identity_found:
+        findings.append(Finding(
+            "missing_build_identity", str(archive_path),
+            "ZIP에 빌드 식별 정보가 없습니다.",
+        ))
     return findings
 
 

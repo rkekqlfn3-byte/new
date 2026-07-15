@@ -1,5 +1,6 @@
 """Eel configuration and chat-session persistence endpoints."""
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -8,6 +9,7 @@ import eel
 
 from engine.core import dict_mgr
 from engine.runtime_paths import user_data_path
+from engine.version import runtime_info
 from engine.storage.json_store import (
     atomic_write_json,
     get_recovery_events,
@@ -15,16 +17,45 @@ from engine.storage.json_store import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 @eel.expose
 def get_ai_config():
-    return dict_mgr.config_manager.get_ai_config()
+    return dict_mgr.config_manager.get_public_ai_config()
 
 
 @eel.expose
 def save_ai_config(provider, api_key, ollama_model="llama3", routing_mode="auto"):
-    return dict_mgr.config_manager.save_ai_config(
-        provider, api_key, ollama_model, routing_mode
-    )
+    try:
+        return dict_mgr.config_manager.save_ai_config(
+            provider, api_key, ollama_model, routing_mode
+        )
+    except (OSError, TypeError, ValueError):
+        logger.exception(
+            "AI configuration save failed",
+            extra={"route": "config", "error_type": "storage_error"},
+        )
+        return False
+
+
+@eel.expose
+def clear_ai_api_key(confirmed=False):
+    if confirmed is not True:
+        return False
+    try:
+        return dict_mgr.config_manager.clear_ai_api_key()
+    except (OSError, TypeError, ValueError):
+        logger.exception(
+            "AI API key deletion failed",
+            extra={"route": "config", "error_type": "storage_error"},
+        )
+        return False
+
+
+@eel.expose
+def get_build_info():
+    return runtime_info()
 
 
 @eel.expose

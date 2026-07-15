@@ -208,7 +208,7 @@
                             <input type="hidden" id="macro-name-input">
                             <select id="macro-type-select" class="premium-input w-full">
                                 <option value="hotkey">⌨️ 키보드 단축키 누르기</option>
-                                <option value="cmd">💻 컴퓨터 시스템 명령 실행</option>
+                                <option value="cmd">💻 프로그램 실행 (매번 확인)</option>
                                 <option value="compound">🔗 여러 주문을 연속으로 쓰기</option>
                             </select>
                         </div>
@@ -297,7 +297,8 @@
                     </div>
                     <div class="form-group">
                         <label>API Key</label>
-                        <input type="password" id="ai-api-key" class="premium-input" placeholder="sk-...">
+                        <input type="password" id="ai-api-key" class="premium-input" autocomplete="new-password" placeholder="API 키 입력">
+                        <p id="ai-api-key-status" class="desc">저장된 키는 이 화면에 다시 표시하지 않습니다.</p>
                     </div>
                     <div class="form-group">
                         <label>Ollama 모델명 (대화 모드용)</label>
@@ -307,6 +308,7 @@
             </div>
             
             <button id="btn-save-ai-settings" class="premium-btn primary w-full text-lg p-12 mt-10">설정 저장하기</button>
+            <button id="btn-clear-ai-api-key" class="premium-btn warning w-full mt-10">저장된 API 키 삭제</button>
         </div>
     </div>
 

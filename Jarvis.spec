@@ -8,6 +8,7 @@ a = Analysis(
     datas=[
         ('gui', 'gui'),
         ('default_data', 'default_data'),
+        ('build/build_identity.json', '.'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -25,6 +26,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='Jarvis',
+    version='build/Jarvis_version_info.txt',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

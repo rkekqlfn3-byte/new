@@ -293,6 +293,56 @@ class CommandParser:
         )
         return self._confirmation_result(record)
 
+    def _queue_command_macro_confirmation(
+        self, macro_name, macro_data, original_command, session_id
+    ):
+        command = str(macro_data.get("data", "")).strip()
+        try:
+            self.builtins.validate_command(command)
+        except (TypeError, ValueError) as error:
+            return failure_result(
+                str(error),
+                action="command_line",
+                target=command or macro_name,
+                error_type="validation_error",
+                status="blocked",
+            )
+        record = self.pending_confirmation_manager.create(
+            session_id=normalize_session_id(session_id),
+            execution_id=self._current_execution_id(),
+            original_command=original_command,
+            reason="external_program",
+            message=(
+                "등록한 프로그램 실행 매크로를 실행할까요?\n"
+                f"실행 내용: {command}"
+            ),
+            action="command_line",
+            target=command,
+            options=[
+                {
+                    "id": "run",
+                    "label": "실행",
+                    "description": "표시된 프로그램과 인수를 한 번 실행합니다.",
+                    "danger": True,
+                    "aliases": ["실행해", "진행", "계속"],
+                },
+                {
+                    "id": "cancel",
+                    "label": "취소",
+                    "description": "프로그램을 실행하지 않습니다.",
+                    "recommended": True,
+                    "cancel": True,
+                    "aliases": ["취소해", "그만", "하지마"],
+                },
+            ],
+            payload={
+                "kind": "command_macro",
+                "macro_name": str(macro_name or "")[:200],
+                "command": command,
+            },
+        )
+        return self._confirmation_result(record)
+
     @staticmethod
     def _parse_native_excel_write_command(user_input):
         match = EXCEL_WRITE_COMMAND_RE.fullmatch(str(user_input or "").strip())
@@ -1719,6 +1769,10 @@ class CommandParser:
                 verified=True,
                 data={"confirmation_id": consumed["confirmation_id"]},
             )
+        if kind == "command_macro":
+            return self.builtins.execute_cmd(
+                {"data": payload.get("command", "")}, approved=True
+            )
         if kind == "dynamic_code_preflight":
             if payload.get("mode") == "local_learned":
                 return self._resume_local_learned_dynamic(
@@ -2516,7 +2570,12 @@ class CommandParser:
             if macro_type == "hotkey":
                 return self.builtins.execute_hotkey(macro_data)
             elif macro_type == "cmd":
-                return self.builtins.execute_cmd(macro_data)
+                return self._queue_command_macro_confirmation(
+                    matched_macro,
+                    macro_data,
+                    raw_user_input_str,
+                    session_id,
+                )
             elif macro_type == "compound":
                 return self.builtins.execute_compound(macro_data, log_callback, image_data, mode)
             elif macro_type == "learned":

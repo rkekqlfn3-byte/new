@@ -12,6 +12,8 @@ logs/
 temp/
 tmp/
 *.spec.bak
+*.exe
+*.zip
 
 # Private Jarvis data from legacy source layouts
 data/
@@ -28,6 +30,7 @@ verification/*_report.json
 verification/*_progress.txt
 
 # Local editor and OS files
+.claude/settings.local.json
 .idea/
 .vscode/
 Thumbs.db
