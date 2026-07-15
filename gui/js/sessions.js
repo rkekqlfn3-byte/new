@@ -1,4 +1,4 @@
-// --- session_manager.js ---
+// --- sessions.js ---
 
 let saveSessionTimer = null;
 let lastSavedSessionSignature = null;
