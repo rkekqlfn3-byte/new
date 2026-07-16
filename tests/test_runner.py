@@ -25,6 +25,7 @@ TEST_GROUPS = {
         "tests.unit.test_llm_failures",
         "tests.unit.test_native_candidate_workflow",
         "tests.unit.test_office_helpers",
+        "tests.unit.test_prototype1_stage1_probe",
         "tests.unit.test_restart",
         "tests.unit.test_ui_persistence_refresh",
     ),
