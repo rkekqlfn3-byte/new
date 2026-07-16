@@ -33,7 +33,7 @@ class EditModeRoutingTests(unittest.TestCase):
         self.parser.analyze_command.assert_not_called()
         self.parser.llm_engine.process_command.assert_not_called()
 
-    def test_edit_with_session_but_no_handler_is_safely_blocked(self):
+    def test_edit_with_session_but_no_connected_document_is_safely_blocked(self):
         result = self.parser.execute_command_result(
             "이거 고쳐줘",
             mode="edit",

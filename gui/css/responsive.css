@@ -2,6 +2,18 @@
    RESPONSIVE OPTIMIZATIONS (반응형 대응)
    =================================================== */
 @media screen and (max-width: 768px) {
+    .edit-session-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .edit-session-actions {
+        justify-content: flex-start;
+    }
+
+    .edit-session-summary {
+        flex-wrap: wrap;
+    }
+
     /* 1. 말풍선 텍스트 넘침 방지 */
     .message .bubble {
         word-break: break-word;

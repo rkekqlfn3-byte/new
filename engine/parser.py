@@ -45,6 +45,7 @@ from engine.app_actions import (
     AppCommandRouter,
     AppActionRegistry,
 )
+from engine.edit_mode.controller import EditModeController
 from engine.decision import DecisionEngine, PreferenceManager
 from engine.builtins import BuiltinMacros
 from engine.parsing.office_command_parser import (
@@ -65,7 +66,11 @@ from engine.parsing.office_command_parser import (
 )
 
 class CommandParser:
-    def __init__(self, native_action_candidate_manager=None):
+    def __init__(
+        self,
+        native_action_candidate_manager=None,
+        edit_mode_controller=None,
+    ):
         self.dict_mgr = DictionaryManager()
         self.llm_engine = LLMEngine(self.dict_mgr)
         
@@ -80,9 +85,8 @@ class CommandParser:
         self.confirmation_factory = ConfirmationFactory(self)
         self.ai_action_handler = AIActionHandler(self)
         self.app_action_registry = AppActionRegistry()
-        # Stage 3 will replace this injection point with EditSessionManager.
-        # Until then edit requests are blocked before the command pipeline.
-        self.edit_mode_handler = None
+        self.edit_mode_controller = edit_mode_controller or EditModeController()
+        self.edit_mode_handler = self.edit_mode_controller
         self.decision_engine = DecisionEngine()
         self.preference_manager = PreferenceManager()
         self.app_command_router = AppCommandRouter(self)

@@ -91,6 +91,31 @@ class ChatSanitizationTests(unittest.TestCase):
         self.assertIn("image.addEventListener('click'", self.chat)
 
 
+class EditModeUiContractTests(unittest.TestCase):
+    def test_edit_tab_and_local_document_controls_are_shipped(self):
+        html = read_gui_file("index.html")
+        self.assertIn('name="chat-mode" value="edit"', html)
+        self.assertIn('id="edit-file-drop-zone"', html)
+        self.assertIn('id="btn-edit-connect-active"', html)
+        self.assertIn('src="js/edit_mode.js"', html)
+
+    def test_edit_document_drop_never_reads_or_uploads_file_content(self):
+        script = read_gui_script("edit_mode.js")
+        self.assertIn("connect_dropped_edit_document", script)
+        self.assertNotIn("FileReader", script)
+        self.assertNotIn("readAsDataURL", script)
+        self.assertNotIn("FormData", script)
+        self.assertNotIn("innerHTML", script)
+
+    def test_edit_requests_include_only_session_identity(self):
+        controller = read_gui_script("chat/controller.js")
+        self.assertIn("edit_session_id: activeEditSession.session_id", controller)
+        self.assertIn(
+            "document_fingerprint: activeEditSession.document_fingerprint",
+            controller,
+        )
+
+
 class DictionaryDomSafetyTests(unittest.TestCase):
     def setUp(self):
         self.macros = read_gui_script("dictionaries/macros.js")

@@ -120,6 +120,103 @@
     align-items: flex-end;
     border-top: 1px solid rgba(255,255,255,0.4);
     box-shadow: 0 -4px 20px rgba(0,0,0,0.03);
+    flex-wrap: wrap;
+}
+
+.edit-session-panel {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid rgba(108, 92, 231, 0.22);
+    border-radius: var(--radius-md);
+    background: rgba(108, 92, 231, 0.06);
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    gap: 10px 14px;
+    align-items: center;
+}
+
+.edit-session-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.edit-session-badge {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+#edit-document-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.edit-document-location {
+    color: var(--text-muted);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.edit-session-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.edit-session-actions button,
+.edit-session-actions select {
+    border: 1px solid #d7dbea;
+    border-radius: 8px;
+    background: white;
+    color: var(--text-dark);
+    padding: 7px 10px;
+    font-size: 12px;
+}
+
+.edit-session-actions button {
+    cursor: pointer;
+}
+
+.edit-session-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.edit-layout-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.edit-file-drop-zone {
+    grid-column: 1 / -1;
+    padding: 9px 12px;
+    border: 1px dashed rgba(108, 92, 231, 0.55);
+    border-radius: 9px;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.edit-file-drop-zone.drag-active {
+    background: rgba(108, 92, 231, 0.14);
+    border-color: var(--primary);
+    color: var(--primary);
 }
 
 .input-actions-left {

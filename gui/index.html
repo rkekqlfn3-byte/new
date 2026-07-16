@@ -68,12 +68,38 @@
                     <div class="message incoming animate-slide-up">
                         <div class="message-content">
                             <div class="sender-name current-name">Jarvis ⚡</div>
-                            <div class="bubble">안녕하세요! <strong>⚡ 명령</strong>과 <strong>❓ 질문</strong> 처리 전용 데스크탑 어시스턴트입니다.<br>처음이라면 좌측 하단 <strong>[+]</strong> 메뉴에서 <strong>[정밀 스캔 🔍]</strong>을 한 번 실행해 주세요. 앱 실행 명령의 인식률이 크게 올라갑니다.</div>
+                            <div class="bubble">안녕하세요! <strong>⚡ 명령</strong>, <strong>❓ 질문</strong>, <strong>✏️ 편집</strong>을 지원하는 데스크탑 어시스턴트입니다.<br>처음이라면 좌측 하단 <strong>[+]</strong> 메뉴에서 <strong>[정밀 스캔 🔍]</strong>을 한 번 실행해 주세요. 앱 실행 명령의 인식률이 크게 올라갑니다.</div>
                         </div>
                     </div>
                 </main>
 
                 <footer class="input-area glass-panel">
+                    <section id="edit-session-panel" class="edit-session-panel hidden-input" aria-live="polite">
+                        <div class="edit-session-summary">
+                            <span class="edit-session-badge">편집 중</span>
+                            <strong id="edit-document-name">연결된 문서 없음</strong>
+                            <span id="edit-document-location" class="edit-document-location">파일을 선택하거나 열린 문서를 연결해주세요.</span>
+                        </div>
+                        <div class="edit-session-actions">
+                            <button id="btn-edit-choose-file" type="button">파일 선택</button>
+                            <select id="edit-active-app" title="연결할 앱">
+                                <option value="">앱 자동 감지</option>
+                                <option value="excel">Excel</option>
+                                <option value="hwp">한글</option>
+                                <option value="word">Word</option>
+                                <option value="powerpoint">PowerPoint</option>
+                            </select>
+                            <button id="btn-edit-connect-active" type="button">현재 열린 문서 연결</button>
+                            <label class="edit-layout-toggle">
+                                <input id="edit-auto-layout" type="checkbox" checked>
+                                창 자동 배치
+                            </label>
+                            <button id="btn-edit-disconnect" type="button" disabled>연결 해제</button>
+                        </div>
+                        <div id="edit-file-drop-zone" class="edit-file-drop-zone" tabindex="0">
+                            Excel·한글·Word·PowerPoint 파일을 여기에 놓으세요
+                        </div>
+                    </section>
                     <div class="input-actions-left">
                         <button id="btn-plus" class="btn-icon btn-plus-menu">➕</button>
                         <button id="btn-attach" class="btn-icon btn-attach-file" title="파일 첨부">📎</button>
@@ -92,6 +118,9 @@
 
                             <input type="radio" id="mode-question" name="chat-mode" value="question" class="hidden-input">
                             <label for="mode-question" class="mode-tab">❓ 질문</label>
+
+                            <input type="radio" id="mode-edit" name="chat-mode" value="edit" class="hidden-input">
+                            <label for="mode-edit" class="mode-tab">✏️ 편집</label>
                         </div>
                         
                         <textarea id="chat-input" class="chat-input-field" placeholder="메시지를 입력하세요…" title="예: 오늘 뭐 했어?, 유튜브 틀어줘, 계산기 켜줘" rows="1" style="resize: none; overflow: hidden; font-family: inherit; line-height: 1.5; padding: 12px;"></textarea>
@@ -317,6 +346,7 @@
     <script defer src="js/settings.js"></script>
     <script defer src="js/dictionaries/action_dictionary.js"></script>
     <script defer src="js/api.js"></script>
+    <script defer src="js/edit_mode.js"></script>
     <script defer src="js/sessions.js"></script>
     <script defer src="js/chat/renderer.js"></script>
     <script defer src="js/chat/confirmation.js"></script>

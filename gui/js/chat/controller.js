@@ -118,9 +118,15 @@ async function sendMessage(isRetry = false) {
             })).filter(msg => msg.content);
         }
 
+        const activeEditSession = mode === "edit" ? window.currentEditSession : null;
+        const editContext = activeEditSession ? {
+            edit_session_id: activeEditSession.session_id,
+            document_fingerprint: activeEditSession.document_fingerprint
+        } : null;
+
         const response = await eel.parse_command(
             historyPayload, imgDataToSend, mode, useApi, summaryPayload, null,
-            currentSessionId
+            currentSessionId, editContext
         )();
 
         const streamDiv = document.getElementById(loadingId);
