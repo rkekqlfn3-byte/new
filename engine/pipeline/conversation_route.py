@@ -1,5 +1,6 @@
 import os
 
+from engine.edit_mode import ActionScope, ModePermissionError, assert_action_allowed
 from engine.execution_result import failure_result, success_result
 
 
@@ -65,6 +66,16 @@ def execute_conversation_route(
         log_callback(f"[LLM] Action: {action}, Target: {target}")
 
     if action == "open_app" and target:
+        try:
+            assert_action_allowed(mode, ActionScope.GLOBAL_ACTION)
+        except ModePermissionError as error:
+            return failure_result(
+                str(error),
+                action="mode_policy",
+                target=target,
+                error_type="validation_error",
+                status="blocked",
+            )
         path = parser.dict_mgr.noun_dict.get(target)
         if not path:
             return failure_result(

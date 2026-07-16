@@ -1,5 +1,9 @@
 # Office 어댑터 확장 계약
 
+> Prototype 1.0 편집모드의 신규 Word·PowerPoint 어댑터는
+> `engine.edit_mode.contracts.EditAdapter`와 `EditPreparedAction`을 기준으로
+> 구현한다. 아래 계약은 기존 Excel·HWP 명령 어댑터의 단계적 호환 경계다.
+
 Word·PowerPoint를 추가할 때 지켜야 할 최소 경계다. 현재 Excel·HWP 공개
 인터페이스와 저장 스키마는 바꾸지 않으며, 단계적으로 이 계약에 맞춘다.
 

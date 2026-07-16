@@ -1,6 +1,8 @@
+from engine.edit_mode import ModePermissionError, RequestMode, normalize_request_mode
 from engine.execution_result import failure_result
 from engine.pipeline.ai_fallback_route import execute_ai_fallback_route
 from engine.pipeline.conversation_route import execute_conversation_route
+from engine.pipeline.edit_route import execute_edit_route
 from engine.pipeline.macro_route import try_execute_macro_route
 from engine.pipeline.native_route import try_execute_native_route
 from engine.skills import strip_run_directive
@@ -58,10 +60,28 @@ class CommandPipeline:
         stream_callback=None,
         conversation_state=None,
         session_id=None,
+        edit_context=None,
     ):
         parser = self.owner
         parser.action_executor.noun_dict = parser.dict_mgr.noun_dict
-        if mode in {"conversation", "question"}:
+        try:
+            mode = normalize_request_mode(mode).value
+        except ModePermissionError as error:
+            return failure_result(
+                str(error),
+                action="mode_policy",
+                error_type="validation_error",
+                status="blocked",
+            )
+        if mode == RequestMode.EDIT.value:
+            return execute_edit_route(
+                parser,
+                user_input,
+                edit_context=edit_context,
+                session_id=session_id,
+                log_callback=log_callback,
+            )
+        if mode in {RequestMode.CONVERSATION.value, RequestMode.QUESTION.value}:
             return execute_conversation_route(
                 parser,
                 user_input,

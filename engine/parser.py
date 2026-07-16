@@ -80,6 +80,9 @@ class CommandParser:
         self.confirmation_factory = ConfirmationFactory(self)
         self.ai_action_handler = AIActionHandler(self)
         self.app_action_registry = AppActionRegistry()
+        # Stage 3 will replace this injection point with EditSessionManager.
+        # Until then edit requests are blocked before the command pipeline.
+        self.edit_mode_handler = None
         self.decision_engine = DecisionEngine()
         self.preference_manager = PreferenceManager()
         self.app_command_router = AppCommandRouter(self)
@@ -778,19 +781,43 @@ class CommandParser:
             app_name, macro_name, step_number
         )
 
-    def parse_and_execute(self, user_input, log_callback=None, image_data=None, mode="command", use_api=False, summary="", stream_callback=None, conversation_state=None, session_id=None):
+    def parse_and_execute(
+        self,
+        user_input,
+        log_callback=None,
+        image_data=None,
+        mode="command",
+        use_api=False,
+        summary="",
+        stream_callback=None,
+        conversation_state=None,
+        session_id=None,
+        edit_context=None,
+    ):
         """Compatibility API returning only the user-facing message."""
         return self.execute_command_result(
             user_input, log_callback, image_data, mode, use_api, summary,
-            stream_callback, conversation_state, session_id,
+            stream_callback, conversation_state, session_id, edit_context,
         )["message"]
 
-    def execute_command_result(self, user_input, log_callback=None, image_data=None, mode="command", use_api=False, summary="", stream_callback=None, conversation_state=None, session_id=None):
+    def execute_command_result(
+        self,
+        user_input,
+        log_callback=None,
+        image_data=None,
+        mode="command",
+        use_api=False,
+        summary="",
+        stream_callback=None,
+        conversation_state=None,
+        session_id=None,
+        edit_context=None,
+    ):
         """Execute one command and always return the canonical result object."""
         try:
             raw = self._parse_and_execute_core(
                 user_input, log_callback, image_data, mode, use_api, summary,
-                stream_callback, conversation_state, session_id,
+                stream_callback, conversation_state, session_id, edit_context,
             )
             return normalize_execution_result(raw)
         except ExecutionCancelled as error:
@@ -816,6 +843,7 @@ class CommandParser:
         stream_callback=None,
         conversation_state=None,
         session_id=None,
+        edit_context=None,
     ):
         return self.command_pipeline.execute(
             user_input,
@@ -827,6 +855,7 @@ class CommandParser:
             stream_callback=stream_callback,
             conversation_state=conversation_state,
             session_id=session_id,
+            edit_context=edit_context,
         )
 
     def _execute_ai_action_batch(

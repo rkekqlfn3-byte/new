@@ -160,7 +160,16 @@ def _resolve_confirmation_request(
         )
 
 @eel.expose
-def parse_command(user_input, image_data=None, mode="command", use_api=False, summary="", conversation_state=None, session_id=None):
+def parse_command(
+    user_input,
+    image_data=None,
+    mode="command",
+    use_api=False,
+    summary="",
+    conversation_state=None,
+    session_id=None,
+    edit_context=None,
+):
     parser = _get_parser()
     logger.info("Received command mode=%s api=%s", mode, bool(use_api))
     session_id = normalize_session_id(session_id)
@@ -192,6 +201,7 @@ def parse_command(user_input, image_data=None, mode="command", use_api=False, su
             stream_callback=_stream_callback,
             conversation_state=conversation_state,
             session_id=session_id,
+            edit_context=edit_context,
         )
         return _finish_or_pause(result, execution_id)
     except ExecutionCancelled as error:

@@ -112,5 +112,6 @@ PyInstaller onedir 빌드, ZIP 생성, 산출물 감사를 수행합니다. 정�
 - [변경 기록](CHANGELOG.md)
 - [현재 제한사항](KNOWN_LIMITATIONS.md)
 - [Prototype 1.0 1단계 기술 검증](docs/PROTOTYPE1_STAGE1_TECHNICAL_VALIDATION.md)
+- [Prototype 1.0 2단계 편집 계약](docs/PROTOTYPE1_STAGE2_EDIT_CONTRACT.md)
 - [감사 상태](AUDIT_REPORT.md)
 - [미해결 사항 해소 계획](REMEDIATION_PLAN.md)

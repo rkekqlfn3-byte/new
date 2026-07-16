@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Protocol, runtime_checkable
 
 from engine.app_actions.base import PreparedAction
+from engine.edit_mode.contracts import EditAdapter
 
 
 @runtime_checkable
@@ -38,3 +39,8 @@ class OfficeExtensionContract(Protocol):
 
     def fingerprint(self, context: Mapping[str, Any]) -> str: ...
 
+
+# Word and PowerPoint edit-mode adapters should implement this new structured
+# contract. Existing Excel/HWP command adapters remain on NativeAppAdapter until
+# their staged migration.
+StructuredEditAdapter = EditAdapter
