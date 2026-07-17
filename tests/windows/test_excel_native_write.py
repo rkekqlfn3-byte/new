@@ -195,6 +195,18 @@ class ExcelAdapterTests(unittest.TestCase):
         self.assertEqual("destructive_action", decision.reason)
         self.assertEqual("기존 값", excel.ActiveSheet.Range("A1").Value2)
 
+    def test_verified_write_can_restore_original_cell_snapshot(self):
+        excel = FakeExcel()
+        excel.ActiveSheet.Range("A1").Value2 = "원래 값"
+        adapter = adapter_for(excel)
+        prepared = adapter.prepare("write_cell", {"cell": "A1", "value": "수정 값"})
+        result = adapter.execute(prepared)
+
+        restored = adapter.undo(prepared, {"after_observations": result})
+
+        self.assertTrue(restored["verified"])
+        self.assertEqual("원래 값", excel.ActiveSheet.Range("A1").Value2)
+
     def test_context_change_blocks_stale_prepared_action(self):
         excel = FakeExcel()
         excel.ActiveSheet.Range("A1").Value2 = "기존"

@@ -10,6 +10,7 @@ FINGERPRINT = "C" * 64
 EDIT_CONTEXT = {
     "edit_session_id": "edit-session-1",
     "document_fingerprint": FINGERPRINT,
+    "context_fingerprint": "D" * 64,
     "request_id": "request-1",
 }
 
@@ -32,6 +33,23 @@ class EditModeRoutingTests(unittest.TestCase):
         self.assertEqual("edit", result["action"])
         self.parser.analyze_command.assert_not_called()
         self.parser.llm_engine.process_command.assert_not_called()
+
+    def test_edit_request_without_current_context_fingerprint_is_blocked(self):
+        handler = mock.Mock()
+        self.parser.edit_mode_handler = handler
+        result = self.parser.execute_command_result(
+            "이 문단을 줄여줘",
+            mode="edit",
+            edit_context={
+                "edit_session_id": "edit-session-1",
+                "document_fingerprint": FINGERPRINT,
+            },
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual("blocked", result["status"])
+        self.assertIn("선택 문맥", result["message"])
+        handler.assert_not_called()
 
     def test_edit_with_session_but_no_connected_document_is_safely_blocked(self):
         result = self.parser.execute_command_result(
@@ -65,6 +83,7 @@ class EditModeRoutingTests(unittest.TestCase):
         request = handler.call_args.args[0]
         self.assertEqual("edit-session-1", request.edit_session_id)
         self.assertEqual(FINGERPRINT, request.document_fingerprint)
+        self.assertEqual("D" * 64, request.context_fingerprint)
 
     def test_unknown_mode_is_blocked_instead_of_becoming_command(self):
         self.parser.analyze_command = mock.Mock()

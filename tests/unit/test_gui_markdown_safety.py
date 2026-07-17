@@ -107,13 +107,33 @@ class EditModeUiContractTests(unittest.TestCase):
         self.assertNotIn("FormData", script)
         self.assertNotIn("innerHTML", script)
 
-    def test_edit_requests_include_only_session_identity(self):
+    def test_edit_requests_include_session_and_current_context_identity(self):
         controller = read_gui_script("chat/controller.js")
+        self.assertIn(
+            "await window.refreshEditContext({ required: true })",
+            controller,
+        )
         self.assertIn("edit_session_id: activeEditSession.session_id", controller)
         self.assertIn(
             "document_fingerprint: activeEditSession.document_fingerprint",
             controller,
         )
+        self.assertIn(
+            "context_fingerprint: latestEditContext.context_fingerprint",
+            controller,
+        )
+
+    def test_current_edit_context_is_event_driven_and_rendered_as_text(self):
+        html = read_gui_file("index.html")
+        script = read_gui_script("edit_mode.js")
+        self.assertIn('id="edit-context-target"', html)
+        self.assertIn('id="edit-context-preview"', html)
+        self.assertIn('id="btn-edit-refresh-context"', html)
+        self.assertIn("eel.get_edit_context(sessionId)", script)
+        self.assertIn("editContextTarget.textContent", script)
+        self.assertIn("editContextPreview.textContent", script)
+        self.assertIn("editContextRefreshPromise", script)
+        self.assertNotIn("setInterval(refreshEditContext", script)
 
 
 class DictionaryDomSafetyTests(unittest.TestCase):

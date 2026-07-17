@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 *.py text eol=lf
 *.js text eol=lf
 *.css text eol=lf
@@ -5,3 +7,13 @@
 *.md text eol=lf
 *.html text eol=lf
 *.bat text eol=crlf
+*.cmd text eol=crlf
+/.git export-ignore
+/.venv export-ignore
+/__pycache__ export-ignore
+/build export-ignore
+/dist export-ignore
+/temp export-ignore
+/verification/*_report.json export-ignore
+/verification/*_progress.txt export-ignore
+*.zip export-ignore

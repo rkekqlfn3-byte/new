@@ -4,13 +4,19 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 
+from engine.diagnostics import (
+    DiagnosticIncidentManager,
+    privacy_safe_execution_record,
+)
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
 from engine.version import runtime_info
 
 
 DIAGNOSTICS_PATH = user_data_path("execution_diagnostics.json")
+_DEFAULT_INCIDENT_MANAGER = object()
 
 
 class ExecutionCancelled(RuntimeError):
@@ -32,18 +38,56 @@ class ExecutionBusyError(RuntimeError):
 
 
 class ExecutionController:
-    def __init__(self, diagnostics_path=None, max_records=100):
+    def __init__(
+        self,
+        diagnostics_path=None,
+        max_records=100,
+        incident_manager=_DEFAULT_INCIDENT_MANAGER,
+    ):
         self.diagnostics_path = diagnostics_path or DIAGNOSTICS_PATH
         self.max_records = max_records
+        self.incident_manager = (
+            DiagnosticIncidentManager(
+                Path(self.diagnostics_path).with_name("diagnostic_incidents.json")
+            )
+            if incident_manager is _DEFAULT_INCIDENT_MANAGER
+            else incident_manager
+        )
         self._lock = threading.RLock()
         self._cancel_event = threading.Event()
         self.current = None
         loaded = safe_read_json(self.diagnostics_path, {"records": []})
         records = loaded.get("records", []) if isinstance(loaded, dict) else []
-        self.records = list(records)[-max_records:] if isinstance(records, list) else []
+        raw_records = list(records)[-max_records:] if isinstance(records, list) else []
+        self.records = [privacy_safe_execution_record(item) for item in raw_records]
+        self._migrate_private_diagnostics(raw_records)
         # Paused confirmations are process-local and intentionally never loaded
         # from diagnostics after a restart.
         self.pending = {}
+
+    def _migrate_private_diagnostics(self, raw_records):
+        """Rewrite legacy raw logs and their recovery backup with safe fields."""
+        path = Path(self.diagnostics_path)
+        if not path.is_file():
+            return
+        backup = safe_read_json(f"{path}.bak", None, recover=False)
+        backup_records = (
+            backup.get("records", []) if isinstance(backup, dict) else []
+        )
+        primary_changed = self.records != raw_records
+        backup_changed = bool(backup_records) and [
+            privacy_safe_execution_record(item) for item in backup_records
+        ] != backup_records
+        if not primary_changed and not backup_changed:
+            return
+        try:
+            payload = {"records": self.records}
+            # First replaces the legacy primary; second replaces the .bak made
+            # from that primary with the already-sanitized representation.
+            atomic_write_json(path, payload)
+            atomic_write_json(path, payload)
+        except OSError:
+            pass
 
     def can_begin_command(self):
         """Whether the single command slot is free for a new command."""
@@ -162,7 +206,16 @@ class ExecutionController:
             })
             if isinstance(extra, dict):
                 record.update(extra)
-            self.records.append(record)
+            if self.incident_manager is not None and not record["success"]:
+                try:
+                    incident = self.incident_manager.record_execution_failure(record)
+                    if incident is not None:
+                        record["diagnostic_incident_id"] = incident["incident_id"]
+                # Diagnostics must never replace or alter the command result.
+                except Exception:
+                    pass
+            safe_record = privacy_safe_execution_record(record)
+            self.records.append(safe_record)
             self.records = self.records[-self.max_records:]
             self.current = None
             self._cancel_event.clear()
@@ -170,7 +223,7 @@ class ExecutionController:
                 atomic_write_json(self.diagnostics_path, {"records": self.records})
             except OSError:
                 pass
-            return record
+            return safe_record
 
     def pause_for_confirmation(
         self,
@@ -242,14 +295,13 @@ class ExecutionController:
     def diagnostics(self, limit=20):
         limit = max(1, min(int(limit or 20), self.max_records))
         with self._lock:
-            current = dict(self.current) if self.current else None
-            if current:
-                current.pop("started_monotonic", None)
+            current = (
+                privacy_safe_execution_record(self.current)
+                if self.current else None
+            )
             pending = []
             for record in self.pending.values():
-                item = dict(record)
-                item.pop("started_monotonic", None)
-                pending.append(item)
+                pending.append(privacy_safe_execution_record(record))
             return {
                 "current": current,
                 "pending": pending,

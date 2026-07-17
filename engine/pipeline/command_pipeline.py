@@ -14,6 +14,10 @@ _APPROVAL_WORDS = {
 _REJECTION_WORDS = {
     "아니", "아니오", "아니요", "틀렸어", "취소", "버려", "ㄴㄴ", "ㄴ", "하지마",
 }
+_SELF_DIAGNOSIS_COMMANDS = frozenset({
+    "자가 진단", "자가진단", "최근 오류 진단", "최근 오류 진단해줘",
+    "최근 실패 진단", "최근 실패 원인", "방금 오류 왜 실패했어",
+})
 
 
 def _normalize_command_input(user_input):
@@ -95,6 +99,8 @@ class CommandPipeline:
             )
 
         raw_input, normalized_input = _normalize_command_input(user_input)
+        if normalized_input in _SELF_DIAGNOSIS_COMMANDS:
+            return parser.diagnose_latest_failure()
         learning_review = _resolve_learning_review(parser, normalized_input)
         if learning_review is not None:
             return learning_review

@@ -1,6 +1,10 @@
 const editPanel = document.getElementById('edit-session-panel');
 const editDocumentName = document.getElementById('edit-document-name');
 const editDocumentLocation = document.getElementById('edit-document-location');
+const editContextSummary = document.getElementById('edit-context-summary');
+const editContextTarget = document.getElementById('edit-context-target');
+const editContextPreview = document.getElementById('edit-context-preview');
+const editContextRefreshButton = document.getElementById('btn-edit-refresh-context');
 const editChooseButton = document.getElementById('btn-edit-choose-file');
 const editConnectActiveButton = document.getElementById('btn-edit-connect-active');
 const editDisconnectButton = document.getElementById('btn-edit-disconnect');
@@ -9,6 +13,8 @@ const editAutoLayout = document.getElementById('edit-auto-layout');
 const editDropZone = document.getElementById('edit-file-drop-zone');
 
 window.currentEditSession = null;
+window.currentEditContext = null;
+let editContextRefreshPromise = null;
 
 const editAppLabels = {
     excel: 'Excel',
@@ -24,12 +30,36 @@ function setEditControlsBusy(busy) {
     editDisconnectButton.disabled = busy || !window.currentEditSession;
 }
 
-function renderEditSession(session) {
+function renderEditContext(context, error = null) {
+    window.currentEditContext = context || null;
+    editContextSummary.classList.toggle('context-unavailable', Boolean(error));
+    if (error) {
+        editContextTarget.textContent = '문맥 확인 필요';
+        editContextPreview.textContent = error.message || '연결된 문서를 다시 선택해주세요.';
+        return;
+    }
+    if (!context) {
+        editContextTarget.textContent = '문서를 연결하면 선택 영역을 표시합니다.';
+        editContextPreview.textContent = '';
+        return;
+    }
+    const location = [context.active_container, context.selection_reference]
+        .filter(Boolean)
+        .join(' · ');
+    editContextTarget.textContent = location || '선택 영역 없음';
+    editContextPreview.textContent = context.selected_text_preview
+        ? `“${context.selected_text_preview}”`
+        : '';
+}
+
+function renderEditSession(session, context = null, contextError = null) {
     window.currentEditSession = session || null;
     if (!session) {
         editDocumentName.textContent = '연결된 문서 없음';
         editDocumentLocation.textContent = '파일을 선택하거나 열린 문서를 연결해주세요.';
         editDisconnectButton.disabled = true;
+        renderEditContext(null);
+        updateEditPanelVisibility();
         return;
     }
     const appLabel = editAppLabels[session.app_type] || session.app_type || '문서';
@@ -39,12 +69,18 @@ function renderEditSession(session) {
     editDocumentName.textContent = session.document_name || '이름 없는 문서';
     editDocumentLocation.textContent = location ? `${appLabel} · ${location}` : appLabel;
     editDisconnectButton.disabled = false;
+    renderEditContext(context || session.context || null, contextError || session.context_error || null);
+    updateEditPanelVisibility();
 }
 
 function showEditResult(result) {
     const session = result?.data?.session || null;
     if (result?.success && session) {
-        renderEditSession(session);
+        renderEditSession(
+            session,
+            result?.data?.context || null,
+            result?.data?.context_error || null
+        );
         if (typeof addSystemMessage === 'function') addSystemMessage(result.message);
         const layout = result?.data?.layout;
         if (layout && !layout.success && typeof addSystemMessage === 'function') {
@@ -116,6 +152,62 @@ async function connectDroppedEditDocument(file) {
     }
 }
 
+async function refreshEditContext(options = {}) {
+    const required = Boolean(options?.required);
+    const sessionId = window.currentEditSession?.session_id || null;
+    const mode = document.querySelector('input[name="chat-mode"]:checked')?.value;
+    if (!sessionId) {
+        if (required) throw new Error('먼저 편집할 문서를 연결해주세요.');
+        return null;
+    }
+    if (mode !== 'edit') {
+        if (required) throw new Error('편집 모드에서만 문맥을 확인할 수 있습니다.');
+        return null;
+    }
+    if (document.hidden && !required) return null;
+    if (editContextRefreshPromise) {
+        const context = await editContextRefreshPromise;
+        if (required && !context) {
+            throw new Error('현재 선택 영역을 확인하지 못했습니다. 다시 시도해주세요.');
+        }
+        return context;
+    }
+
+    const pending = (async () => {
+        if (editContextRefreshButton) editContextRefreshButton.disabled = true;
+        try {
+            const result = await eel.get_edit_context(sessionId)();
+            if (window.currentEditSession?.session_id !== sessionId) {
+                throw new Error('문맥 확인 중 편집 문서가 바뀌었습니다. 다시 시도해주세요.');
+            }
+            if (result?.success && result?.data?.context?.context_fingerprint) {
+                renderEditContext(result.data.context);
+                return result.data.context;
+            }
+            const message = result?.message || '현재 선택 영역을 읽지 못했습니다.';
+            renderEditContext(null, { message });
+            if (required) throw new Error(message);
+            return null;
+        } catch (error) {
+            if (window.currentEditSession?.session_id === sessionId) {
+                renderEditContext(null, { message: error.message || String(error) });
+            }
+            if (required) throw error;
+            return null;
+        } finally {
+            if (editContextRefreshButton) editContextRefreshButton.disabled = false;
+        }
+    })();
+    editContextRefreshPromise = pending;
+    try {
+        return await pending;
+    } finally {
+        if (editContextRefreshPromise === pending) editContextRefreshPromise = null;
+    }
+}
+
+window.refreshEditContext = refreshEditContext;
+
 function updateEditPanelVisibility() {
     const mode = document.querySelector('input[name="chat-mode"]:checked')?.value;
     const editing = mode === 'edit';
@@ -124,6 +216,7 @@ function updateEditPanelVisibility() {
         chatInput.placeholder = window.currentEditSession
             ? '연결된 문서에 적용할 편집 내용을 입력하세요…'
             : '먼저 편집할 문서를 연결해주세요…';
+        refreshEditContext();
     } else {
         chatInput.placeholder = '메시지를 입력하세요…';
     }
@@ -136,6 +229,7 @@ document.querySelectorAll('input[name="chat-mode"]').forEach(input => {
 editChooseButton.addEventListener('click', chooseEditDocument);
 editConnectActiveButton.addEventListener('click', connectActiveEditDocument);
 editDisconnectButton.addEventListener('click', disconnectEditDocument);
+editContextRefreshButton?.addEventListener('click', () => refreshEditContext());
 editAutoLayout.addEventListener('change', async () => {
     const result = await eel.set_edit_auto_layout(editAutoLayout.checked)();
     if (!result?.success) {
@@ -172,10 +266,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     try {
         const result = await runUiLoadWithRetry(() => eel.get_edit_session_status()());
         if (result?.success) {
-            renderEditSession(result.data?.session || null);
+            renderEditSession(
+                result.data?.session || null,
+                result.data?.context || null,
+                result.data?.context_error || null
+            );
             editAutoLayout.checked = result.data?.auto_layout !== false;
         }
     } catch (error) {
         console.warn('편집 세션 상태를 불러오지 못했습니다.', error);
     }
 });
+
+window.addEventListener('focus', refreshEditContext);

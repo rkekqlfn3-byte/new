@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import os
 import threading
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Mapping
@@ -100,6 +101,27 @@ class EditSessionManager:
         if self._active_session is None or self._state_machine is None:
             return None
         result = self._active_session.to_dict()
+        last_action = result.get("last_action")
+        undo_record = result.get("undo_record")
+        if isinstance(last_action, dict):
+            result["last_action"] = {
+                key: copy.deepcopy(last_action.get(key))
+                for key in (
+                    "operation",
+                    "original_command",
+                    "before_preview",
+                    "after_preview",
+                    "sequence_count",
+                    "completed_at",
+                )
+                if last_action.get(key) is not None
+            }
+        if isinstance(undo_record, dict):
+            result["undo_record"] = {
+                "available": True,
+                "operation": undo_record.get("operation"),
+                "target": undo_record.get("target"),
+            }
         state = self._state_machine.to_dict()
         result.update({
             "state": state["state"],
@@ -109,6 +131,80 @@ class EditSessionManager:
 
     def current(self) -> dict | None:
         with self._lock:
+            return self._snapshot_locked()
+
+    @staticmethod
+    def _json_state(value, label):
+        try:
+            encoded = json.dumps(
+                value,
+                allow_nan=False,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise EditSessionError(f"{label}은 JSON 값이어야 합니다.") from error
+        if len(encoded) > 512 * 1024:
+            raise EditSessionError(f"{label} 크기가 안전 한도를 넘었습니다.")
+        return json.loads(encoded.decode("utf-8"))
+
+    def continuation_state(self, session_id: str | None = None) -> dict:
+        """Return the private process-local continuation and undo records."""
+        with self._lock:
+            if self._active_session is None:
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            if session_id and session_id != self._active_session.session_id:
+                raise EditSessionStale("다른 편집 세션의 후속 문맥 요청을 거부했습니다.")
+            return {
+                "last_target": copy.deepcopy(self._active_session.last_target),
+                "last_action": copy.deepcopy(self._active_session.last_action),
+                "undo_record": copy.deepcopy(self._active_session.undo_record),
+            }
+
+    def record_committed_edit(
+        self,
+        session_id: str,
+        *,
+        last_target,
+        last_action,
+        undo_record,
+    ) -> dict:
+        """Remember one verified edit without retaining native COM objects."""
+        with self._lock:
+            if self._active_session is None or session_id != self._active_session.session_id:
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            target = self._json_state(last_target or {}, "직전 편집 대상")
+            action = self._json_state(last_action or {}, "직전 편집 작업")
+            undo = (
+                self._json_state(undo_record, "직전 되돌리기 기록")
+                if undo_record
+                else None
+            )
+            self._active_session = replace(
+                self._active_session,
+                last_target=target,
+                last_action=action,
+                undo_record=undo,
+            )
+            return self._snapshot_locked()
+
+    def clear_continuation(
+        self,
+        session_id: str,
+        *,
+        clear_undo: bool = True,
+    ) -> dict:
+        """Discard stale follow-up context, optionally including last undo."""
+        with self._lock:
+            if self._active_session is None or session_id != self._active_session.session_id:
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            self._active_session = replace(
+                self._active_session,
+                last_target=None,
+                last_action=None,
+                undo_record=None if clear_undo else self._active_session.undo_record,
+            )
             return self._snapshot_locked()
 
     def assert_connectable(self) -> None:
@@ -227,3 +323,28 @@ class EditSessionManager:
             ):
                 raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
             return self._state_machine
+
+    def reset_ready(self, session_id: str, *, reason: str = "편집 작업 정리") -> dict:
+        """Return a completed, cancelled, or safely failed session to READY."""
+        with self._lock:
+            if (
+                self._active_session is None
+                or self._state_machine is None
+                or session_id != self._active_session.session_id
+            ):
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            if self._state_machine.state is EditSessionState.READY:
+                return self._snapshot_locked()
+            if self._state_machine.state not in {
+                EditSessionState.PREPARED,
+                EditSessionState.APPROVAL_REQUIRED,
+                EditSessionState.COMMITTED,
+                EditSessionState.STALE_CONTEXT,
+                EditSessionState.FAILED,
+                EditSessionState.ROLLED_BACK,
+            }:
+                raise EditSessionBusy(
+                    "실행 중인 편집 작업은 준비 상태로 강제 전환할 수 없습니다."
+                )
+            self._state_machine.transition(EditSessionState.READY, reason=reason)
+            return self._snapshot_locked()

@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Mapping, Protocol, runtime_checkable
 
 
-EDIT_CONTRACT_SCHEMA_VERSION = 1
+EDIT_CONTRACT_SCHEMA_VERSION = 2
 MAX_EDIT_TEXT_CHARS = 10_000
 MAX_SERIALIZED_ACTION_BYTES = 256 * 1024
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
@@ -114,6 +114,7 @@ class EditRequest:
     document_fingerprint: str
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     mode: str = RequestMode.EDIT.value
+    context_fingerprint: str | None = None
 
     def __post_init__(self):
         text = str(self.text or "").strip()
@@ -129,15 +130,24 @@ class EditRequest:
         object.__setattr__(
             self, "document_fingerprint", _fingerprint(self.document_fingerprint)
         )
+        if self.context_fingerprint is not None:
+            object.__setattr__(
+                self, "context_fingerprint", _fingerprint(self.context_fingerprint)
+            )
 
     @classmethod
     def from_input(cls, user_input, edit_context=None) -> "EditRequest":
         context = edit_context if isinstance(edit_context, Mapping) else {}
+        if not context.get("context_fingerprint"):
+            raise EditContractError(
+                "편집 요청 전에 현재 선택 문맥을 다시 확인해야 합니다."
+            )
         return cls(
             text=_latest_text(user_input),
             edit_session_id=context.get("edit_session_id"),
             document_fingerprint=context.get("document_fingerprint"),
             request_id=context.get("request_id") or uuid.uuid4().hex,
+            context_fingerprint=context.get("context_fingerprint"),
         )
 
     def to_dict(self) -> dict[str, Any]:

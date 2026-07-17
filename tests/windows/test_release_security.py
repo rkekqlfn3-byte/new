@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from engine.runtime_paths import _default_user_data_dir
 from engine.startup_check import REQUIRED_MODULES
+from engine.version import APP_VERSION
 from tests.test_runner import TEST_MODULES
 from verification.optimize_distribution import EXCLUDED_BINARIES
 from verification.release_security_audit import audit_default_data, scan_blob
@@ -99,6 +100,24 @@ class ReleaseDefaultDataTests(unittest.TestCase):
         dispatch = source.index("if is_macro_worker():")
         self.assertLess(dispatch, source.index("from engine.logging_config"))
         self.assertLess(dispatch, source.index("from engine.runtime_paths"))
+
+    def test_source_archive_requires_clean_git_and_excludes_local_artifacts(self):
+        script = (
+            PROJECT_ROOT / "verification" / "create_source_archive.ps1"
+        ).read_text(encoding="utf-8").casefold()
+        attributes = (PROJECT_ROOT / ".gitattributes").read_text(
+            encoding="utf-8"
+        ).casefold()
+        self.assertIn("git status --porcelain", script)
+        self.assertIn("git archive --format=zip", script)
+        self.assertIn("get-filehash", script)
+        for name in (".venv", "build", "dist", "__pycache__"):
+            self.assertIn(name, script)
+            self.assertIn(f"/{name} export-ignore", attributes)
+
+    def test_readme_version_matches_runtime_version(self):
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn(f"`{APP_VERSION}`", readme)
 
 
 class SeparatedRuntimePathTests(unittest.TestCase):

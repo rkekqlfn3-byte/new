@@ -1,12 +1,50 @@
 # Jarvis Command Center
 
-Windows에서 한국어 명령으로 앱, 웹, Excel, 한글, 미디어 동작을 실행하고
-AI 질문·대화를 지원하는 개인용 데스크톱 도우미입니다.
+Windows에서 한국어 명령으로 앱, 웹, Excel, 한글, Word, PowerPoint를 제어하고
+AI 질문·대화를 지원하는 개인용 데스크톱 도우미입니다. 현재 개발 소스 버전은
+`1.1.0-rc.6`입니다.
 
-현재 개발 소스 버전은 `1.1.0-rc.5`이며, 보정 릴리스 후보 단계입니다.
-R6 전체 검증을 통과한 실행본은 개발 저장소 밖의
-`C:\Users\PC04\OneDrive\Desktop\JARVIS_RUNTIME\current\Jarvis`에 설치돼
-있습니다.
+Prototype 1.0 1~8단계는 파일 연결, 현재 선택 문맥, 네 앱의 미리보기·승인·편집·
+재읽기·복원과 안정성 검증을 다룹니다. Prototype 1.1 9~12단계는 Excel VBA,
+Excel→Word→PowerPoint 워크플로, 명시적 사용자 선호 학습, 개인정보가 제거된
+자가 진단을 추가합니다.
+
+편집 문맥은 상시 polling하지 않습니다. 문서 연결, 편집 탭 진입, 창 focus,
+수동 새로고침, 명령 전과 처리 후에만 읽으며, 명령 전 갱신 실패나 선택 변경이
+있으면 미리보기 생성 전 차단합니다.
+
+## Prototype 1.1 11단계: 명시적 사용자 선호 학습 v1
+
+요약 길이, 보고서 문체, 제목·숫자·표 표현, PPT 기본 장수, 저장 위치와 VBA 수정
+방식에 대한 허용된 명시적 문장을 증거로 기록합니다. 한 번의 지시로 확정하지
+않으며 같은 값이 세 번 확인된 뒤 사용자 승인을 받아야 활성 기본값으로 저장합니다.
+범위 우선순위는 `파일 > 업무 > 앱 > 전역`이고 현재 명령의 명시적 값이 우선합니다.
+일반적인 교정 문장이나 사용자의 직접 수정 결과를 자동 학습하지 않습니다.
+
+예를 들어 `PPT는 항상 7장으로 만들어줘`를 세 번 확인하고 활성화하면 다음
+보고서 워크플로의 기본 PPT가 7장이 됩니다. `5장짜리 PPT`라고 직접 요청하면
+그 작업만 5장으로 생성합니다.
+
+상세 내용은 [11단계 명시적 사용자 선호 학습](docs/PROTOTYPE11_STAGE11_USER_LEARNING.md)에
+정리했습니다.
+
+## Prototype 1.1 10단계: 앱 간 문서 워크플로
+
+연결된 Excel에서 `이 엑셀을 분석해서 보고서와 5장짜리 PPT 만들어줘.`라고
+요청하면 승인 미리보기 뒤 Excel을 읽기 전용으로 분석하고 Word 보고서와 정확히
+5장인 PowerPoint 요약을 생성합니다. 미리보기와 취소는 영구 상태 파일을 만들지
+않고, 승인 순간 원본과 출력 경로를 다시 확인한 뒤 최초 상태를 저장합니다. 실행
+중 실패하면 `실패한 워크플로 이어서`로 성공 단계는 건너뛰고 실패 단계만 다시
+실행합니다. 취소·승인 대기 상태는 재개 대상으로 선택하지 않으며 기존 파일은
+덮어쓰지 않습니다.
+
+상세 설계와 실제 Office 검증 결과는
+[10단계 앱 간 문서 워크플로](docs/PROTOTYPE11_STAGE10_DOCUMENT_WORKFLOW.md)에
+정리했습니다.
+
+실행본 위치는 소스에 개인 절대 경로로 고정하지 않습니다. 운영 환경에서 지정한
+`<JARVIS_RUNTIME>` 아래의 `current/Jarvis`와 `previous/Jarvis.zip` 정책은
+[RULEBOOK](RULEBOOK.md)을 따릅니다.
 
 ## 개발 환경
 
@@ -45,6 +83,15 @@ py -3.12 -m venv .venv
 - 확인·취소·busy 보호, 결과 검증, 실패 진단과 단계 재시도
 - 학습 행동의 로컬 재사용과 네이티브 확장 후보 기록
 - Excel·한글·Word·PowerPoint 로컬 파일을 네이티브 앱에 연결하는 편집 세션
+- 연결 문서의 현재 시트·선택 Range·커서·슬라이드·Shape를 읽는 편집 문맥
+- Excel·한글·Word·PowerPoint 선택 대상의 변경 미리보기·승인·
+  실행·재읽기 검증 편집
+- 같은 선택 대상의 짧은 후속 명령, 미리보기 다시 작성, 직전 JARVIS 편집의
+  구조화된 복원과 재읽기 검증
+- 앱·문서 전환 시 이전 문맥 폐기, 네 앱 100회 연속 편집과 COM·프로세스
+  안정성 검증
+- Excel VBA 프로젝트·모듈·프로시저 읽기, 위험 분석, 백업 기반 코드 수정과
+  별도 매크로 실행 승인
 
 프로그램 실행 매크로는 매번 확인을 받습니다. 셸·스크립트·시스템 관리
 명령과 셸 연결·리디렉션 문자는 차단합니다.
@@ -52,22 +99,47 @@ py -3.12 -m venv .venv
 ### Excel
 
 실행 중인 Excel의 활성 통합문서와 시트에서 셀 값·수식 입력, 합계, 범위
-서식, 조건부 서식, 필터, 찾기·바꾸기, 행 정렬을 지원합니다. 승인 대기 중
+서식, 조건부 서식, 필터, 찾기·바꾸기, 행 정렬과 행·열 삽입을 지원합니다. 승인 대기 중
 문서 상태가 달라지면 실행하지 않고, 실행 뒤 결과를 다시 읽어 검증합니다.
+
+매크로 사용 통합문서 `.xlsm/.xlsb`에서는 VBA 프로젝트와 모듈·프로시저
+목록, 코드 읽기·정적 분석, 변경 diff를 제공합니다. 코드 수정은 원본 `.bas`
+백업과 승인이 필수이며, 매크로 실행은 별도 승인, Shell·파일 삭제·네트워크·
+레지스트리 포함 코드는 두 번 확인합니다. 실제 앱 검증은 현재 Excel 보안
+센터의 VBA 프로젝트 접근 설정으로 대기 중입니다.
 
 ### 한글(HWP)
 
 화면에 보이는 활성 한글 문서에서 텍스트 입력, 글자 모양, 문단 정렬,
-찾기·바꾸기, 지원 형식 저장을 제공합니다. 대상이 불명확하거나 보호 상태인
-경우 실행하지 않습니다.
+찾기·바꾸기, 선택 문장 교체·로컬 축약·격식체 변환을 제공합니다. 대상이
+불명확하거나 보호 상태인 경우 실행하지 않습니다.
 
-Word와 PowerPoint 네이티브 편집은 아직 구현되지 않았습니다. 확장 시 지킬
-경계는 [Office 어댑터 계약](docs/OFFICE_ADAPTER_CONTRACT.md)에 기록돼 있습니다.
+### Word
+
+현재 선택 Range의 텍스트 교체, 굵기·글자 크기, 문단 정렬, Style·
+표 셀 확인과 저장을 지원합니다. 연결된 문서와 선택 문자 Range가 정확히
+같을 때만 실행하고 교체·서식 결과를 다시 읽습니다.
+
+### PowerPoint
+
+현재 슬라이드에서 하나의 Shape 또는 텍스트 선택을 대상으로 텍스트 교체,
+글자 크기·굵기·정렬, Shape 이동·크기 변경, Placeholder 확인과 앞
+슬라이드의 같은 역할 Shape 스타일 복사를 지원합니다.
 
 Prototype 1.0 편집모드는 파일 선택·드롭, 이미 열린 문서 연결, 정확한 경로
-확인, COM-free 단일 세션, 선택적 좌우 창 배치까지 구현했습니다. 세부 안전
-경계는 [3단계 파일·세션 문서](docs/PROTOTYPE1_STAGE3_FILE_SESSION.md)를
-참조하세요. 실제 문서 내용 편집은 다음 문맥 어댑터 단계에서 활성화합니다.
+확인, COM-free 단일 세션, 선택적 좌우 창 배치와 네 앱의 읽기 전용 현재 문맥
+인식과 네 앱의 최소 실제 편집까지 구현했습니다. 세부 안전 경계는
+[3단계 파일·세션 문서](docs/PROTOTYPE1_STAGE3_FILE_SESSION.md)와
+[4단계 편집 문맥 문서](docs/PROTOTYPE1_STAGE4_EDIT_CONTEXT.md),
+[5단계 최소 실제 편집 문서](docs/PROTOTYPE1_STAGE5_MINIMAL_EDITING.md),
+[6단계 Word·PowerPoint 편집 문서](docs/PROTOTYPE1_STAGE6_WORD_POWERPOINT_EDITING.md),
+[7단계 연속 수정·재작성·되돌리기 문서](docs/PROTOTYPE1_STAGE7_CONTINUOUS_EDITING.md),
+[8단계 4개 앱 통합 검증 문서](docs/PROTOTYPE1_STAGE8_INTEGRATION_VALIDATION.md),
+[9단계 Excel VBA 편집 문서](docs/PROTOTYPE11_STAGE9_EXCEL_VBA.md),
+[10단계 앱 간 문서 워크플로 문서](docs/PROTOTYPE11_STAGE10_DOCUMENT_WORKFLOW.md),
+[11단계 명시적 사용자 선호 학습 문서](docs/PROTOTYPE11_STAGE11_USER_LEARNING.md),
+[12단계 자가 진단 문서](docs/PROTOTYPE11_STAGE12_SELF_DIAGNOSIS.md)를
+참조하세요.
 
 ## 테스트
 
@@ -81,11 +153,13 @@ Prototype 1.0 편집모드는 파일 선택·드롭, 이미 열린 문서 연결
 .venv\Scripts\python.exe -m tests.test_runner all
 ```
 
-2026-07-16 Prototype 1.0 3단계 검증에서 자동 테스트 493개 중 490개가 통과했고
-외부 AI 라이브 테스트 3개는 실제 키 사용 승인이 없어 건너뛰었으며 실패는
-0개입니다. 임시 Excel·Word·PowerPoint 파일의 네이티브 연결과 프로세스 정리를
-통과했습니다. 실행 중인 사용자 한글 문서는 수정·종료하지 않고 읽기 전용 활성
-문서 탐색과 세션 고정·해제만 확인했습니다.
+2026-07-17 독립 감사 후속 보완 기준으로 전체 자동 테스트 632개 중 629개가
+통과했고, 실제 외부 AI 자격 증명과 호출 승인이 필요한 라이브 테스트 3개만
+건너뛰었으며 실패는 0개입니다. 8단계는 Excel·한글·Word·PowerPoint 각각
+100/100회와 적용·검증·Undo를 통과했습니다. 9단계 소유 `.xlsm`은 프로젝트
+탐색, 코드 읽기·분석, 백업·수정·복원, 별도 매크로 실행과 실제 셀 결과까지
+통과했습니다. 10단계 승인형 문서 워크플로, 11단계 명시적 선호 학습,
+12단계 개인정보 제한 진단 프로브도 모두 성공했습니다.
 
 ## 빌드와 릴리스
 
@@ -119,5 +193,15 @@ PyInstaller onedir 빌드, ZIP 생성, 산출물 감사를 수행합니다. 정�
 - [현재 제한사항](KNOWN_LIMITATIONS.md)
 - [Prototype 1.0 1단계 기술 검증](docs/PROTOTYPE1_STAGE1_TECHNICAL_VALIDATION.md)
 - [Prototype 1.0 2단계 편집 계약](docs/PROTOTYPE1_STAGE2_EDIT_CONTRACT.md)
+- [Prototype 1.0 3단계 파일·세션](docs/PROTOTYPE1_STAGE3_FILE_SESSION.md)
+- [Prototype 1.0 4단계 편집 문맥](docs/PROTOTYPE1_STAGE4_EDIT_CONTEXT.md)
+- [Prototype 1.0 5단계 최소 실제 편집](docs/PROTOTYPE1_STAGE5_MINIMAL_EDITING.md)
+- [Prototype 1.0 6단계 Word·PowerPoint 편집](docs/PROTOTYPE1_STAGE6_WORD_POWERPOINT_EDITING.md)
+- [Prototype 1.0 7단계 연속 수정·재작성·되돌리기](docs/PROTOTYPE1_STAGE7_CONTINUOUS_EDITING.md)
+- [Prototype 1.0 8단계 4개 앱 통합 검증](docs/PROTOTYPE1_STAGE8_INTEGRATION_VALIDATION.md)
+- [Prototype 1.1 9단계 Excel VBA 편집](docs/PROTOTYPE11_STAGE9_EXCEL_VBA.md)
+- [Prototype 1.1 10단계 앱 간 문서 워크플로](docs/PROTOTYPE11_STAGE10_DOCUMENT_WORKFLOW.md)
+- [Prototype 1.1 11단계 명시적 사용자 선호 학습 v1](docs/PROTOTYPE11_STAGE11_USER_LEARNING.md)
+- [Prototype 1.1 12단계 자가 진단·안전한 개선 제안](docs/PROTOTYPE11_STAGE12_SELF_DIAGNOSIS.md)
 - [감사 상태](AUDIT_REPORT.md)
 - [미해결 사항 해소 계획](REMEDIATION_PLAN.md)

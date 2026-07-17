@@ -7,6 +7,7 @@ import logging
 import eel
 
 from engine.core import get_parser
+from engine.app_actions import vba_trust_status
 from engine.execution_result import failure_result, success_result
 
 
@@ -57,6 +58,8 @@ def choose_and_connect_edit_document():
             f"{session['document_name']} 문서를 편집 대상으로 연결했습니다.",
             session,
             layout=session.get("layout"),
+            context=session.get("context"),
+            context_error=session.get("context_error"),
         )
     except Exception as error:
         logger.exception("Edit document chooser connection failed")
@@ -71,6 +74,8 @@ def connect_edit_document(file_path):
             f"{session['document_name']} 문서를 편집 대상으로 연결했습니다.",
             session,
             layout=session.get("layout"),
+            context=session.get("context"),
+            context_error=session.get("context_error"),
         )
     except Exception as error:
         logger.exception("Edit document path connection failed")
@@ -89,6 +94,8 @@ def connect_dropped_edit_document(file_name, file_size=None, path_hint=None):
             f"{session['document_name']} 문서를 편집 대상으로 연결했습니다.",
             session,
             layout=session.get("layout"),
+            context=session.get("context"),
+            context_error=session.get("context_error"),
         )
     except Exception as error:
         logger.exception("Dropped edit document connection failed")
@@ -103,6 +110,8 @@ def connect_active_edit_document(app_type=None):
             f"열려 있던 {session['document_name']} 문서를 편집 대상으로 연결했습니다.",
             session,
             layout=session.get("layout"),
+            context=session.get("context"),
+            context_error=session.get("context_error"),
         )
     except Exception as error:
         logger.exception("Active edit document connection failed")
@@ -122,6 +131,56 @@ def get_edit_session_status():
     except Exception as error:
         logger.exception("Edit session status lookup failed")
         return _failure(error, action="edit_session")
+
+
+@eel.expose
+def get_edit_context(session_id=None):
+    try:
+        context = _get_controller().context(session_id)
+        return success_result(
+            "현재 문서 선택 영역을 확인했습니다.",
+            action="edit_context",
+            target=context.get("session_id"),
+            verified=True,
+            data={"context": context},
+        )
+    except Exception as error:
+        if getattr(error, "status", None) == "stale_context":
+            logger.debug("Edit context is temporarily unavailable: %s", error)
+        else:
+            logger.exception("Edit context lookup failed")
+        return _failure(error, action="edit_context")
+
+
+@eel.expose
+def get_user_preference_learning_status():
+    try:
+        status = _get_controller().user_preference_learning_status()
+        return success_result(
+            "명시적 사용자 선호 학습 상태를 확인했습니다.",
+            action="user_preference_learning",
+            verified=True,
+            data=status,
+        )
+    except Exception as error:
+        logger.exception("User preference learning status lookup failed")
+        return _failure(error, action="user_preference_learning")
+
+
+@eel.expose
+def get_excel_vba_trust_status():
+    """Report configuration only; never change Excel security settings."""
+    try:
+        status = vba_trust_status()
+        return success_result(
+            "Excel VBA 프로젝트 접근 보안 상태를 확인했습니다.",
+            action="excel_vba_trust_status",
+            verified=True,
+            data=status,
+        )
+    except Exception as error:
+        logger.exception("Excel VBA trust status lookup failed")
+        return _failure(error, action="excel_vba_trust_status")
 
 
 @eel.expose

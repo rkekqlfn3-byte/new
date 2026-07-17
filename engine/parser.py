@@ -86,6 +86,9 @@ class CommandParser:
         self.ai_action_handler = AIActionHandler(self)
         self.app_action_registry = AppActionRegistry()
         self.edit_mode_controller = edit_mode_controller or EditModeController()
+        bind_parser = getattr(self.edit_mode_controller, "bind_parser", None)
+        if callable(bind_parser):
+            bind_parser(self)
         self.edit_mode_handler = self.edit_mode_controller
         self.decision_engine = DecisionEngine()
         self.preference_manager = PreferenceManager()
@@ -184,6 +187,55 @@ class CommandParser:
 
     def get_execution_diagnostics(self, limit=20):
         return self.execution_controller.diagnostics(limit)
+
+    def _diagnostic_manager(self):
+        manager = getattr(self.execution_controller, "incident_manager", None)
+        if manager is None:
+            raise RuntimeError("자가 진단 저장소가 비활성화되어 있습니다.")
+        return manager
+
+    def get_diagnostic_incidents(self, limit=20, status=None):
+        return self._diagnostic_manager().list_incidents(limit, status=status)
+
+    def get_self_diagnostic_report(self, incident_id=None):
+        manager = self._diagnostic_manager()
+        incident = manager.get(incident_id) if incident_id else manager.latest()
+        if incident is None:
+            raise ValueError("진단할 실패 기록이 없습니다.")
+        return manager.report(incident["incident_id"])
+
+    def get_diagnostic_health_summary(self):
+        return self._diagnostic_manager().health_summary()
+
+    def set_diagnostic_incident_status(self, incident_id, status):
+        return self._diagnostic_manager().set_status(incident_id, status)
+
+    def get_remediation_proposal(self, incident_id):
+        return self._diagnostic_manager().remediation_spec(incident_id)
+
+    def diagnose_latest_failure(self):
+        try:
+            report = self.get_self_diagnostic_report()
+        except ValueError as error:
+            return failure_result(
+                str(error), action="self_diagnosis",
+                error_type="target_not_found", status="not_found",
+            )
+        where = report["where"]
+        failed_step = where.get("failed_step") or where.get("operation") or "미확인"
+        analysis = report["why"]
+        tests = ", ".join(report["remediation"]["required_regression_tests"])
+        return success_result(
+            "최근 실패 진단\n"
+            f"- 실패 지점: {failed_step}\n"
+            f"- 원인 분류: {analysis['headline']}\n"
+            f"- 수정 제안: {analysis['recommended_fix']}\n"
+            f"- 필요한 검증: {tests}\n"
+            "코드 수정과 EXE 빌드는 자동 실행하지 않으며 별도 승인이 필요합니다.",
+            action="self_diagnosis",
+            verified=True,
+            data={"report": report},
+        )
 
     def get_native_action_candidates(
         self, include_observing=True, include_dismissed=False

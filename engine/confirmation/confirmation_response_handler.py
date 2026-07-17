@@ -197,6 +197,15 @@ class ConfirmationResponseHandler:
             item for item in consumed["options"] if item["id"] == option_id
         )
         if selected.get("cancel"):
+            payload = consumed.get("payload", {})
+            if payload.get("kind") == "prepared_edit_action":
+                cancel_edit = getattr(
+                    getattr(self.owner, "edit_mode_controller", None),
+                    "cancel_pending_edit",
+                    None,
+                )
+                if callable(cancel_edit):
+                    cancel_edit(payload)
             return ConfirmationResolution(
                 session_id=session_id,
                 option_id=option_id,

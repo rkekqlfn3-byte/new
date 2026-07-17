@@ -129,6 +129,8 @@ class ExcelAdapter:
         "filter_range",
         "find_replace",
         "sort_range",
+        "insert_rows",
+        "insert_columns",
     })
 
     def __init__(
@@ -656,6 +658,112 @@ class ExcelAdapter:
             metadata={"application_hwnd": base["application_hwnd"]},
         )
 
+    @staticmethod
+    def _range_is_blank(source):
+        value = serializable_excel_value(source.Value2)
+
+        def has_value(item):
+            if isinstance(item, list):
+                return any(has_value(child) for child in item)
+            return item not in {None, ""}
+
+        return not has_value(value)
+
+    def _prepare_structure_insert_in_app(self, application, params, axis):
+        _, sheet, base = self._common_context(application)
+        selection = normalize_range_address(params.get("selection_range"))
+        first_column, first_row, _, _ = self._range_bounds(selection)
+        try:
+            count = int(params.get("count", 1))
+        except (TypeError, ValueError) as error:
+            raise AppActionBlocked("추가할 행·열 개수는 숫자여야 합니다.") from error
+        if not 1 <= count <= 10:
+            raise AppActionBlocked("행·열 추가는 한 번에 1개부터 10개까지 지원합니다.")
+
+        used = sheet.UsedRange
+        used_address = self._address(used)
+        used_first_column, used_first_row, used_last_column, used_last_row = (
+            self._range_bounds(used_address)
+        )
+        used_count = self._range_count(used)
+        if used_count > MAX_SOURCE_CELLS:
+            raise AppActionBlocked(
+                f"행·열 추가는 사용 영역이 {MAX_SOURCE_CELLS:,}개 셀 이하인 시트에서만 지원합니다."
+            )
+        index = first_row if axis == "row" else first_column
+        lower = used_first_row if axis == "row" else used_first_column
+        upper = used_last_row if axis == "row" else used_last_column
+        if not lower <= index <= upper:
+            raise AppActionBlocked("데이터가 있는 사용 영역 안의 행 또는 열을 선택해주세요.")
+
+        if axis == "row":
+            shifted_address = (
+                f"{excel_column_letters(used_first_column)}{index}:"
+                f"{excel_column_letters(used_last_column)}{used_last_row}"
+            )
+            target = f"{index}행"
+        else:
+            shifted_address = (
+                f"{excel_column_letters(index)}{used_first_row}:"
+                f"{excel_column_letters(used_last_column)}{used_last_row}"
+            )
+            target = f"{excel_column_letters(index)}열"
+        shifted_digest = self._range_digest(sheet.Range(shifted_address))
+        operation = "insert_rows" if axis == "row" else "insert_columns"
+        snapshot = {
+            **base,
+            "operation": operation,
+            "selection": selection,
+            "axis": axis,
+            "index": index,
+            "count": count,
+            "used_address": used_address,
+            "used_digest": self._range_digest(used),
+            "shifted_address": shifted_address,
+            "shifted_digest": shifted_digest,
+        }
+        affected = (
+            (used_last_row - index + 1)
+            * (used_last_column - used_first_column + 1)
+            if axis == "row"
+            else (used_last_column - index + 1)
+            * (used_last_row - used_first_row + 1)
+        )
+        return PreparedAction(
+            app="excel",
+            operation=operation,
+            document_id=base["document_id"],
+            workbook_name=base["workbook_name"],
+            sheet=base["sheet"],
+            target=target,
+            params={
+                "selection_range": selection,
+                "axis": axis,
+                "index": index,
+                "count": count,
+                "used_first_column": used_first_column,
+                "used_first_row": used_first_row,
+                "used_last_column": used_last_column,
+                "used_last_row": used_last_row,
+                "shifted_digest": shifted_digest,
+            },
+            current_state={
+                "used_address": used_address,
+                "affected_cells": affected,
+            },
+            estimated_changes=affected,
+            destructive=True,
+            reversible=True,
+            verification_method=(
+                "verify_shifted_rows"
+                if axis == "row"
+                else "verify_shifted_columns"
+            ),
+            context_fingerprint=self._state_fingerprint(snapshot),
+            prepared_at=self._created_at(),
+            metadata={"application_hwnd": base["application_hwnd"]},
+        )
+
     def _filter_state(self, sheet):
         state = {
             "auto_filter_mode": bool(getattr(sheet, "AutoFilterMode", False)),
@@ -963,6 +1071,19 @@ class ExcelAdapter:
         if direction not in {"ascending", "descending"}:
             raise AppActionBlocked("정렬 방향은 오름차순 또는 내림차순이어야 합니다.")
         rows = self._table_values(sheet, table)
+        original_cells = []
+        for row_number in range(2, table["last_row"] + 1):
+            row_snapshot = []
+            for column_number in range(
+                table["first_column"], table["last_column"] + 1
+            ):
+                cell = sheet.Cells(row_number, column_number)
+                has_formula = bool(getattr(cell, "HasFormula", False))
+                row_snapshot.append({
+                    "formula": str(cell.Formula) if has_formula else None,
+                    "value": serializable_excel_value(cell.Value2),
+                })
+            original_cells.append(row_snapshot)
         key_index = table["column_number"] - table["first_column"]
         keys = [row[key_index] for row in rows]
         kind = self._sort_key_kind(keys)
@@ -994,6 +1115,7 @@ class ExcelAdapter:
                 "key_kind": kind,
                 "expected_keys": expected_keys,
                 "original_rows": rows,
+                "original_cells": original_cells,
             },
             current_state={
                 "row_count": len(rows),
@@ -1345,6 +1467,12 @@ class ExcelAdapter:
                 return self._prepare_find_replace_in_app(application, params)
             if operation == "sort_range":
                 return self._prepare_sort_in_app(application, params)
+            if operation in {"insert_rows", "insert_columns"}:
+                return self._prepare_structure_insert_in_app(
+                    application,
+                    params,
+                    "row" if operation == "insert_rows" else "column",
+                )
             return self._prepare_format_in_app(
                 application, params, persistent=operation == "apply_conditional_format"
             )
@@ -1372,6 +1500,8 @@ class ExcelAdapter:
                 return self._execute_find_replace(application, prepared)
             if prepared.operation == "sort_range":
                 return self._execute_sort(application, prepared)
+            if prepared.operation in {"insert_rows", "insert_columns"}:
+                return self._execute_structure_insert(application, prepared)
             if prepared.operation == "apply_conditional_format":
                 return self._execute_conditional_format(application, prepared)
             return self._execute_direct_format(application, prepared)
@@ -1406,6 +1536,70 @@ class ExcelAdapter:
             "value": current.params["value"],
         }
         return self._write_and_verify(cell, before, desired, current)
+
+    def _execute_structure_insert(self, application, prepared):
+        current = self._prepare_structure_insert_in_app(
+            application,
+            prepared.params,
+            prepared.params["axis"],
+        )
+        self._ensure_same_context(current, prepared)
+        _, sheet, _ = self._common_context(application)
+        axis = current.params["axis"]
+        index = int(current.params["index"])
+        count = int(current.params["count"])
+        first_column = int(current.params["used_first_column"])
+        first_row = int(current.params["used_first_row"])
+        last_column = int(current.params["used_last_column"])
+        last_row = int(current.params["used_last_row"])
+        inserted = None
+        try:
+            if axis == "row":
+                inserted = sheet.Rows(f"{index}:{index + count - 1}")
+                inserted.Insert()
+                shifted = sheet.Range(
+                    f"{excel_column_letters(first_column)}{index + count}:"
+                    f"{excel_column_letters(last_column)}{last_row + count}"
+                )
+                blank = sheet.Range(
+                    f"{excel_column_letters(first_column)}{index}:"
+                    f"{excel_column_letters(last_column)}{index + count - 1}"
+                )
+            else:
+                first = excel_column_letters(index)
+                last = excel_column_letters(index + count - 1)
+                inserted = sheet.Columns(f"{first}:{last}")
+                inserted.Insert()
+                shifted = sheet.Range(
+                    f"{excel_column_letters(index + count)}{first_row}:"
+                    f"{excel_column_letters(last_column + count)}{last_row}"
+                )
+                blank = sheet.Range(f"{first}{first_row}:{last}{last_row}")
+            if self._range_digest(shifted) != current.params["shifted_digest"]:
+                raise AppActionVerificationError(
+                    "Excel 행·열 추가 후 기존 데이터의 이동 결과가 예상과 다릅니다."
+                )
+            if not self._range_is_blank(blank):
+                raise AppActionVerificationError(
+                    "Excel에 추가된 행·열이 비어 있지 않아 결과를 승인할 수 없습니다."
+                )
+        except Exception as error:
+            if inserted is not None:
+                try:
+                    inserted.Delete()
+                except Exception:
+                    pass
+            if isinstance(error, AppActionError):
+                raise
+            raise AppActionVerificationError(
+                "Excel 행·열 추가 또는 검증에 실패했습니다."
+            ) from error
+        return self._result(
+            current,
+            {"used_address": current.current_state["used_address"]},
+            {"inserted": count, "axis": axis},
+            changed=True,
+        )
 
     def _write_and_verify(self, cell, before, desired, prepared):
         original_formula = before.get("current_formula")
@@ -1570,13 +1764,18 @@ class ExcelAdapter:
     def _restore_filter_state(self, sheet, previous):
         if bool(getattr(sheet, "FilterMode", False)):
             sheet.ShowAllData()
+        if bool(getattr(sheet, "AutoFilterMode", False)):
+            sheet.AutoFilterMode = False
         address = previous.get("range")
         active = [
             item for item in previous.get("filters", []) if item.get("on")
         ]
-        if not address or not active:
+        if not address or not previous.get("auto_filter_mode"):
             return
         source = sheet.Range(address)
+        if not active:
+            source.AutoFilter()
+            return
         for descriptor in active:
             arguments = {
                 "Field": descriptor["field"],
@@ -1780,6 +1979,274 @@ class ExcelAdapter:
             f"Excel {target} 셀을 다시 읽은 값이 요청과 다릅니다. "
             f"(요청: {str(desired.get('value'))[:120]}, 실제: {str(actual)[:120]})"
         )
+
+    @staticmethod
+    def _restore_cell_value(cell, state):
+        formula = state.get("formula")
+        if formula is not None:
+            cell.Formula = formula
+        else:
+            cell.Value2 = state.get("value")
+
+    def _ensure_undo_context(self, application, prepared):
+        _, sheet, base = self._common_context(application)
+        if (
+            str(base["document_id"]).casefold()
+            != str(prepared.document_id).casefold()
+            or str(base["sheet"]).casefold() != str(prepared.sheet).casefold()
+        ):
+            raise AppActionContextChanged(
+                "편집했던 Excel 통합문서와 시트가 현재 대상이 아니어서 복원하지 않았습니다."
+            )
+        return sheet
+
+    def _undo_cell_write(self, application, prepared):
+        sheet = self._ensure_undo_context(application, prepared)
+        cell = sheet.Range(prepared.target)
+        current = self._cell_snapshot(cell)
+        desired = {
+            "kind": prepared.params["value_type"],
+            "value": prepared.params["value"],
+        }
+        if not self._matches_desired(current, desired):
+            raise AppActionContextChanged(
+                "직전 편집 뒤 대상 셀 값이 달라져 안전하게 복원하지 않았습니다."
+            )
+        original = {
+            "formula": prepared.current_state.get("formula"),
+            "value": prepared.current_state.get("value"),
+        }
+        self._restore_cell_value(cell, original)
+        restored = self._cell_snapshot(cell)
+        expected = {
+            "kind": "formula" if original["formula"] is not None else "value",
+            "value": (
+                original["formula"]
+                if original["formula"] is not None
+                else original["value"]
+            ),
+        }
+        if not self._matches_desired(restored, expected):
+            raise AppActionVerificationError(
+                "Excel 셀의 원래 값이 복원되었는지 확인하지 못했습니다."
+            )
+        return restored
+
+    def _undo_range_format(self, application, prepared):
+        sheet = self._ensure_undo_context(application, prepared)
+        desired = dict(prepared.params.get("desired") or {})
+        originals = list(prepared.params.get("original_formats") or [])
+        for original in originals:
+            current = self._format_state(sheet.Range(original["address"]))
+            if not self._format_state_matches(current, desired):
+                raise AppActionContextChanged(
+                    "직전 편집 뒤 범위 서식이 달라져 안전하게 복원하지 않았습니다."
+                )
+        for original in originals:
+            self._restore_format(sheet.Range(original["address"]), original)
+        restored = []
+        for original in originals:
+            state = self._format_state(sheet.Range(original["address"]))
+            if not self._format_state_matches(state, original):
+                raise AppActionVerificationError(
+                    f"Excel {original['address']} 셀의 원래 서식을 확인하지 못했습니다."
+                )
+            restored.append(state)
+        return {"restored_count": len(restored)}
+
+    def _undo_find_replace(self, application, prepared):
+        sheet = self._ensure_undo_context(application, prepared)
+        matches = list(prepared.params.get("matches") or [])
+        for match in matches:
+            cell = sheet.Range(match["address"])
+            if not excel_values_equal(cell.Value2, match["replacement"]):
+                raise AppActionContextChanged(
+                    "직전 찾기·바꾸기 뒤 셀 값이 달라져 복원하지 않았습니다."
+                )
+        for match in matches:
+            sheet.Range(match["address"]).Value2 = match["original"]
+        for match in matches:
+            if not excel_values_equal(
+                sheet.Range(match["address"]).Value2,
+                match["original"],
+            ):
+                raise AppActionVerificationError(
+                    f"Excel {match['address']} 셀의 원래 값을 확인하지 못했습니다."
+                )
+        return {"restored_count": len(matches)}
+
+    def _undo_sort(self, application, prepared):
+        sheet = self._ensure_undo_context(application, prepared)
+        table = self._resolve_table_range(
+            sheet,
+            {"table_range": prepared.target},
+            prepared.params.get("column_name"),
+        )
+        current_rows = self._table_values(sheet, table)
+        key_index = table["column_number"] - table["first_column"]
+        if (
+            self._row_multiset(current_rows)
+            != self._row_multiset(prepared.params["original_rows"])
+            or [row[key_index] for row in current_rows]
+            != prepared.params["expected_keys"]
+        ):
+            raise AppActionContextChanged(
+                "직전 정렬 뒤 표 데이터가 달라져 안전하게 복원하지 않았습니다."
+            )
+
+        original_cells = list(prepared.params.get("original_cells") or [])
+        for row_offset, original_row in enumerate(prepared.params["original_rows"]):
+            row_number = row_offset + 2
+            for column_offset, value in enumerate(original_row):
+                column_number = table["first_column"] + column_offset
+                cell = sheet.Cells(row_number, column_number)
+                if original_cells:
+                    self._restore_cell_value(
+                        cell,
+                        original_cells[row_offset][column_offset],
+                    )
+                else:
+                    cell.Value2 = value
+        restored_rows = self._table_values(sheet, table)
+        if restored_rows != prepared.params["original_rows"]:
+            raise AppActionVerificationError(
+                "Excel 표의 정렬 전 행 순서가 복원되었는지 확인하지 못했습니다."
+            )
+        if original_cells:
+            for row_offset, row_snapshot in enumerate(original_cells):
+                for column_offset, snapshot in enumerate(row_snapshot):
+                    cell = sheet.Cells(
+                        row_offset + 2,
+                        table["first_column"] + column_offset,
+                    )
+                    formula = str(cell.Formula) if bool(cell.HasFormula) else None
+                    if not excel_formulas_equal(formula, snapshot.get("formula")):
+                        raise AppActionVerificationError(
+                            "Excel 표의 정렬 전 수식이 복원되었는지 확인하지 못했습니다."
+                        )
+        return {"restored_rows": len(restored_rows)}
+
+    def _undo_structure_insert(self, application, prepared):
+        sheet = self._ensure_undo_context(application, prepared)
+        axis = prepared.params["axis"]
+        index = int(prepared.params["index"])
+        count = int(prepared.params["count"])
+        first_column = int(prepared.params["used_first_column"])
+        first_row = int(prepared.params["used_first_row"])
+        last_column = int(prepared.params["used_last_column"])
+        last_row = int(prepared.params["used_last_row"])
+        if axis == "row":
+            shifted = sheet.Range(
+                f"{excel_column_letters(first_column)}{index + count}:"
+                f"{excel_column_letters(last_column)}{last_row + count}"
+            )
+            blank = sheet.Range(
+                f"{excel_column_letters(first_column)}{index}:"
+                f"{excel_column_letters(last_column)}{index + count - 1}"
+            )
+            inserted = sheet.Rows(f"{index}:{index + count - 1}")
+            original_address = (
+                f"{excel_column_letters(first_column)}{index}:"
+                f"{excel_column_letters(last_column)}{last_row}"
+            )
+        else:
+            first = excel_column_letters(index)
+            last = excel_column_letters(index + count - 1)
+            shifted = sheet.Range(
+                f"{excel_column_letters(index + count)}{first_row}:"
+                f"{excel_column_letters(last_column + count)}{last_row}"
+            )
+            blank = sheet.Range(f"{first}{first_row}:{last}{last_row}")
+            inserted = sheet.Columns(f"{first}:{last}")
+            original_address = (
+                f"{excel_column_letters(index)}{first_row}:"
+                f"{excel_column_letters(last_column)}{last_row}"
+            )
+        if (
+            self._range_digest(shifted) != prepared.params["shifted_digest"]
+            or not self._range_is_blank(blank)
+        ):
+            raise AppActionContextChanged(
+                "삽입된 행·열 또는 이동된 데이터가 달라져 안전하게 복원하지 않았습니다."
+            )
+        inserted.Delete()
+        restored_digest = self._range_digest(sheet.Range(original_address))
+        if restored_digest != prepared.params["shifted_digest"]:
+            raise AppActionVerificationError(
+                "Excel 행·열 삭제 뒤 원래 데이터 위치를 확인하지 못했습니다."
+            )
+        return {"restored_axis": axis, "restored_count": count}
+
+    def _undo_filter(self, application, prepared):
+        sheet = self._ensure_undo_context(application, prepared)
+        current = self._filter_state(sheet)
+        if prepared.params.get("clear"):
+            matches_after = not current.get("filter_mode")
+        else:
+            matches_after = self._matching_filter(
+                current,
+                prepared.params["table_range"],
+                prepared.params["field_index"],
+                prepared.params["criteria"],
+            )
+        if not matches_after:
+            raise AppActionContextChanged(
+                "직전 편집 뒤 필터 상태가 달라져 안전하게 복원하지 않았습니다."
+            )
+        previous = dict(prepared.params.get("previous_filter") or {})
+        self._restore_filter_state(sheet, previous)
+        restored = self._filter_state(sheet)
+        if self._state_fingerprint({"filter": restored}) != self._state_fingerprint(
+            {"filter": previous}
+        ):
+            raise AppActionVerificationError(
+                "Excel의 이전 필터 상태가 복원되었는지 확인하지 못했습니다."
+            )
+        return {"filter_state": restored}
+
+    def undo(self, prepared, record=None):
+        """Restore one verified Excel edit from its structured snapshot."""
+        if not isinstance(prepared, PreparedAction):
+            prepared = PreparedAction.from_dict(prepared or {})
+        if prepared.app != "excel" or not prepared.reversible:
+            raise AppActionBlocked("복원할 수 있는 Excel 편집 작업이 아닙니다.")
+        handlers = {
+            "write_cell": self._undo_cell_write,
+            "sum_column_to_cell": self._undo_cell_write,
+            "format_range": self._undo_range_format,
+            "find_replace": self._undo_find_replace,
+            "sort_range": self._undo_sort,
+            "insert_rows": self._undo_structure_insert,
+            "insert_columns": self._undo_structure_insert,
+            "filter_range": self._undo_filter,
+        }
+        handler = handlers.get(prepared.operation)
+        if handler is None:
+            raise AppActionBlocked("이 Excel 작업은 자동 복원을 지원하지 않습니다.")
+        try:
+            with self._application() as application:
+                restored = handler(application, prepared)
+        except AppActionError:
+            raise
+        except Exception as error:
+            raise AppActionVerificationError(
+                "Excel 원상 복원 또는 복원 검증에 실패했습니다."
+            ) from error
+        return {
+            "success": True,
+            "verified": True,
+            "status": "success",
+            "app": "excel",
+            "operation": "undo_last_edit",
+            "document_id": prepared.document_id,
+            "workbook_name": prepared.workbook_name,
+            "sheet": prepared.sheet,
+            "target": prepared.target,
+            "changed": True,
+            "verification_method": "structured_snapshot_restore_and_readback",
+            "before": dict((record or {}).get("after_observations") or {}),
+            "after": restored,
+        }
 
     @staticmethod
     def _result(prepared, before, after, changed):

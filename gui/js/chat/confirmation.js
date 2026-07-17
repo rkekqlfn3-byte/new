@@ -116,6 +116,9 @@ function bindConfirmationCard(card) {
                 } else {
                     addMessage(result?.message || result?.response || '확인 응답을 처리했습니다.', true);
                 }
+                if (typeof window.refreshEditContext === 'function') {
+                    await window.refreshEditContext({ required: false });
+                }
                 if (typeof saveCurrentSession === 'function') await saveCurrentSession();
             } catch (error) {
                 card.dataset.busy = 'false';

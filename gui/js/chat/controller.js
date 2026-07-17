@@ -119,9 +119,13 @@ async function sendMessage(isRetry = false) {
         }
 
         const activeEditSession = mode === "edit" ? window.currentEditSession : null;
+        const latestEditContext = mode === "edit"
+            ? await window.refreshEditContext({ required: true })
+            : null;
         const editContext = activeEditSession ? {
             edit_session_id: activeEditSession.session_id,
-            document_fingerprint: activeEditSession.document_fingerprint
+            document_fingerprint: activeEditSession.document_fingerprint,
+            context_fingerprint: latestEditContext.context_fingerprint
         } : null;
 
         const response = await eel.parse_command(
@@ -154,6 +158,7 @@ async function sendMessage(isRetry = false) {
         currentStreamId = null;
         currentStreamRawContent = "";
         window.lastFailedMessagePayload = null;
+        if (mode === "edit") await window.refreshEditContext({ required: false });
     } catch (error) {
         console.error('메시지 처리 실패:', error);
         const streamDiv = document.getElementById(loadingId);

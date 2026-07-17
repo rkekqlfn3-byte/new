@@ -12,9 +12,10 @@ from functools import lru_cache
 from pathlib import Path
 
 
-# Release candidate for the R0-R4 remediation work. It becomes the runtime
-# current build only after the complete R6 validation gate passes.
-APP_VERSION = "1.1.0-rc.5"
+# Prototype 1.0 edit mode and Prototype 1.1 workflow release candidate.  It
+# becomes a runtime build only after the complete validation gate passes from
+# a clean, tagged commit.
+APP_VERSION = "1.1.0-rc.6"
 
 # Persisted user-data schema (see default_data/dictionaries.json schema_version).
 DATA_SCHEMA_VERSION = 4

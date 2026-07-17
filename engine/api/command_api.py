@@ -179,10 +179,17 @@ def parse_command(
         )
 
     try:
+        runtime_metadata = {
+            "mode": mode, "use_api": bool(use_api), "session_id": session_id,
+        }
+        if isinstance(edit_context, dict):
+            for key in (
+                "edit_session_id", "document_fingerprint", "context_fingerprint"
+            ):
+                if edit_context.get(key):
+                    runtime_metadata[key] = edit_context[key]
         execution_id = parser.execution_controller.begin(
-            str(user_input)[-200:], {
-                "mode": mode, "use_api": bool(use_api), "session_id": session_id,
-            }
+            str(user_input)[-200:], runtime_metadata,
         )
     except ExecutionBusyError as error:
         # Another command is still running; do not touch its diagnostics.
@@ -277,6 +284,66 @@ def cancel_current_execution():
 def get_execution_diagnostics(limit=20):
     parser = _get_parser()
     return parser.get_execution_diagnostics(limit)
+
+
+@eel.expose
+def get_diagnostic_incidents(limit=20, status=None):
+    parser = _get_parser()
+    try:
+        return {
+            "success": True,
+            "incidents": parser.get_diagnostic_incidents(limit, status=status),
+        }
+    except (TypeError, ValueError, RuntimeError) as error:
+        return {"success": False, "message": str(error), "incidents": []}
+
+
+@eel.expose
+def get_self_diagnostic_report(incident_id=None):
+    parser = _get_parser()
+    try:
+        return {
+            "success": True,
+            "report": parser.get_self_diagnostic_report(incident_id),
+        }
+    except (TypeError, ValueError, RuntimeError) as error:
+        return {"success": False, "message": str(error), "report": None}
+
+
+@eel.expose
+def get_diagnostic_health_summary():
+    parser = _get_parser()
+    try:
+        return {
+            "success": True,
+            "health": parser.get_diagnostic_health_summary(),
+        }
+    except (TypeError, ValueError, RuntimeError) as error:
+        return {"success": False, "message": str(error), "health": None}
+
+
+@eel.expose
+def set_diagnostic_incident_status(incident_id, status):
+    parser = _get_parser()
+    try:
+        return {
+            "success": True,
+            "incident": parser.set_diagnostic_incident_status(incident_id, status),
+        }
+    except (TypeError, ValueError, RuntimeError) as error:
+        return {"success": False, "message": str(error)}
+
+
+@eel.expose
+def get_remediation_proposal(incident_id):
+    parser = _get_parser()
+    try:
+        return {
+            "success": True,
+            "proposal": parser.get_remediation_proposal(incident_id),
+        }
+    except (TypeError, ValueError, RuntimeError) as error:
+        return {"success": False, "message": str(error), "proposal": None}
 
 
 @eel.expose

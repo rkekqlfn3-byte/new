@@ -118,11 +118,21 @@ class HwpAdapter:
         require_visible=True,
         enable_pdf_export=False,
         com_runtime=None,
+        owned_unsaved_document_path=None,
     ):
+        if owned_unsaved_document_path and object_getter is None:
+            raise ValueError(
+                "미저장 한글 문서 ID는 전용 소유 HwpObject getter와 함께만 사용할 수 있습니다."
+            )
         self._object_getter = object_getter or _default_hwp_getter
         self._com_runtime = com_runtime
         self._require_visible = bool(require_visible)
         self._enable_pdf_export = bool(enable_pdf_export)
+        self._owned_unsaved_document_path = (
+            os.path.normcase(os.path.abspath(str(owned_unsaved_document_path)))
+            if owned_unsaved_document_path
+            else None
+        )
 
     @contextmanager
     def _hwp(self):
@@ -189,12 +199,16 @@ class HwpAdapter:
             if edit_mode != 1:
                 raise AppActionBlocked("현재 한글 문서가 일반 편집 모드가 아닙니다.")
             full_name = str(document.FullName or "").strip()
-            document_name = os.path.basename(full_name) if full_name else "저장되지 않은 문서"
             window_handle = int(window.WindowHandle or 0)
-            document_id = (
-                os.path.normcase(os.path.abspath(full_name))
-                if full_name else f"unsaved:{window_handle}"
-            )
+            if full_name:
+                document_id = os.path.normcase(os.path.abspath(full_name))
+                document_name = os.path.basename(full_name)
+            elif self._owned_unsaved_document_path:
+                document_id = self._owned_unsaved_document_path
+                document_name = os.path.basename(document_id)
+            else:
+                document_id = f"unsaved:{window_handle}"
+                document_name = "저장되지 않은 문서"
             document_text = str(hwp.GetTextFile("UNICODE", ""))
             if len(document_text) > MAX_DOCUMENT_TEXT_CHARS:
                 raise AppActionBlocked(
@@ -224,6 +238,20 @@ class HwpAdapter:
             raise AppActionUnavailable(
                 "한글의 활성 문서·선택 영역·커서 상태를 읽지 못했습니다."
             ) from error
+
+    def read_selection(self):
+        """Return the full active selection for local edit preparation only."""
+        with self._hwp() as hwp:
+            _, base, _, selection = self._context(hwp)
+            return {
+                "document_id": base["document_id"],
+                "has_selection": selection["has_selection"],
+                "text": selection["text"],
+                "text_length": selection["text_length"],
+                "text_digest": selection["text_digest"],
+                "position": list(base["position"]),
+                "coordinates": list(selection["coordinates"]),
+            }
 
     @staticmethod
     def _target(base, selection, paragraph=False):
@@ -273,13 +301,21 @@ class HwpAdapter:
             params={
                 "text": text,
                 "expected_occurrences": expected_occurrences,
+                "original_text": (
+                    selection["text"]
+                    if len(selection["text"]) <= MAX_FORMAT_SELECTION_CHARS
+                    else None
+                ),
+                "selection_coordinates": list(selection["coordinates"]),
             },
             current_state={
                 "position": base["position"],
                 "has_selection": selection["has_selection"],
                 "selected_length": selection["text_length"],
+                "selected_digest": selection["text_digest"],
                 "selected_preview": selection["text"][:120],
                 "document_length": len(document_text),
+                "document_digest": base["text_digest"],
             },
             estimated_changes=max(len(text), selection["text_length"]),
             destructive=selection["has_selection"],
@@ -372,9 +408,12 @@ class HwpAdapter:
             target="선택 영역",
             params={"desired": desired, "format_labels": labels},
             current_state={
+                "has_selection": True,
                 "selected_length": selection["text_length"],
+                "selected_digest": selection["text_digest"],
                 "selected_preview": selection["text"][:120],
                 "format": current,
+                "document_digest": base["text_digest"],
             },
             estimated_changes=0 if noop else selection["text_length"],
             destructive=selection["text_length"] > 1000 and not noop,
@@ -431,7 +470,9 @@ class HwpAdapter:
             current_state={
                 "has_selection": selection["has_selection"],
                 "selected_length": selection["text_length"],
+                "selected_digest": selection["text_digest"],
                 "format": current,
+                "document_digest": base["text_digest"],
             },
             estimated_changes=0 if noop else max(1, selection["text_length"]),
             destructive=selection["text_length"] > 5000 and not noop,
@@ -503,6 +544,10 @@ class HwpAdapter:
             current_state={
                 "matching_count": count,
                 "scope_length": len(scope_text),
+                "has_selection": selection["has_selection"],
+                "selected_length": selection["text_length"],
+                "selected_digest": selection["text_digest"],
+                "document_digest": base["text_digest"],
             },
             estimated_changes=count,
             destructive=not noop,
@@ -655,7 +700,11 @@ class HwpAdapter:
         return self._result(
             current,
             {"position": before_base["position"]},
-            {"position": after_base["position"], "inserted_length": len(current.params["text"])},
+            {
+                "position": after_base["position"],
+                "inserted_length": len(current.params["text"]),
+                "document_digest": after_base["text_digest"],
+            },
             True,
         )
 
@@ -862,6 +911,107 @@ class HwpAdapter:
             {"path": target, **final_state, "temporary_pdf": pdf_state},
             True,
         )
+
+    def undo(self, prepared, record=None):
+        """Undo one verified JARVIS edit and prove the structured snapshot returned."""
+        if not isinstance(prepared, PreparedAction):
+            prepared = PreparedAction.from_dict(prepared or {})
+        if prepared.app != "hwp" or not prepared.reversible:
+            raise AppActionBlocked("복원할 수 있는 한글 편집 작업이 아닙니다.")
+        if prepared.operation not in {
+            "insert_text",
+            "set_text_format",
+            "set_paragraph_format",
+            "find_replace",
+        }:
+            raise AppActionBlocked("이 한글 작업은 자동 복원을 지원하지 않습니다.")
+
+        observations = dict((record or {}).get("after_observations") or {})
+        expected_after = dict(observations.get("after") or {})
+        with self._hwp() as hwp:
+            _, current_base, _, _ = self._context(hwp)
+            if str(current_base["document_id"]).casefold() != str(
+                prepared.document_id
+            ).casefold():
+                raise AppActionContextChanged(
+                    "편집했던 한글 문서가 현재 활성 문서가 아니어서 복원하지 않았습니다."
+                )
+
+            if prepared.operation in {"insert_text", "find_replace"}:
+                expected_digest = str(
+                    expected_after.get("document_digest")
+                    or expected_after.get("text_digest")
+                    or ""
+                ).upper()
+                if not expected_digest or current_base["text_digest"] != expected_digest:
+                    raise AppActionContextChanged(
+                        "직전 편집 뒤 문서 내용이 달라져 안전하게 복원하지 않았습니다."
+                    )
+            elif prepared.operation == "set_text_format":
+                current_format = self._char_state(hwp)
+                desired = dict(prepared.params.get("desired") or {})
+                if not all(current_format.get(key) == value for key, value in desired.items()):
+                    raise AppActionContextChanged(
+                        "직전 편집 뒤 선택 영역 서식이 달라져 복원하지 않았습니다."
+                    )
+            else:
+                current_format = self._paragraph_state(hwp)
+                alignment = str(prepared.params.get("alignment") or "")
+                expected_alignment = PARAGRAPH_ALIGNMENTS.get(alignment, (None, None))[1]
+                if current_format.get("alignment") != expected_alignment:
+                    raise AppActionContextChanged(
+                        "직전 편집 뒤 문단 정렬이 달라져 복원하지 않았습니다."
+                    )
+
+            try:
+                self._undo(hwp)
+                _, restored_base, _, _ = self._context(hwp)
+                if prepared.operation in {"insert_text", "find_replace"}:
+                    expected_original = str(
+                        prepared.current_state.get("document_digest") or ""
+                    ).upper()
+                    verified = bool(expected_original) and (
+                        restored_base["text_digest"] == expected_original
+                    )
+                    restored = {"document_digest": restored_base["text_digest"]}
+                elif prepared.operation == "set_text_format":
+                    restored = self._char_state(hwp)
+                    original = dict(prepared.current_state.get("format") or {})
+                    verified = all(
+                        restored.get(key) == value for key, value in original.items()
+                    )
+                else:
+                    restored = self._paragraph_state(hwp)
+                    original = dict(prepared.current_state.get("format") or {})
+                    verified = all(
+                        restored.get(key) == value for key, value in original.items()
+                    )
+                if not verified:
+                    raise AppActionVerificationError(
+                        "한글 실행 취소 뒤 원래 상태가 복원되었는지 확인하지 못했습니다."
+                    )
+            except AppActionError:
+                raise
+            except Exception as error:
+                raise AppActionVerificationError(
+                    "한글 실행 취소 또는 복원 검증에 실패했습니다."
+                ) from error
+
+        return {
+            "success": True,
+            "verified": True,
+            "status": "success",
+            "app": "hwp",
+            "operation": "undo_last_edit",
+            "document_id": prepared.document_id,
+            "workbook_name": prepared.workbook_name,
+            "sheet": prepared.sheet,
+            "target": prepared.target,
+            "changed": True,
+            "verification_method": "native_undo_and_snapshot_readback",
+            "before": expected_after,
+            "after": restored,
+        }
 
     @staticmethod
     def _result(prepared, before, after, changed):

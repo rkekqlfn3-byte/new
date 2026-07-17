@@ -37,6 +37,19 @@ def _fingerprint(value) -> str:
     return str(value or "").strip().upper()
 
 
+def _execution_error(message, error):
+    """Keep machine-readable failure context while hiding it from prose parsing."""
+    wrapped = EditExecutionError(f"{message}: {error}")
+    failed_step = getattr(error, "failed_step", getattr(error, "step", None))
+    if failed_step not in (None, ""):
+        wrapped.failed_step = failed_step
+    wrapped.retryable = bool(getattr(error, "retryable", False))
+    context = getattr(error, "diagnostic_context", None)
+    if isinstance(context, Mapping):
+        wrapped.diagnostic_context = dict(context)
+    return wrapped
+
+
 class EditExecutionCoordinator:
     """Execute only structured operations declared by one trusted adapter."""
 
@@ -65,7 +78,26 @@ class EditExecutionCoordinator:
         try:
             context = self.adapter.get_context()
             context_fingerprint = _fingerprint(self.adapter.fingerprint(context))
-            if context_fingerprint != request.document_fingerprint:
+            if (
+                request.context_fingerprint
+                and request.context_fingerprint != context_fingerprint
+            ):
+                self._mark_stale(
+                    request.request_id,
+                    "명령 전 확인한 선택 영역이 바뀌어 편집 미리보기를 만들지 않았습니다.",
+                )
+            # Stage 2 adapters used one fingerprint for both document identity
+            # and live context.  Stage 4+ contexts deliberately keep those
+            # values separate so a selection change does not look like a
+            # different file.  Preserve the legacy comparison for older and
+            # test adapters that do not expose ``document_fingerprint``.
+            document_fingerprint = (
+                _fingerprint(context.get("document_fingerprint"))
+                if isinstance(context, Mapping)
+                else ""
+            )
+            expected_fingerprint = document_fingerprint or context_fingerprint
+            if expected_fingerprint != request.document_fingerprint:
                 self._mark_stale(
                     request.request_id,
                     "편집 준비 전에 문서 상태가 바뀌어 다시 연결해야 합니다.",
@@ -114,7 +146,7 @@ class EditExecutionCoordinator:
                 )
             if isinstance(error, EditContractError):
                 raise
-            raise EditExecutionError(f"편집 작업 준비에 실패했습니다: {error}") from error
+            raise _execution_error("편집 작업 준비에 실패했습니다", error) from error
 
     def _rollback(self, prepared) -> bool:
         try:
@@ -164,7 +196,7 @@ class EditExecutionCoordinator:
                 action_id=prepared.action_id,
                 error=error,
             )
-            raise EditExecutionError(f"편집 실행에 실패했습니다: {error}") from error
+            raise _execution_error("편집 실행에 실패했습니다", error) from error
 
         self.state_machine.transition(
             EditSessionState.VERIFYING,
@@ -184,9 +216,12 @@ class EditExecutionCoordinator:
                 reason="verification failed",
                 action_id=prepared.action_id,
             )
-            raise EditVerificationError(
+            verification_error = EditVerificationError(
                 "편집 결과 검증에 실패해 변경을 복구했거나 작업을 중단했습니다."
             )
+            verification_error.failed_step = prepared.operation
+            verification_error.retryable = False
+            raise verification_error
         result = EditExecutionResult(
             action_id=prepared.action_id,
             changed=provisional_result.changed,

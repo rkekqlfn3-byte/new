@@ -16,8 +16,8 @@
 
 ### 실행 폴더
 
-실행 폴더는
-`C:\Users\PC04\OneDrive\Desktop\JARVIS_RUNTIME`으로 고정한다.
+실행 폴더는 PC마다 운영자가 지정한 `<JARVIS_RUNTIME>`을 사용한다. 개인 사용자명,
+OneDrive 경로 또는 특정 드라이브를 소스와 문서에 고정하지 않는다.
 
 ```text
 JARVIS_RUNTIME/
@@ -58,3 +58,10 @@ JARVIS_RUNTIME/
    다시 검증한다.
 
 이 규칙에 따른 정리는 기능 수정·리팩터링과 별도 커밋으로 수행한다.
+
+## 5. 소스 공유본
+
+소스 공유 ZIP은 clean commit에서 `verification/create_source_archive.ps1`로만
+생성한다. 이 스크립트는 `git archive`를 사용하며 `.git`, `.venv`, build, dist,
+캐시, 사용자 데이터, raw probe 보고서와 기존 ZIP이 포함되면 실패한다. 생성된
+archive의 commit, 앱 버전, 파일 수와 SHA-256을 validation manifest에 기록한다.

@@ -61,6 +61,9 @@ class OfficeApplicationLease:
         if self.application_kind == "excel":
             close(SaveChanges=False)
             return
+        if self.application_kind == "powerpoint":
+            close()
+            return
         try:
             close(False)
         except TypeError:

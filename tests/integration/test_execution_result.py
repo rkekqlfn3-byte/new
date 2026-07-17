@@ -130,7 +130,8 @@ class ExecutionResultContractTests(unittest.TestCase):
             self.assertFalse(result["success"])
             self.assertFalse(record["success"])
             self.assertEqual("execution_error", record["error_type"])
-            self.assertEqual(result["message"], record["response"])
+            self.assertNotIn("response", record)
+            self.assertRegex(record["response_signature"], r"^[A-F0-9]{64}$")
 
     def test_cancelled_command_recovers_for_the_next_command(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-cancel-test-") as temp_dir:

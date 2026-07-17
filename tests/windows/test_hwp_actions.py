@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -266,6 +267,26 @@ def parser_for(temp_dir, hwp):
 
 
 class HwpAdapterTests(unittest.TestCase):
+    def test_owned_unsaved_document_id_requires_dedicated_getter(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "owned-unsaved.hwp"
+            path.write_bytes(b"fixture identity")
+            with self.assertRaises(ValueError):
+                HwpAdapter(owned_unsaved_document_path=path)
+
+            hwp = FakeHwp("소유 미저장 문서")
+            adapter = HwpAdapter(
+                object_getter=lambda: hwp,
+                require_visible=False,
+                owned_unsaved_document_path=path,
+            )
+            prepared = adapter.prepare("insert_text", {"text": " 확인"})
+
+            self.assertEqual(
+                os.path.normcase(os.path.abspath(path)), prepared.document_id
+            )
+            self.assertTrue(adapter.execute(prepared)["verified"])
+
     def test_insert_text_at_cursor_is_prepared_and_verified(self):
         hwp = FakeHwp("앞 뒤")
         hwp.cursor = 2
@@ -275,6 +296,21 @@ class HwpAdapterTests(unittest.TestCase):
         self.assertFalse(prepared.destructive)
         self.assertEqual("앞 중간뒤", hwp.text)
         self.assertTrue(result["verified"])
+
+    def test_verified_insert_can_restore_original_document_snapshot(self):
+        hwp = FakeHwp("원래 문장")
+        hwp.cursor = len(hwp.text)
+        adapter = adapter_for(hwp)
+        prepared = adapter.prepare("insert_text", {"text": " 추가"})
+        result = adapter.execute(prepared)
+
+        restored = adapter.undo(
+            prepared,
+            {"after_observations": result},
+        )
+
+        self.assertTrue(restored["verified"])
+        self.assertEqual("원래 문장", hwp.text)
 
     def test_insert_over_selection_requires_confirmation_and_stale_state_blocks(self):
         hwp = FakeHwp("기존 내용")

@@ -41,15 +41,35 @@ def execute_edit_route(
             f"[Edit] session={request.edit_session_id} request={request.request_id}"
         )
     try:
-        callback = handler if callable(handler) else getattr(handler, "handle", None)
-        if not callable(callback):
+        if callable(handler):
+            value = handler(request)
+        else:
+            callback = getattr(handler, "handle", None)
+            if not callable(callback):
+                raise TypeError("편집 핸들러는 callable 또는 handle()을 제공해야 합니다.")
+            value = callback(
+                request,
+                chat_session_id=session_id,
+                log_callback=log_callback,
+            )
+        if value is None:
             raise TypeError("편집 핸들러는 callable 또는 handle()을 제공해야 합니다.")
-        return normalize_execution_result(callback(request), action="edit")
+        return normalize_execution_result(value, action="edit")
     except Exception as error:
+        diagnostic_context = getattr(error, "diagnostic_context", None)
         return failure_result(
             str(error),
             action="edit",
             target=request.edit_session_id,
             error_type=getattr(error, "error_type", "execution_error"),
+            failed_step=getattr(error, "failed_step", None),
+            retryable=getattr(error, "retryable", False),
             status=getattr(error, "status", "failed"),
+            data={
+                "diagnostic_context": (
+                    dict(diagnostic_context)
+                    if isinstance(diagnostic_context, dict)
+                    else {}
+                )
+            },
         )

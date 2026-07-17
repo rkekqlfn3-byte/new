@@ -1,5 +1,10 @@
 # JARVIS V1 보정 최종 감사 보고서
 
+> 역사 기록: 이 문서는 `1.1.0-rc.2`와 아래 명시된 commit만 대상으로 한다.
+> 현재 개발 소스의 감사 결과로 사용하지 않으며 최신 검증은 `docs/validation/`과
+> 현재 CHANGELOG를 확인한다. 로컬 실행 경로는 개인정보 보호를 위해 중립 표기로
+> 바꿨다.
+
 - 최종 검증일: 2026-07-15 (KST)
 - 릴리스: `1.1.0-rc.2`
 - 릴리스 태그: `v1.1.0-rc.2`
@@ -20,7 +25,7 @@ Word·PowerPoint 미구현, 외부 AI 실계정 skip, Authenticode 미서명은 
 
 ### current
 
-- 경로: `C:\Users\PC04\OneDrive\Desktop\JARVIS_RUNTIME\current\Jarvis\Jarvis.exe`
+- 경로: `<JARVIS_RUNTIME>\current\Jarvis\Jarvis.exe`
 - 버전: `1.1.0-rc.2`
 - SHA-256: `12116595E78A4C63760F982CB872E94367EE6865A3B6993F08CF3231EF8C274F`
 - 배포 폴더: 120개 파일, 34,935,324바이트
@@ -31,7 +36,7 @@ Word·PowerPoint 미구현, 외부 AI 실계정 skip, Authenticode 미서명은 
 
 ### previous
 
-- 경로: `C:\Users\PC04\OneDrive\Desktop\JARVIS_RUNTIME\previous\Jarvis.zip`
+- 경로: `<JARVIS_RUNTIME>\previous\Jarvis.zip`
 - 내용: 교체 직전 current 실행본 120개 파일
 - SHA-256: `25E236ABD5AFF4A47E1366D5F13B40F100F91A2CAFB581B676B4A88994E15E4F`
 - ZIP 무결성 검사: 오류 없음

@@ -128,6 +128,23 @@ class EditModeContractTests(unittest.TestCase):
         self.assertEqual(0, adapter.executed)
         self.assertEqual(EditSessionState.STALE_CONTEXT, machine.state)
 
+    def test_request_context_change_blocks_before_preview_prepare(self):
+        adapter = FakeEditAdapter()
+        machine = ready_machine()
+        coordinator = EditExecutionCoordinator(adapter, machine)
+        request = EditRequest(
+            text="이 문장을 바꿔줘",
+            edit_session_id="edit-session-1",
+            document_fingerprint=FINGERPRINT,
+            context_fingerprint=CHANGED_FINGERPRINT,
+        )
+
+        with self.assertRaises(EditContextChanged):
+            coordinator.prepare(request)
+
+        self.assertEqual(0, adapter.executed)
+        self.assertEqual(EditSessionState.STALE_CONTEXT, machine.state)
+
     def test_failed_verification_rolls_back(self):
         adapter = FakeEditAdapter(verify=False)
         machine = ready_machine()

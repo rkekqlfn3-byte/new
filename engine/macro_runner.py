@@ -39,6 +39,7 @@ class MacroRunner:
         stderr_file = None
         process = None
         started = time.monotonic()
+        execution_started = None
         try:
             if self.controller:
                 self.controller.check_cancelled()
@@ -60,12 +61,20 @@ class MacroRunner:
             stdout_path = stdout_file.name
             stderr_path = stderr_file.name
             command = build_macro_command(temp_path, argument)
+            if self.controller:
+                # Cancellation may arrive while Windows is creating the
+                # temporary files. Do not launch a new child after that point.
+                self.controller.check_cancelled()
             process = subprocess.Popen(
                 command,
                 stdout=stdout_file,
                 stderr=stderr_file,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            # The user-facing timeout bounds the spawned macro. Temporary-file
+            # creation and Windows process setup before Popen must not consume
+            # the macro's execution budget on a busy machine.
+            execution_started = time.monotonic()
             while process.poll() is None:
                 if self.controller:
                     try:
@@ -73,7 +82,7 @@ class MacroRunner:
                     except ExecutionCancelled:
                         self._terminate(process)
                         raise
-                if time.monotonic() - started >= self.timeout:
+                if time.monotonic() - execution_started >= self.timeout:
                     self._terminate(process)
                     self._close_output_files(stdout_file, stderr_file)
                     stdout_file = stderr_file = None

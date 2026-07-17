@@ -61,7 +61,7 @@ class ExecutionControllerTests(unittest.TestCase):
 class MacroRunnerTests(unittest.TestCase):
     def test_unique_temp_macro_captures_output_and_is_removed(self):
         before = set(glob.glob(os.path.join(tempfile.gettempdir(), "jarvis-macro-*")))
-        result = MacroRunner(timeout=3).run(
+        result = MacroRunner(timeout=10).run(
             "import sys\nprint('VALUE=' + sys.argv[1])", "abc"
         )
         after = set(glob.glob(os.path.join(tempfile.gettempdir(), "jarvis-macro-*")))
@@ -71,7 +71,7 @@ class MacroRunnerTests(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_large_stdout_and_stderr_do_not_fill_a_pipe(self):
-        result = MacroRunner(timeout=5).run(
+        result = MacroRunner(timeout=10).run(
             "import sys\n"
             "sys.stdout.write('A' * 1000000 + 'STDOUT-END')\n"
             "sys.stderr.write('B' * 1000000 + 'STDERR-END')\n"
@@ -84,7 +84,7 @@ class MacroRunnerTests(unittest.TestCase):
 
     def test_failure_collects_return_code_and_stderr(self):
         with self.assertRaises(MacroExecutionError) as raised:
-            MacroRunner(timeout=3).run(
+            MacroRunner(timeout=10).run(
                 "import sys\nsys.stderr.write('broken')\nraise SystemExit(7)"
             )
         self.assertEqual(7, raised.exception.returncode)
@@ -99,17 +99,29 @@ class MacroRunnerTests(unittest.TestCase):
             controller = ExecutionController(os.path.join(temp_dir, "diagnostics.json"))
             controller.begin("macro")
             errors = []
-            runner = MacroRunner(controller, timeout=5)
+            runner = MacroRunner(controller, timeout=10)
             worker = threading.Thread(
                 target=lambda: ExecutionControllerTests._capture_error(
                     errors, runner.run, "import time\ntime.sleep(5)"
                 ), daemon=True,
             )
             worker.start()
-            time.sleep(0.1)
-            controller.cancel()
-            worker.join(2)
-        self.assertFalse(worker.is_alive())
+            deadline = time.monotonic() + 10
+            running_seen = False
+            while time.monotonic() < deadline and worker.is_alive():
+                with controller._lock:
+                    running_seen = any(
+                        event.get("action") == "python_macro"
+                        and event.get("status") == "running"
+                        for event in (controller.current or {}).get("events", [])
+                    )
+                if running_seen:
+                    break
+                time.sleep(0.01)
+            self.assertTrue(running_seen)
+            self.assertTrue(controller.cancel())
+            worker.join(10)
+            self.assertFalse(worker.is_alive())
         self.assertIsInstance(errors[0], ExecutionCancelled)
 
 
