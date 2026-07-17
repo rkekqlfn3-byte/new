@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from engine.edit_mode.context import EditContextManager, NativeDocumentContextReader
+from engine.edit_mode.context import EditContextManager
 from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.native_bridge import (
     NativeDocumentBridge,
@@ -141,105 +141,6 @@ def _integer_or_default(value, default=0) -> int:
         return int(default)
 
 
-class _OwnedWordProvider:
-    """Fixture-only provider that keeps the probe-owned Word references."""
-
-    app_type = "word"
-
-    def __init__(self, application, document):
-        self.application = application
-        self.document = document
-
-    def capture(self, session):
-        return NativeDocumentContextReader._capture_word(
-            self.application, self.document
-        )
-
-
-def _probe_owned_word_direct(path: Path) -> dict:
-    """Verify Word extraction when this PC cannot reopen .docx through the shell."""
-    import pythoncom
-    import win32com.client
-
-    application = document = provider = None
-    sessions = EditSessionManager()
-    session = None
-    pythoncom.CoInitialize()
-    try:
-        application = win32com.client.DispatchEx("Word.Application")
-        application.Visible = False
-        application.DisplayAlerts = 0
-        document = application.Documents.Add()
-        document.Content.Text = "JARVIS_STAGE4_WORD_CONTEXT"
-        document.SaveAs2(str(path), FileFormat=12, AddToRecentFiles=False)
-        document.Activate()
-        application.Selection.SetRange(0, 12)
-        session = sessions.connect({
-            "app_type": "word",
-            "file_path": str(path),
-            "document_name": path.name,
-            "window_handle": _integer_or_default(document.ActiveWindow.Hwnd),
-            "selection_reference": "0:12",
-            "launch_requested": True,
-        })
-        provider = _OwnedWordProvider(application, document)
-        manager = EditContextManager(providers=(provider,))
-        first = manager.capture(session)
-        repeated = manager.capture(session)
-        application.Selection.SetRange(1, 12)
-        changed = manager.capture(session)
-        return {
-            "app_type": "word",
-            "status": "passed",
-            "user_process_protected": True,
-            "owned_fixture_only": True,
-            "same_selection_stable": (
-                first["context_fingerprint"] == repeated["context_fingerprint"]
-            ),
-            "changed_selection_detected": (
-                first["context_fingerprint"] != changed["context_fingerprint"]
-            ),
-            "app_context_verified": (
-                first["selection_reference"] == "0:12"
-                and bool(first["selected_text_preview"])
-            ),
-            "json_only": bool(json.dumps(first, ensure_ascii=False)),
-            "native_reader_direct": True,
-            "shell_rot_rediscovery_verified": False,
-            "shell_rot_note": "현재 PC의 임시 .docx 셸 재실행은 3단계에서도 시간 초과",
-        }
-    except Exception as error:
-        return {
-            "app_type": "word",
-            "status": "failed",
-            "stage": "direct_owned_word_reader",
-            "error_type": type(error).__name__,
-            "message": str(error),
-            "user_process_protected": True,
-        }
-    finally:
-        provider = None
-        if session is not None:
-            try:
-                sessions.disconnect(session["session_id"])
-            except Exception:
-                pass
-        if document is not None:
-            try:
-                document.Close(SaveChanges=0)
-            except Exception:
-                pass
-        document = None
-        if application is not None:
-            try:
-                application.Quit()
-            except Exception:
-                pass
-        application = None
-        gc.collect()
-        pythoncom.CoUninitialize()
-
-
 def _probe_owned_fixture(app_type: str) -> dict:
     spec = APP_SPECS[app_type]
     baseline = _process_ids(spec["processes"])
@@ -257,8 +158,6 @@ def _probe_owned_fixture(app_type: str) -> dict:
     session = None
     with tempfile.TemporaryDirectory(prefix=f"jarvis-stage4-{app_type}-") as temp_dir:
         path = Path(temp_dir) / f"stage4-{uuid.uuid4().hex}{spec['extension']}"
-        if app_type == "word":
-            return _probe_owned_word_direct(path)
         stage = "create_owned_fixture"
         try:
             _create_document(app_type, path)
@@ -287,7 +186,7 @@ def _probe_owned_fixture(app_type: str) -> dict:
                 "word": bool(first["selected_text_preview"]),
                 "powerpoint": bool(first["target"].get("shape_id")),
             }[app_type]
-            return {
+            result = {
                 "app_type": app_type,
                 "status": "passed",
                 "user_process_protected": True,
@@ -303,6 +202,12 @@ def _probe_owned_fixture(app_type: str) -> dict:
                 "app_context_verified": app_expectation,
                 "json_only": bool(json.dumps(first, ensure_ascii=False)),
             }
+            if app_type == "word":
+                result.update({
+                    "native_reader_direct": False,
+                    "shell_rot_rediscovery_verified": True,
+                })
+            return result
         except Exception as error:
             return {
                 "app_type": app_type,

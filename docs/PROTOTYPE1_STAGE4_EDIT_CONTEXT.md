@@ -99,10 +99,10 @@ fingerprint 안정성, 선택·텍스트 변경 감지, 다른 문서와 파일 
 PowerPoint Shape를 읽고, 두 번째 선택으로 바꿨을 때 fingerprint가 달라지는지
 확인한 뒤 JARVIS가 연 문서와 프로세스만 정리한다.
 
-현재 검증 PC에서는 임시 `.docx`를 셸로 다시 여는 3단계 경로가 ROT 등록 시간
-초과로 실패하므로, Word 4단계 검증은 JARVIS 소유 Word 인스턴스를 열린 채로
-유지하고 같은 `NativeDocumentContextReader`의 Range 추출과 공통 manager를
-검증한다. 결과의 `shell_rot_rediscovery_verified`로 이 환경 제한을 구분한다.
+Word도 다른 Office 앱과 같은 실제 경로를 사용한다. 임시 `.docx`를 먼저 닫고
+Windows 파일 연결로 다시 연 뒤, COM 활성 객체 또는 ROT에서 정확한 파일 경로를
+재탐색해 `NativeDocumentContextReader`로 문맥을 캡처한다. 결과의
+`shell_rot_rediscovery_verified`가 `true`여야 4단계 실앱 검증을 통과한다.
 
 ## 4단계 완료 기준
 

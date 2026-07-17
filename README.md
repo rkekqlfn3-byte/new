@@ -145,6 +145,9 @@ Prototype 1.0 편집모드는 파일 선택·드롭, 이미 열린 문서 연결
 
 복원된 테스트는 다음 그룹으로 실행합니다.
 
+사용자가 EXE에서 대표 기능과 안전 경계를 직접 확인할 때는
+[직접 시험 문장 100개](docs/PROTOTYPE1_MANUAL_TEST_100.md)를 순서대로 사용합니다.
+
 ```powershell
 .venv\Scripts\python.exe -m tests.test_runner unit
 .venv\Scripts\python.exe -m tests.test_runner integration
@@ -203,5 +206,6 @@ PyInstaller onedir 빌드, ZIP 생성, 산출물 감사를 수행합니다. 정�
 - [Prototype 1.1 10단계 앱 간 문서 워크플로](docs/PROTOTYPE11_STAGE10_DOCUMENT_WORKFLOW.md)
 - [Prototype 1.1 11단계 명시적 사용자 선호 학습 v1](docs/PROTOTYPE11_STAGE11_USER_LEARNING.md)
 - [Prototype 1.1 12단계 자가 진단·안전한 개선 제안](docs/PROTOTYPE11_STAGE12_SELF_DIAGNOSIS.md)
+- [Prototype 1.0 직접 시험 문장 100개](docs/PROTOTYPE1_MANUAL_TEST_100.md)
 - [감사 상태](AUDIT_REPORT.md)
 - [미해결 사항 해소 계획](REMEDIATION_PLAN.md)
