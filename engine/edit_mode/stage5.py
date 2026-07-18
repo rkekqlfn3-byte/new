@@ -777,6 +777,14 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             f"`{observations.get('file_name') or ''}`을(를) 정확한 파일 지문으로 "
             "확인해 열고 문서 창을 맨 앞으로 가져왔습니다."
         )
+    if prepared.operation == "connect_recent_workflow_artifact":
+        observations = result.observations
+        return (
+            f"{observations.get('artifact_label') or '최근 검증 산출물'} "
+            f"`{observations.get('file_name') or ''}`을(를) 정확한 파일 지문으로 "
+            "확인해 열고 새 편집 대상으로 연결했습니다. 다음 편집 명령은 이 "
+            "문서의 현재 선택 영역에 적용됩니다."
+        )
     if prepared.operation in {"create_business_workflow", "resume_business_workflow"}:
         observations = result.observations
         outputs = dict(observations.get("output_paths") or {})

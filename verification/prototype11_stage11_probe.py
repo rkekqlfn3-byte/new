@@ -13,6 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
+from engine.edit_mode import EditModeController
 from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 from engine.edit_mode.window_layout import DocumentWindowActivator
@@ -20,6 +21,7 @@ from engine.learning import (
     BusinessWorkflowSkillManager,
     UserPreferenceLearningManager,
 )
+from engine.parser import CommandParser
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
 from verification.prototype11_stage10_probe import (
@@ -32,6 +34,34 @@ from verification.prototype11_stage10_probe import (
 
 
 REPORT_PATH = Path(__file__).with_name("prototype11_stage11_report.json")
+
+
+class _NoLayout:
+    enabled = False
+
+    def arrange(self, session_id, document_handle):
+        return {"success": True, "status": "disabled", "arranged": False}
+
+    def set_enabled(self, enabled):
+        self.enabled = bool(enabled)
+        return self.enabled
+
+
+class _NoSelectionOverlay:
+    enabled = False
+
+    def schedule(self, session, context):
+        return {"success": True, "status": "disabled", "visible": False}
+
+    def hide(self, reason="disabled"):
+        return {"success": True, "status": str(reason), "visible": False}
+
+    def set_enabled(self, enabled):
+        self.enabled = bool(enabled)
+        return self.enabled
+
+    def status(self):
+        return {"enabled": self.enabled, "visible": False}
 
 
 def _powerpoint_slide_count(path):
@@ -304,6 +334,62 @@ def _owned_probe():
                     activation.get("readiness_attempts") or 0
                 ),
             })
+        stage = "handoff_recent_report_to_edit_session"
+        handoff_controller = EditModeController(
+            layout_manager=_NoLayout(),
+            selection_overlay_manager=_NoSelectionOverlay(),
+            workflow_executor=executor,
+            workflow_skill_manager=workflow_skills,
+            user_learning_manager=reloaded,
+        )
+        handoff_parser = CommandParser(
+            edit_mode_controller=handoff_controller
+        )
+        source_session = handoff_controller.connect_file(str(source))
+        source_context = handoff_controller.context(
+            source_session["session_id"]
+        )
+        handoff_result = handoff_parser.execute_command_result(
+            "방금 만든 보고서를 편집 문서로 연결해줘",
+            mode="edit",
+            session_id="stage11-artifact-handoff",
+            edit_context={
+                "edit_session_id": source_session["session_id"],
+                "document_fingerprint": source_session[
+                    "document_fingerprint"
+                ],
+                "context_fingerprint": source_context[
+                    "context_fingerprint"
+                ],
+                "request_id": "stage11-artifact-handoff",
+            },
+        )
+        handoff_payload = dict(
+            (handoff_result.get("data") or {}).get(
+                "edit_session_handoff"
+            ) or {}
+        )
+        handoff_current = dict(
+            handoff_controller.status().get("session") or {}
+        )
+        latest_report_artifact = executor.latest_verified_artifact(
+            source,
+            "report",
+        )
+        recent_artifact_handoff_verified = bool(
+            handoff_result.get("success")
+            and handoff_result.get("verified")
+            and (handoff_result.get("data") or {}).get("operation")
+            == "connect_recent_workflow_artifact"
+            and handoff_payload.get("app_type") == "word"
+            and handoff_payload.get("session_id")
+            == handoff_current.get("session_id")
+            and handoff_current.get("state") == "ready"
+            and Path(handoff_payload.get("file_path") or "").resolve()
+            == replay_report_path.resolve()
+            and file_fingerprint(replay_report_path)
+            == latest_report_artifact["fingerprint"]
+        )
         stored = executor.load(state["workflow_id"])
         checks = {
             "three_observations_created_candidate": candidate_ready,
@@ -364,6 +450,9 @@ def _owned_probe():
                     and item["focused"]
                     for item in opened_artifacts
                 )
+            ),
+            "recent_verified_artifact_edit_session_handoff": (
+                recent_artifact_handoff_verified
             ),
             "recent_word_artifact_exact_path": bool(
                 opened_artifacts

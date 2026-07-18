@@ -505,12 +505,21 @@ class Stage10WorkflowTests(unittest.TestCase):
             "최근 만든 발표자료 열어줘",
             context,
         )
+        edit_handoff = analyzer.analyze(
+            "방금 만든 보고서를 편집 문서로 연결해줘",
+            context,
+        )
 
         self.assertEqual("open_recent_workflow_artifact", generic_report.operation)
         self.assertEqual("report", generic_report.params["artifact_kind"])
         self.assertEqual("word_report", word_report.params["artifact_kind"])
         self.assertEqual("hwp_report", hwp_report.params["artifact_kind"])
         self.assertEqual("presentation", presentation.params["artifact_kind"])
+        self.assertEqual(
+            "connect_recent_workflow_artifact",
+            edit_handoff.operation,
+        )
+        self.assertEqual("report", edit_handoff.params["artifact_kind"])
         self.assertIsNone(
             analyzer.analyze("방금 만든 보고서가 뭐야?", context)
         )
@@ -518,6 +527,12 @@ class Stage10WorkflowTests(unittest.TestCase):
             analyzer.analyze(
                 "방금 만든 보고서 열어줘",
                 {"app_type": "word"},
+            )
+        )
+        self.assertIsNone(
+            analyzer.analyze(
+                "방금 만든 보고서를 편집해줘",
+                context,
             )
         )
 

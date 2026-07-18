@@ -20,8 +20,13 @@ def digest(value):
 class Intake:
     def __init__(self):
         self.opened = []
+        self.call_count = 0
+        self.fail_on_call = None
 
     def connect_file(self, file_path):
+        self.call_count += 1
+        if self.call_count == self.fail_on_call:
+            raise RuntimeError("simulated handoff rediscovery failure")
         path = Path(file_path).resolve()
         suffix = path.suffix.casefold()
         app_type = {
@@ -63,12 +68,30 @@ class Activator:
 
 
 class Context:
+    def __init__(self):
+        self.fail_app_type = None
+
     def capture(self, session):
         value = session.to_dict() if hasattr(session, "to_dict") else dict(session)
+        app_type = str(value["app_type"])
+        if app_type == self.fail_app_type:
+            raise RuntimeError("simulated handoff context failure")
+        if app_type == "excel":
+            active_container = "매출"
+            selection_reference = "A1:B3"
+            selection_kind = "range"
+            target = {"sheet_name": "매출", "address": "A1:B3"}
+            cursor_reference = "A1"
+        else:
+            active_container = None
+            selection_reference = "0:0"
+            selection_kind = "cursor"
+            target = {"start": 0, "end": 0}
+            cursor_reference = "0"
         return {
             "schema_version": 1,
             "session_id": value["session_id"],
-            "app_type": "excel",
+            "app_type": app_type,
             "file_path": value["file_path"],
             "document_name": value["document_name"],
             "document_fingerprint": value["document_fingerprint"],
@@ -76,14 +99,14 @@ class Context:
             "read_only": False,
             "modified": False,
             "captured_at": "2026-07-17T12:00:00+09:00",
-            "active_container": "매출",
-            "selection_reference": "A1:B3",
-            "selection_kind": "range",
-            "target": {"sheet_name": "매출", "address": "A1:B3"},
+            "active_container": active_container,
+            "selection_reference": selection_reference,
+            "selection_kind": selection_kind,
+            "target": target,
             "selected_text_preview": "",
             "selected_text_length": 0,
             "selected_text_digest": digest(""),
-            "cursor_reference": "A1",
+            "cursor_reference": cursor_reference,
         }
 
 
@@ -162,11 +185,12 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.workflow_skills = BusinessWorkflowSkillManager(
             self.root / "business-workflow-skills.json"
         )
+        self.context_manager = Context()
         self.controller = EditModeController(
             intake_manager=self.intake,
             session_manager=EditSessionManager(),
             layout_manager=NoLayout(),
-            context_manager=Context(),
+            context_manager=self.context_manager,
             native_action_registry=Registry(),
             workflow_executor=executor,
             workflow_skill_manager=self.workflow_skills,
@@ -492,6 +516,82 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertFalse(blocked["success"])
         self.assertEqual([], self.intake.opened)
         self.assertIn("이동·수정·삭제", blocked["message"])
+
+    def test_recent_report_can_explicitly_replace_the_edit_session(self):
+        self.ppt.fail_times = 0
+        completed = self.approve(self.command(
+            "이거 보고서랑 5장짜리 발표자료 만들어줘",
+            "handoff-artifact-create",
+        ))
+        report_path = completed["data"]["observations"]["output_paths"]["report"]
+        source_session_id = self.session["session_id"]
+
+        handoff = self.command(
+            "방금 만든 보고서를 편집 문서로 연결해줘",
+            "handoff-artifact-connect",
+        )
+
+        self.assertTrue(handoff["success"], handoff)
+        self.assertEqual(
+            "connect_recent_workflow_artifact",
+            handoff["data"]["operation"],
+        )
+        self.assertEqual(
+            source_session_id,
+            handoff["data"]["source_edit_session_id"],
+        )
+        connected = handoff["data"]["edit_session_handoff"]
+        self.assertEqual("word", connected["app_type"])
+        self.assertEqual(
+            str(Path(report_path).resolve()).casefold(),
+            connected["file_path"].casefold(),
+        )
+        self.assertEqual(
+            connected["session_id"],
+            handoff["data"]["edit_session_id"],
+        )
+        self.assertEqual("word", connected["context"]["app_type"])
+        self.assertEqual(
+            connected["session_id"],
+            self.controller.status()["session"]["session_id"],
+        )
+        self.assertEqual(
+            "ready",
+            self.controller.status()["session"]["state"],
+        )
+        self.assertIn("새 편집 대상으로 연결", handoff["message"])
+
+    def test_failed_handoff_rediscovery_keeps_source_session_ready(self):
+        self.ppt.fail_times = 0
+        self.approve(self.command(
+            "이거 보고서랑 5장짜리 발표자료 만들어줘",
+            "handoff-failure-create",
+        ))
+        source_session_id = self.session["session_id"]
+        self.intake.fail_on_call = self.intake.call_count + 2
+
+        failed = self.command(
+            "방금 만든 보고서를 편집 문서로 연결해줘",
+            "handoff-failure-connect",
+        )
+
+        self.assertFalse(failed["success"])
+        current = self.controller.status()["session"]
+        self.assertEqual(source_session_id, current["session_id"])
+        self.assertEqual("excel", current["app_type"])
+        self.assertEqual("ready", current["state"])
+
+        self.context_manager.fail_app_type = "word"
+        context_failed = self.command(
+            "방금 만든 보고서를 편집 문서로 연결해줘",
+            "handoff-context-failure-connect",
+        )
+
+        self.assertFalse(context_failed["success"])
+        current = self.controller.status()["session"]
+        self.assertEqual(source_session_id, current["session_id"])
+        self.assertEqual("excel", current["app_type"])
+        self.assertEqual("ready", current["state"])
 
 
 if __name__ == "__main__":

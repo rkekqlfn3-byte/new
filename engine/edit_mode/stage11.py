@@ -762,6 +762,7 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
                 "deactivate_business_workflow_skill",
                 "resume_business_workflow",
                 "open_recent_workflow_artifact",
+                "connect_recent_workflow_artifact",
             }
             or workflow_intent.params.get("reuse_approved_skill")
             or workflow_intent.params.get("contextual_current_document")

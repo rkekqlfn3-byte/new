@@ -191,6 +191,16 @@ async function sendMessage(isRetry = false) {
         if (mode === 'command' && response) {
             rememberCommandTurn(text, response, responseText || '');
         }
+        if (
+            mode === 'edit'
+            && response?.success
+            && response?.data?.edit_session_handoff
+            && typeof window.applyEditSessionHandoff === 'function'
+        ) {
+            window.applyEditSessionHandoff(
+                response.data.edit_session_handoff
+            );
+        }
 
         if (getConfirmationFromResponse(response)) {
             if (streamDiv) addConfirmationCard(response, streamDiv);

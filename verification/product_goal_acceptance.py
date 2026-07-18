@@ -90,6 +90,7 @@ PROBE_SPECS = {
             "workflow_skill_actual_replay_verified",
             "contextual_current_excel_workflow_routed",
             "recent_verified_artifacts_opened_and_focused",
+            "recent_verified_artifact_edit_session_handoff",
         ),
     },
     "failure_diagnosis": {

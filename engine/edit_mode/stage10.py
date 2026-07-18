@@ -25,7 +25,10 @@ WORKFLOW_SKILL_OPERATIONS = frozenset({
     "activate_business_workflow_skill",
     "deactivate_business_workflow_skill",
 })
-WORKFLOW_ARTIFACT_OPERATIONS = frozenset({"open_recent_workflow_artifact"})
+WORKFLOW_ARTIFACT_OPERATIONS = frozenset({
+    "open_recent_workflow_artifact",
+    "connect_recent_workflow_artifact",
+})
 WORKFLOW_OPERATIONS = (
     WORKFLOW_EXECUTION_OPERATIONS
     | WORKFLOW_SKILL_OPERATIONS
@@ -164,10 +167,14 @@ class StructuredWorkflowIntentAnalyzer:
                 "resume_business_workflow",
                 "저장된 성공 단계는 건너뛰고 실패한 문서 워크플로 단계부터 재개",
             )
-        if (
-            any(term in command for term in self.RECENT_ARTIFACT_TERMS)
-            and any(term in command for term in self.OPEN_ARTIFACT_TERMS)
-        ):
+        recent_artifact = any(
+            term in command for term in self.RECENT_ARTIFACT_TERMS
+        )
+        connect_for_edit = "편집" in command and "연결" in command
+        open_artifact = any(
+            term in command for term in self.OPEN_ARTIFACT_TERMS
+        )
+        if recent_artifact and (open_artifact or connect_for_edit):
             artifact_kind = None
             label = None
             if any(term in command for term in ("ppt", "파워포인트", "발표자료", "슬라이드")):
@@ -184,9 +191,19 @@ class StructuredWorkflowIntentAnalyzer:
                     artifact_kind = "report"
                     label = "최근 검증 보고서"
             if artifact_kind:
+                operation = (
+                    "connect_recent_workflow_artifact"
+                    if connect_for_edit
+                    else "open_recent_workflow_artifact"
+                )
+                action_label = (
+                    "열기·전면 포커스 후 편집 대상으로 전환"
+                    if connect_for_edit
+                    else "열기 및 전면 포커스"
+                )
                 return WorkflowIntent(
-                    "open_recent_workflow_artifact",
-                    f"{label} 열기 및 전면 포커스",
+                    operation,
+                    f"{label} {action_label}",
                     {"artifact_kind": artifact_kind},
                 )
         if any(term in command for term in self.REUSE_TERMS):
@@ -495,7 +512,11 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
         preview = {
             "description": intent.description,
             "before": "닫혀 있으면 정확한 파일을 열고, 열려 있으면 같은 창을 사용",
-            "after": f"{artifact['label']} 전면 포커스",
+            "after": (
+                f"{artifact['label']} 전면 포커스 및 새 편집 대상 연결"
+                if intent.operation == "connect_recent_workflow_artifact"
+                else f"{artifact['label']} 전면 포커스"
+            ),
             "target": Path(str(artifact["path"])).name,
             "estimated_changes": 0,
             "noop": False,
@@ -534,6 +555,9 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 "workflow_artifact": True,
                 "workflow_id": artifact["workflow_id"],
                 "artifact_kind": artifact["artifact_kind"],
+                "edit_session_handoff": (
+                    intent.operation == "connect_recent_workflow_artifact"
+                ),
                 "rewrite_supported": False,
             },
         )
@@ -654,7 +678,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def execute(self, prepared_action: EditPreparedAction) -> Mapping[str, Any]:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().execute(prepared_action)
-        if prepared_action.operation == "open_recent_workflow_artifact":
+        if prepared_action.operation in WORKFLOW_ARTIFACT_OPERATIONS:
             artifact = dict(prepared_action.arguments.get("artifact") or {})
             path = str(artifact.get("path") or "")
             expected_fingerprint = dict(artifact.get("fingerprint") or {})
@@ -700,6 +724,10 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 "app_type": artifact.get("app_type"),
                 "launch_requested": bool(document.get("launch_requested")),
                 "activation": activation,
+                "edit_session_handoff_requested": (
+                    prepared_action.operation
+                    == "connect_recent_workflow_artifact"
+                ),
             }
         if prepared_action.operation == "activate_business_workflow_skill":
             active = self.workflow_skill_manager.activate(
@@ -750,7 +778,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     ) -> bool:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().verify(prepared_action, result)
-        if prepared_action.operation == "open_recent_workflow_artifact":
+        if prepared_action.operation in WORKFLOW_ARTIFACT_OPERATIONS:
             artifact = dict(prepared_action.arguments.get("artifact") or {})
             return bool(
                 result.get("verified")

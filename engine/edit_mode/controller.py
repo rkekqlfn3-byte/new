@@ -1488,6 +1488,7 @@ class EditModeController:
             prepared.metadata.get("vba")
             or prepared.metadata.get("workflow")
             or prepared.metadata.get("workflow_skill")
+            or prepared.metadata.get("workflow_artifact")
             or prepared.metadata.get("user_preference")
         ):
             data["observations"] = dict(result.observations)
@@ -1506,6 +1507,57 @@ class EditModeController:
             verified=result.verified,
             data=data,
         )
+
+    def _handoff_verified_artifact_session(self, response, result) -> dict:
+        """Replace the committed source session with one verified artifact session."""
+        observations = dict(result.observations or {})
+        if not observations.get("edit_session_handoff_requested"):
+            return response
+        source_checkpoint = self.session_manager.checkpoint_connection()
+        artifact_path = str(observations.get("file_path") or "")
+        try:
+            document = self.intake_manager.connect_file(artifact_path)
+            handoff = self._connect_metadata(document)
+            if handoff.get("context") is None:
+                detail = dict(handoff.get("context_error") or {}).get("message")
+                raise EditContextUnavailable(
+                    detail
+                    or "새 편집 문서의 현재 선택 문맥을 확인하지 못했습니다."
+                )
+        except Exception:
+            self._restore_source_session_after_failed_handoff(
+                source_checkpoint
+            )
+            raise
+        data = dict(response.get("data") or {})
+        data["source_edit_session_id"] = data.get("edit_session_id")
+        data["edit_session_id"] = handoff["session_id"]
+        data["document_name"] = handoff["document_name"]
+        data["app_type"] = handoff["app_type"]
+        data["context"] = handoff.get("context")
+        data["context_error"] = handoff.get("context_error")
+        data["edit_session_handoff"] = handoff
+        response["data"] = data
+        response["target"] = handoff["session_id"]
+        return response
+
+    def _restore_source_session_after_failed_handoff(
+        self,
+        source_checkpoint,
+    ) -> None:
+        """Best-effort rollback when artifact session establishment is incomplete."""
+        try:
+            source_session = self.session_manager.restore_connection(
+                source_checkpoint
+            )
+            self.selection_overlay_manager.hide("artifact_handoff_failed")
+            self.window_activator.activate(
+                int(source_session.get("window_handle") or 0)
+            )
+        except Exception:
+            # Keep the original handoff error. The outer failure path performs
+            # one more safe state reset if the source session is still active.
+            pass
 
     def _queue_vba_reconfirmation(
         self,
@@ -1601,9 +1653,15 @@ class EditModeController:
                 )
             result = coordinator.execute(prepared)
             response = self._success_result(session, request, prepared, result)
-            self.session_manager.reset_ready(
-                session["session_id"], reason="검증된 편집 작업 완료"
-            )
+            if result.observations.get("edit_session_handoff_requested"):
+                response = self._handoff_verified_artifact_session(
+                    response,
+                    result,
+                )
+            else:
+                self.session_manager.reset_ready(
+                    session["session_id"], reason="검증된 편집 작업 완료"
+                )
             return self._attach_edit_recovery_metadata(response, recovery)
         except Exception:
             self._reset_if_safe(

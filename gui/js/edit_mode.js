@@ -144,6 +144,19 @@ function renderEditSession(session, context = null, contextError = null) {
     updateEditPanelVisibility();
 }
 
+function applyEditSessionHandoff(handoff = null) {
+    if (!handoff?.session_id) return false;
+    renderEditSession(
+        handoff,
+        handoff.context || null,
+        handoff.context_error || null
+    );
+    syncEditContextMonitor(true);
+    return true;
+}
+
+window.applyEditSessionHandoff = applyEditSessionHandoff;
+
 function showEditResult(result) {
     const session = result?.data?.session || null;
     if (result?.success && session) {

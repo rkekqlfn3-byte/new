@@ -641,6 +641,33 @@ class EditSessionManagerTests(unittest.TestCase):
         with self.assertRaises(EditSessionBusy):
             self.manager.assert_connectable()
 
+    def test_failed_replacement_checkpoint_restores_exact_session_identity(self):
+        self.manager.record_committed_edit(
+            self.session["session_id"],
+            last_target={"selection_reference": "10:20"},
+            last_action={"operation": "replace_selection"},
+            undo_record=None,
+        )
+        checkpoint = self.manager.checkpoint_connection()
+        replacement = Path(self.temp_dir.name) / "발표자료.pptx"
+        replacement.write_bytes(b"presentation")
+        self.manager.connect({
+            "app_type": "powerpoint",
+            "file_path": str(replacement),
+            "document_name": replacement.name,
+            "window_handle": 33,
+        })
+
+        restored = self.manager.restore_connection(checkpoint)
+
+        self.assertEqual(self.session["session_id"], restored["session_id"])
+        self.assertEqual("word", restored["app_type"])
+        self.assertEqual("ready", restored["state"])
+        self.assertEqual(
+            "replace_selection",
+            restored["last_action"]["operation"],
+        )
+
 
 class DirectEditPreferenceEvidenceTests(unittest.TestCase):
     def setUp(self):

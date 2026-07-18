@@ -236,6 +236,27 @@ class EditModeUiContractTests(unittest.TestCase):
         self.assertIn("editContextRefreshPromise", script)
         self.assertNotIn("setInterval(refreshEditContext", script)
 
+    def test_verified_artifact_handoff_updates_gui_session_before_refresh(self):
+        edit_mode = read_gui_script("edit_mode.js")
+        controller = read_gui_script("chat/controller.js")
+        self.assertIn(
+            "window.applyEditSessionHandoff = applyEditSessionHandoff",
+            edit_mode,
+        )
+        self.assertIn("response?.data?.edit_session_handoff", controller)
+        self.assertIn(
+            "window.applyEditSessionHandoff(",
+            controller,
+        )
+        handoff_index = controller.index(
+            "window.applyEditSessionHandoff("
+        )
+        final_refresh_index = controller.index(
+            'if (mode === "edit") await window.refreshEditContext',
+            handoff_index,
+        )
+        self.assertLess(handoff_index, final_refresh_index)
+
 
 class DictionaryDomSafetyTests(unittest.TestCase):
     def setUp(self):

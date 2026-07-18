@@ -151,6 +151,67 @@ class EditSessionManager:
         with self._lock:
             return self._snapshot_locked()
 
+    def checkpoint_connection(self) -> EditSession:
+        """Capture one metadata-only session for an immediate replacement rollback."""
+        with self._lock:
+            if self._active_session is None or self._state_machine is None:
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            if self._state_machine.state not in {
+                EditSessionState.READY,
+                EditSessionState.COMMITTED,
+            }:
+                raise EditSessionBusy(
+                    "현재 편집 작업이 끝나기 전에는 연결 복구 지점을 만들 수 없습니다."
+                )
+            return copy.deepcopy(self._active_session)
+
+    def restore_connection(self, checkpoint: EditSession) -> dict:
+        """Restore an exact metadata-only session after a failed replacement."""
+        if not isinstance(checkpoint, EditSession):
+            raise EditSessionError("편집 연결 복구 정보가 올바르지 않습니다.")
+        if checkpoint.identity_kind == "runtime":
+            fingerprint = runtime_document_identity_fingerprint(
+                checkpoint.app_type,
+                checkpoint.runtime_document_id or "",
+                checkpoint.window_handle,
+            )
+        else:
+            fingerprint = document_identity_fingerprint(
+                checkpoint.file_path,
+                checkpoint.app_type,
+            )
+        if fingerprint != checkpoint.document_fingerprint:
+            raise EditSessionStale(
+                "원본 편집 문서 신원이 바뀌어 이전 연결을 복구하지 않았습니다."
+            )
+        with self._lock:
+            if (
+                self._state_machine is not None
+                and self._state_machine.state
+                not in {
+                    EditSessionState.READY,
+                    EditSessionState.COMMITTED,
+                    EditSessionState.STALE_CONTEXT,
+                    EditSessionState.FAILED,
+                    EditSessionState.ROLLED_BACK,
+                }
+            ):
+                raise EditSessionBusy(
+                    "다른 편집 작업이 진행 중이라 이전 연결을 복구하지 않았습니다."
+                )
+            machine = EditSessionStateMachine()
+            machine.transition(
+                EditSessionState.ATTACHING,
+                reason="실패한 문서 연결 전환 복구",
+            )
+            machine.transition(
+                EditSessionState.READY,
+                reason="이전 편집 대상 복구 완료",
+            )
+            self._active_session = copy.deepcopy(checkpoint)
+            self._state_machine = machine
+            return self._snapshot_locked()
+
     @staticmethod
     def _json_state(value, label):
         try:
