@@ -23,6 +23,7 @@ class ConfirmationResolution:
     option_id: Optional[str] = None
     consumed: Optional[Dict[str, Any]] = None
     remember_preference: bool = False
+    feedback_text: str = ""
     result: Optional[Dict[str, Any]] = None
 
 
@@ -30,6 +31,30 @@ class ConfirmationResponseHandler:
     """Validate, interpret, and consume confirmation responses exactly once."""
 
     _REMEMBER_WORDS = ("앞으로", "항상", "무조건", "기억해")
+    _CANCEL_FEEDBACK_WORDS = (
+        "취소", "그만", "하지 마", "하지마", "적용하지", "실행하지",
+    )
+    _REWRITE_FEEDBACK_WORDS = (
+        "다시", "그거 말고", "이렇게 말고", "좀 더", "조금 더", "너무 길",
+        "너무 짧", "간결", "격식", "공식적", "정중", "친근", "부드럽",
+        "딱딱하지", "원화", "콤마", "퍼센트", "백분율", "줄무늬", "머리글",
+    )
+
+    @classmethod
+    def _resolve_prepared_edit_feedback_option(cls, record, user_text):
+        if not user_text or record.get("payload", {}).get("kind") != "prepared_edit_action":
+            return None
+        normalized = str(user_text).strip().casefold()
+        option_ids = {item.get("id") for item in record.get("options", [])}
+        if "cancel" in option_ids and any(
+            marker in normalized for marker in cls._CANCEL_FEEDBACK_WORDS
+        ):
+            return "cancel"
+        if "rewrite" in option_ids and any(
+            marker in normalized for marker in cls._REWRITE_FEEDBACK_WORDS
+        ):
+            return "rewrite"
+        return None
 
     def __init__(self, owner):
         self.owner = owner
@@ -96,6 +121,10 @@ class ConfirmationResponseHandler:
 
         if option_id is None:
             option_id = self.manager.resolve_text(session_id, user_text)
+            if option_id is None:
+                option_id = self._resolve_prepared_edit_feedback_option(
+                    record, user_text
+                )
             if option_id is None:
                 return ConfirmationResolution(
                     session_id=session_id,
@@ -198,6 +227,7 @@ class ConfirmationResponseHandler:
         )
         if selected.get("cancel"):
             payload = consumed.get("payload", {})
+            preference_feedback = None
             if payload.get("kind") == "prepared_edit_action":
                 cancel_edit = getattr(
                     getattr(self.owner, "edit_mode_controller", None),
@@ -205,18 +235,35 @@ class ConfirmationResponseHandler:
                     None,
                 )
                 if callable(cancel_edit):
-                    cancel_edit(payload)
+                    preference_feedback = cancel_edit(
+                        payload,
+                        feedback_text=user_text,
+                        confirmation_id=consumed.get("confirmation_id"),
+                    )
+            data = {"confirmation_id": consumed["confirmation_id"]}
+            if isinstance(preference_feedback, dict):
+                data["preference_feedback"] = preference_feedback
+            cancel_message = "확인 요청을 취소했습니다. 외부 변경은 실행하지 않았습니다."
+            if (
+                isinstance(preference_feedback, dict)
+                and preference_feedback.get("recorded")
+            ):
+                cancel_message += (
+                    "\n말해준 방식은 선호 증거로만 기록했으며 아직 기본값으로 "
+                    "확정하지 않았습니다."
+                )
             return ConfirmationResolution(
                 session_id=session_id,
                 option_id=option_id,
                 consumed=consumed,
                 remember_preference=remember_preference,
+                feedback_text=str(user_text or "")[:500],
                 result=failure_result(
-                    "확인 요청을 취소했습니다. 외부 변경은 실행하지 않았습니다.",
+                    cancel_message,
                     action=consumed.get("action", "confirmation"),
                     target=consumed.get("target"),
                     error_type="user_cancelled",
-                    data={"confirmation_id": consumed["confirmation_id"]},
+                    data=data,
                 ),
             )
 
@@ -225,6 +272,7 @@ class ConfirmationResponseHandler:
             option_id=option_id,
             consumed=consumed,
             remember_preference=remember_preference,
+            feedback_text=str(user_text or "")[:500],
         )
 
     @staticmethod

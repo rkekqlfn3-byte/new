@@ -90,6 +90,35 @@ class ChatSanitizationTests(unittest.TestCase):
         self.assertIn("png|jpeg|gif|webp", self.chat)
         self.assertIn("image.addEventListener('click'", self.chat)
 
+    def test_korean_suffix_after_strong_markdown_gets_invisible_boundary(self):
+        self.assertIn("function normalizeKoreanMarkdownBoundaries(", self.chat)
+        self.assertIn("(?=[가-힣])", self.chat)
+        self.assertIn("`**${content}\\u200B**\\u200B`", self.chat)
+
+
+class ChatBubbleLayoutTests(unittest.TestCase):
+    def setUp(self):
+        self.css = read_gui_file("css/chat.css")
+
+    def test_message_content_is_bounded_by_the_outer_message(self):
+        block = re.search(r"\.message-content\s*\{(.*?)\}", self.css, re.S)
+        self.assertIsNotNone(block)
+        self.assertIn("width: 100%", block.group(1))
+        self.assertIn("min-width: 0", block.group(1))
+        self.assertIn("max-width: 100%", block.group(1))
+
+    def test_markdown_content_wraps_inside_the_bubble(self):
+        bubble = re.search(r"\.bubble\s*\{(.*?)\}", self.css, re.S)
+        self.assertIsNotNone(bubble)
+        self.assertIn("overflow-wrap: anywhere", bubble.group(1))
+        self.assertIn("max-width: 100%", bubble.group(1))
+        self.assertIn(".bubble ul", self.css)
+        self.assertIn("padding-inline-start: 1.45em", self.css)
+        self.assertIn(".bubble pre", self.css)
+        self.assertIn("white-space: pre-wrap", self.css)
+        self.assertIn(".bubble table", self.css)
+        self.assertIn("overflow-x: auto", self.css)
+
 
 class EditModeUiContractTests(unittest.TestCase):
     def test_edit_tab_and_local_document_controls_are_shipped(self):

@@ -33,6 +33,7 @@ class ConfirmationDispatcher:
             option_id=resolution.option_id,
             consumed=resolution.consumed,
             remember_preference=resolution.remember_preference,
+            feedback_text=resolution.feedback_text,
             log_callback=log_callback,
         )
         handler = HANDLERS.get(context.payload.get("kind"))

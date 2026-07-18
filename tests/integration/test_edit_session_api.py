@@ -6,6 +6,7 @@ from unittest import mock
 from engine.app_actions import PreparedAction
 from engine.api import command_api, edit_api
 from engine.edit_mode.controller import EditModeController
+from engine.edit_mode.intake import EditAppBusy
 from engine.edit_mode.session import EditSessionManager
 from engine.parser import CommandParser
 from engine.learning import UserPreferenceLearningManager
@@ -46,6 +47,15 @@ class FakeLayoutManager:
     def set_enabled(self, enabled):
         self.enabled = bool(enabled)
         return self.enabled
+
+
+class FakeWindowActivator:
+    def __init__(self):
+        self.handles = []
+
+    def activate(self, handle):
+        self.handles.append(handle)
+        return {"success": True, "status": "focused", "focused": True}
 
 
 class FakeContextManager:
@@ -112,6 +122,7 @@ class EditSessionApiTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.file = Path(self.temp_dir.name) / "매출.xlsx"
         self.file.write_bytes(b"workbook")
+        self.window_activator = FakeWindowActivator()
         self.controller = EditModeController(
             intake_manager=FakeIntakeManager(self.file),
             session_manager=EditSessionManager(),
@@ -122,6 +133,7 @@ class EditSessionApiTests(unittest.TestCase):
             user_learning_manager=UserPreferenceLearningManager(
                 Path(self.temp_dir.name) / "user-style-preferences.json"
             ),
+            window_activator=self.window_activator,
         )
         self.parser = CommandParser(edit_mode_controller=self.controller)
         self.previous_edit_parser = edit_api.parser
@@ -138,6 +150,8 @@ class EditSessionApiTests(unittest.TestCase):
         connected = edit_api.choose_and_connect_edit_document()
         self.assertTrue(connected["success"])
         session = connected["data"]["session"]
+        self.assertEqual([101], self.window_activator.handles)
+        self.assertEqual("focused", session["activation"]["status"])
 
         status = edit_api.get_edit_session_status()
         self.assertEqual(session["session_id"], status["data"]["session"]["session_id"])
@@ -146,6 +160,10 @@ class EditSessionApiTests(unittest.TestCase):
         context = edit_api.get_edit_context(session["session_id"])
         self.assertTrue(context["success"])
         self.assertEqual("C" * 64, context["data"]["context"]["context_fingerprint"])
+        self.assertEqual(
+            session["session_id"],
+            context["data"]["session"]["session_id"],
+        )
 
         request = command_api.parse_command(
             "이거 합계 내줘",
@@ -192,6 +210,39 @@ class EditSessionApiTests(unittest.TestCase):
         self.assertEqual([], result["data"]["active_preferences"])
         self.assertEqual([], result["data"]["candidates"])
 
+    def test_edit_context_api_exposes_only_structured_direct_edit_feedback(self):
+        controller = edit_api._get_controller()
+        controller._last_direct_edit_feedback = {
+            "feedback_id": "direct-test",
+            "recorded": True,
+            "source": "verified_direct_edit",
+            "preference": "report_tone",
+            "value": "concise",
+            "scope_kind": "file",
+            "raw_content_stored": False,
+            "message": "직접 고친 방식을 선호 증거로 기록했습니다.",
+        }
+        session = edit_api.connect_active_edit_document("excel")["data"]["session"]
+        # Connection intentionally clears stale feedback from a previous document.
+        controller._last_direct_edit_feedback = {
+            "feedback_id": "direct-current",
+            "recorded": True,
+            "source": "verified_direct_edit",
+            "preference": "report_tone",
+            "value": "concise",
+            "scope_kind": "file",
+            "raw_content_stored": False,
+            "message": "직접 고친 방식을 선호 증거로 기록했습니다.",
+        }
+
+        result = edit_api.get_edit_context(session["session_id"])
+
+        self.assertTrue(result["success"])
+        feedback = result["data"]["direct_edit_feedback"]
+        self.assertEqual("direct-current", feedback["feedback_id"])
+        self.assertFalse(feedback["raw_content_stored"])
+        self.assertNotIn("selected_text", feedback)
+
     def test_excel_vba_trust_status_api_is_read_only(self):
         with mock.patch.object(
             edit_api,
@@ -209,6 +260,25 @@ class EditSessionApiTests(unittest.TestCase):
         self.assertTrue(result["verified"])
         self.assertEqual("disabled", result["data"]["status"])
         self.assertFalse(result["data"]["security_setting_changed"])
+
+    def test_busy_connection_error_is_exposed_as_retryable(self):
+        result = edit_api._failure(EditAppBusy("Excel busy"))
+        self.assertFalse(result["success"])
+        self.assertEqual("busy", result["status"])
+        self.assertEqual("environment_error", result["error_type"])
+        self.assertTrue(result["retryable"])
+
+    def test_selection_overlay_toggle_is_exposed_to_the_gui(self):
+        disabled = edit_api.set_edit_selection_overlay(False)
+        self.assertTrue(disabled["success"])
+        self.assertEqual(
+            "disabled",
+            disabled["data"]["selection_overlay"]["status"],
+        )
+
+        enabled = edit_api.set_edit_selection_overlay(True)
+        self.assertTrue(enabled["success"])
+        self.assertTrue(enabled["data"]["selection_overlay"]["enabled"])
 
 
 if __name__ == "__main__":

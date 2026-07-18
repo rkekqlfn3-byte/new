@@ -136,7 +136,7 @@ async function sendMessage(isRetry = false) {
         const streamDiv = document.getElementById(loadingId);
         let responseText = null;
         if (response) {
-            responseText = (typeof response === 'object' && response !== null) ? (response.message || response.response || JSON.stringify(response)) : response;
+            responseText = (typeof response === 'object' && response !== null) ? (response.display_message || response.message || response.response || JSON.stringify(response)) : response;
         }
 
         if (getConfirmationFromResponse(response)) {

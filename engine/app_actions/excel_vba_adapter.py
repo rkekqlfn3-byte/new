@@ -319,6 +319,9 @@ class ExcelVbaAdapter(ExcelAdapter):
             backup_dir or (Path(USER_DATA_DIR) / "vba_backups")
         )
 
+    def _targeted_clone_kwargs(self) -> dict:
+        return {"backup_dir": self._vba_backup_dir}
+
     @staticmethod
     def _item(collection, index):
         item = getattr(collection, "Item", None)

@@ -118,6 +118,100 @@ class StructuredPreferenceIntentAnalyzer:
             return f"{PREFERENCE_LABELS[preference]} 선호"
         return f"{PREFERENCE_LABELS[preference]} 기본값을 {_value_label(value)}(으)로 학습"
 
+    @staticmethod
+    def _feedback_scope(
+        command: str,
+        context: Mapping[str, Any],
+        fallback: tuple[str, str],
+    ) -> tuple[str, str]:
+        """Keep one preview correction local unless generalization is explicit."""
+        if any(
+            term in command
+            for term in (
+                "앞으로", "다음부터", "항상", "매번", "전역", "모든 업무",
+                "이 파일만", "현재 파일만", "이 문서만",
+            )
+        ):
+            return fallback
+        file_path = str(context.get("file_path") or "").strip()
+        if file_path:
+            return "file", file_path
+        app_type = str(context.get("app_type") or "").strip().casefold()
+        if app_type in StructuredPreferenceIntentAnalyzer.APP_TERMS:
+            return "app", app_type
+        return fallback
+
+    def analyze_feedback(
+        self,
+        text: str,
+        context: Mapping[str, Any],
+    ) -> PreferenceIntent | None:
+        """Extract an allowlisted preference from one preview correction.
+
+        This path is intentionally separate from ``analyze``.  Loose phrases
+        such as ``좀 더 간결하게`` are feedback only while a concrete preview
+        is pending; treating them as normal edit commands would steal document
+        edits from the native adapter.
+        """
+        original = re.sub(r"\s+", " ", str(text or "")).strip()
+        command = original.casefold()
+        if not command:
+            return None
+
+        intent = self.analyze(original, context)
+        if intent is not None:
+            if intent.deactivate:
+                return None
+            scope_kind, scope_id = self._feedback_scope(
+                command,
+                context,
+                (intent.scope_kind, intent.scope_id),
+            )
+            return PreferenceIntent(
+                preference=intent.preference,
+                value=intent.value,
+                scope_kind=scope_kind,
+                scope_id=scope_id,
+                description=intent.description,
+            )
+
+        correction_markers = (
+            "다시", "그거 말고", "이렇게 말고", "좀 더", "조금 더", "너무",
+            "바꿔", "고쳐", "해줘", "해주세요", "했으면", "이면 돼",
+            "앞으로", "다음부터", "항상", "매번",
+        )
+        if not any(marker in command for marker in correction_markers):
+            return None
+
+        preference = None
+        value = None
+        if "너무 길" in command:
+            preference, value = "report_tone", "concise"
+        for terms, mapped in (
+            (("간결", "군더더기 없이", "짧고 명확"), "concise"),
+            (("격식", "공식적", "정중"), "formal"),
+            (("친근", "부드럽", "딱딱하지 않"), "friendly"),
+        ):
+            if preference is not None:
+                break
+            if any(term in command for term in terms):
+                preference, value = "report_tone", mapped
+                break
+        if preference is None:
+            return None
+
+        fallback = self._scope(command, context, preference)
+        scope_kind, scope_id = self._feedback_scope(
+            command, context, fallback
+        )
+        return PreferenceIntent(
+            preference=preference,
+            value=value,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            description=self._description(preference, value),
+        )
+
     def analyze(self, text: str, context: Mapping[str, Any]) -> PreferenceIntent | None:
         original = re.sub(r"\s+", " ", str(text or "")).strip()
         command = original.casefold()
@@ -339,6 +433,30 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             request = replace(request, text=command + suffix)
         return request, resolved
 
+    def _attach_verified_correction_feedback(
+        self,
+        request: EditRequest,
+        context: Mapping[str, Any],
+        prepared: EditPreparedAction,
+    ) -> EditPreparedAction:
+        stage7 = dict(prepared.metadata.get("stage7") or {})
+        if not stage7.get("follow_up"):
+            return prepared
+        intent = self.preference_analyzer.analyze_feedback(request.text, context)
+        if intent is None:
+            return prepared
+        metadata = dict(prepared.metadata)
+        metadata["preference_feedback_candidate"] = {
+            "source": "verified_follow_up",
+            "preference": intent.preference,
+            "value": intent.value,
+            "scope_kind": intent.scope_kind,
+            "scope_id": intent.scope_id,
+            "evidence_id": f"correction-{request.request_id}"[:160],
+            "raw_feedback_stored": False,
+        }
+        return replace(prepared, metadata=metadata)
+
     def prepare(self, request: EditRequest, context: Mapping[str, Any]) -> EditPreparedAction:
         intent = self.preference_analyzer.analyze(request.text, context)
         if intent is None:
@@ -357,7 +475,9 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
                         },
                     },
                 )
-            return prepared
+            return self._attach_verified_correction_feedback(
+                request, context, prepared
+            )
         if intent.deactivate:
             operation = "deactivate_user_preference"
             requires_approval = True
@@ -467,7 +587,41 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
 
     def verify(self, prepared_action, result) -> bool:
         if prepared_action.operation not in LEARNING_OPERATIONS:
-            return super().verify(prepared_action, result)
+            verified = super().verify(prepared_action, result)
+            feedback = dict(
+                prepared_action.metadata.get("preference_feedback_candidate") or {}
+            )
+            if verified and feedback:
+                try:
+                    record = self.user_learning_manager.record_evidence(
+                        feedback.get("preference"),
+                        feedback.get("value"),
+                        scope_kind=feedback.get("scope_kind"),
+                        scope_id=feedback.get("scope_id"),
+                        evidence_id=feedback.get("evidence_id"),
+                    )
+                    if isinstance(result, dict):
+                        result["preference_feedback"] = {
+                            "recorded": not bool(record.get("duplicate_evidence")),
+                            "source": "verified_follow_up",
+                            "preference": feedback.get("preference"),
+                            "value": feedback.get("value"),
+                            "scope_kind": feedback.get("scope_kind"),
+                            "candidate_id": record.get("candidate_id"),
+                            "evidence_count": int(record.get("evidence_count") or 0),
+                            "status": record.get("status"),
+                            "needs_confirmation": bool(record.get("needs_confirmation")),
+                            "raw_feedback_stored": False,
+                        }
+                except Exception:
+                    if isinstance(result, dict):
+                        result["preference_feedback"] = {
+                            "recorded": False,
+                            "source": "verified_follow_up",
+                            "reason": "learning_unavailable",
+                            "raw_feedback_stored": False,
+                        }
+            return verified
         return bool(result.get("verified"))
 
     def rollback(self, prepared_action: EditPreparedAction) -> bool:

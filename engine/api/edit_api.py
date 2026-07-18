@@ -38,6 +38,7 @@ def _failure(error, action="edit_connect"):
         str(error),
         action=action,
         error_type=getattr(error, "error_type", "execution_error"),
+        retryable=bool(getattr(error, "retryable", False)),
         status=getattr(error, "status", "failed"),
         data={"candidates": [dict(item) for item in candidates]},
     )
@@ -136,13 +137,19 @@ def get_edit_session_status():
 @eel.expose
 def get_edit_context(session_id=None):
     try:
-        context = _get_controller().context(session_id)
+        controller = _get_controller()
+        context = controller.context(session_id)
+        session = controller.session_manager.current()
         return success_result(
             "현재 문서 선택 영역을 확인했습니다.",
             action="edit_context",
             target=context.get("session_id"),
             verified=True,
-            data={"context": context},
+            data={
+                "context": context,
+                "session": session,
+                "direct_edit_feedback": controller.direct_edit_feedback(),
+            },
         )
     except Exception as error:
         if getattr(error, "status", None) == "stale_context":
@@ -212,3 +219,18 @@ def set_edit_auto_layout(enabled):
     except Exception as error:
         logger.exception("Edit auto-layout setting failed")
         return _failure(error, action="edit_layout")
+
+
+@eel.expose
+def set_edit_selection_overlay(enabled):
+    try:
+        result = _get_controller().set_selection_overlay(enabled)
+        return success_result(
+            "Excel 선택 영역 표시 설정을 변경했습니다.",
+            action="edit_selection_overlay",
+            verified=True,
+            data=result,
+        )
+    except Exception as error:
+        logger.exception("Edit selection-overlay setting failed")
+        return _failure(error, action="edit_selection_overlay")

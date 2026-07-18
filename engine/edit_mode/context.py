@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import re
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,14 +16,18 @@ from engine.app_actions.com_lifecycle import com_apartment
 from engine.edit_mode.native_bridge import (
     APP_PROGIDS,
     NativeDocumentBridge,
+    NativeOfficeBusy,
     _com_value,
+    _is_office_busy_error,
     _item,
     _rot_office_reference,
     _same_path,
+    excel_reference_for_identity,
 )
 from engine.edit_mode.session import (
     canonical_document_path,
     document_identity_fingerprint,
+    runtime_document_identity_fingerprint,
 )
 
 
@@ -45,6 +50,12 @@ class EditContextUnavailable(EditContextError):
 
 class EditContextInactive(EditContextError):
     pass
+
+
+class EditContextBusy(EditContextError):
+    error_type = "environment_error"
+    status = "busy"
+    retryable = True
 
 
 class EditContextUnsupported(EditContextError):
@@ -155,8 +166,16 @@ class ContextProvider(Protocol):
 class NativeDocumentContextReader:
     """Acquire native references only for the duration of one read callback."""
 
-    def __init__(self, com_runtime=None):
+    def __init__(
+        self,
+        com_runtime=None,
+        *,
+        busy_retry_attempts=8,
+        busy_retry_delay=0.15,
+    ):
         self._com_runtime = com_runtime
+        self._busy_retry_attempts = max(1, min(int(busy_retry_attempts), 20))
+        self._busy_retry_delay = max(0.0, min(float(busy_retry_delay), 0.5))
 
     @staticmethod
     def _active_office_document(application, app_type):
@@ -172,13 +191,109 @@ class NativeDocumentContextReader:
             if normalized == "hwp":
                 return self._capture_hwp_document(expected_path)
             if normalized in {"excel", "word", "powerpoint"}:
-                return self._capture_office_document(normalized, expected_path)
+                last_busy = None
+                for attempt in range(self._busy_retry_attempts):
+                    try:
+                        return self._capture_office_document(normalized, expected_path)
+                    except NativeOfficeBusy as error:
+                        last_busy = error
+                    except Exception as error:
+                        if not _is_office_busy_error(error):
+                            raise
+                        last_busy = error
+                    if attempt + 1 < self._busy_retry_attempts:
+                        try:
+                            import pythoncom
+
+                            pythoncom.PumpWaitingMessages()
+                        except Exception:
+                            pass
+                        time.sleep(self._busy_retry_delay)
+                app_label = {
+                    "excel": "Excel",
+                    "word": "Word",
+                    "powerpoint": "PowerPoint",
+                }.get(normalized, "Office")
+                raise EditContextBusy(
+                    f"{app_label}이 문서 입력 중이거나 대화상자를 처리 중이라 "
+                    "현재 선택 영역을 읽지 못했습니다. 입력을 완료한 뒤 다시 시도해주세요."
+                ) from last_busy
         raise EditContextUnsupported(f"지원하지 않는 편집 문맥 앱입니다: {app_type}")
+
+    def capture_session(
+        self,
+        app_type: str,
+        session: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Capture a saved path or one process-local unsaved Excel identity."""
+        current = dict(session or {})
+        normalized = str(app_type or "").strip().casefold()
+        if str(current.get("identity_kind") or "file") != "runtime":
+            return self.capture(normalized, str(current.get("file_path") or ""))
+        if normalized != "excel":
+            raise EditContextUnsupported(
+                "미저장 문서 문맥은 현재 Excel만 지원합니다."
+            )
+        with com_apartment(self._com_runtime):
+            last_busy = None
+            for attempt in range(self._busy_retry_attempts):
+                try:
+                    return self._capture_runtime_excel_document(current)
+                except NativeOfficeBusy as error:
+                    last_busy = error
+                except Exception as error:
+                    if not _is_office_busy_error(error):
+                        raise
+                    last_busy = error
+                if attempt + 1 < self._busy_retry_attempts:
+                    try:
+                        import pythoncom
+
+                        pythoncom.PumpWaitingMessages()
+                    except Exception:
+                        pass
+                    time.sleep(self._busy_retry_delay)
+            raise EditContextBusy(
+                "Excel이 입력 중이거나 대화상자를 처리 중이라 미저장 문서를 "
+                "확인하지 못했습니다. 입력을 완료한 뒤 다시 시도해주세요."
+            ) from last_busy
+
+    def _capture_runtime_excel_document(
+        self,
+        session: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        application = document = metadata = None
+        try:
+            application, document, metadata = excel_reference_for_identity(
+                window_handle=int(session.get("window_handle") or 0),
+                runtime_document_id=str(
+                    session.get("runtime_document_id") or ""
+                ),
+                document_name=str(session.get("document_name") or ""),
+            )
+            if application is None or document is None or metadata is None:
+                raise EditContextInactive(
+                    "처음 연결한 미저장 Excel 통합문서를 현재 창에서 찾지 못했습니다. "
+                    "다시 연결해주세요."
+                )
+            result = self._capture_excel(application, document)
+            result.update({
+                "runtime_document_id": str(
+                    session.get("runtime_document_id") or ""
+                ).strip().upper(),
+                "window_handle": metadata.get("window_handle"),
+                "is_saved": metadata.get("is_saved", False),
+                "identity_kind": metadata.get("identity_kind", "runtime"),
+            })
+            return result
+        finally:
+            metadata = document = application = None
 
     def _capture_office_document(self, app_type: str, expected_path: str) -> dict[str, Any]:
         application = None
         document = None
         active = None
+        busy_error = None
         try:
             import win32com.client
 
@@ -187,12 +302,19 @@ class NativeDocumentContextReader:
                 document = NativeDocumentBridge._office_document(
                     application, app_type, expected_path
                 )
-            except Exception:
+            except Exception as error:
+                if _is_office_busy_error(error):
+                    busy_error = error
                 application = None
                 document = None
             if document is None:
-                application, document = _rot_office_reference(expected_path)
+                try:
+                    application, document = _rot_office_reference(expected_path)
+                except NativeOfficeBusy as error:
+                    busy_error = error
             if document is None or application is None:
+                if busy_error is not None:
+                    raise NativeOfficeBusy(str(busy_error)) from busy_error
                 raise EditContextUnavailable(
                     "연결된 문서가 닫혔거나 네이티브 앱에서 다시 찾을 수 없습니다."
                 )
@@ -213,7 +335,11 @@ class NativeDocumentContextReader:
             return self._capture_powerpoint(application, document)
         except EditContextError:
             raise
+        except NativeOfficeBusy:
+            raise
         except Exception as error:
+            if _is_office_busy_error(error):
+                raise NativeOfficeBusy(str(error)) from error
             raise EditContextUnavailable(
                 "연결된 Office 문서의 현재 선택 영역을 읽지 못했습니다."
             ) from error
@@ -272,9 +398,14 @@ class NativeDocumentContextReader:
                     selection_kind = "object"
                     selection_reference = _string(getattr(selection, "Name", "")) or None
 
+        metadata = NativeDocumentBridge._office_metadata(
+            "excel",
+            application,
+            document,
+        )
         return {
             "app_type": "excel",
-            "file_path": _string(getattr(document, "FullName", "")),
+            "file_path": str(metadata.get("file_path") or ""),
             "document_name": _string(getattr(document, "Name", "")),
             "active_container": sheet_name,
             "selection_reference": selection_reference,
@@ -284,6 +415,10 @@ class NativeDocumentContextReader:
             "cursor_reference": selection_reference,
             "read_only": _boolean(getattr(document, "ReadOnly", False)),
             "modified": not _boolean(getattr(document, "Saved", True), True),
+            "runtime_document_id": metadata.get("runtime_document_id"),
+            "window_handle": metadata.get("window_handle"),
+            "is_saved": metadata.get("is_saved", False),
+            "identity_kind": metadata.get("identity_kind", "runtime"),
         }
 
     @staticmethod
@@ -532,6 +667,9 @@ class _NativeContextProvider:
         self.reader = reader or NativeDocumentContextReader()
 
     def capture(self, session: Mapping[str, Any]) -> Mapping[str, Any]:
+        capture_session = getattr(self.reader, "capture_session", None)
+        if callable(capture_session):
+            return capture_session(self.app_type, session)
         return self.reader.capture(self.app_type, str(session.get("file_path") or ""))
 
 
@@ -586,15 +724,31 @@ class EditContextManager:
         current = self._session_mapping(session)
         session_id = str(current.get("session_id") or "").strip()
         app_type = str(current.get("app_type") or "").strip().casefold()
-        expected_path = canonical_document_path(current.get("file_path"))
+        identity_kind = str(
+            current.get("identity_kind") or "file"
+        ).strip().casefold()
+        runtime_identity = identity_kind == "runtime"
+        expected_path = (
+            ""
+            if runtime_identity
+            else canonical_document_path(current.get("file_path"))
+        )
         expected_document_fingerprint = str(
             current.get("document_fingerprint") or ""
         ).strip().upper()
         if not session_id or not expected_document_fingerprint:
             raise EditContextError("편집 세션의 문서 식별 정보가 불완전합니다.")
-        actual_document_fingerprint = document_identity_fingerprint(
-            expected_path, app_type
-        )
+        if runtime_identity:
+            actual_document_fingerprint = runtime_document_identity_fingerprint(
+                app_type,
+                str(current.get("runtime_document_id") or ""),
+                int(current.get("window_handle") or 0),
+            )
+        else:
+            actual_document_fingerprint = document_identity_fingerprint(
+                expected_path,
+                app_type,
+            )
         if actual_document_fingerprint != expected_document_fingerprint:
             raise EditContextInactive(
                 "연결 후 문서 파일이 교체되어 문맥을 읽지 않았습니다. 다시 연결해주세요."
@@ -614,11 +768,38 @@ class EditContextManager:
         captured_app_type = str(raw.get("app_type") or app_type).strip().casefold()
         if captured_app_type != app_type:
             raise EditContextInactive("다른 앱의 문맥이 반환되어 요청을 차단했습니다.")
-        captured_path = canonical_document_path(raw.get("file_path"))
-        if captured_path != expected_path:
-            raise EditContextInactive(
-                "현재 활성 문서가 연결된 문서와 달라 문맥을 읽지 않았습니다."
-            )
+        if runtime_identity:
+            captured_handle = int(raw.get("window_handle") or 0)
+            expected_handle = int(current.get("window_handle") or 0)
+            captured_runtime_id = str(
+                raw.get("runtime_document_id") or ""
+            ).strip().upper()
+            expected_runtime_id = str(
+                current.get("runtime_document_id") or ""
+            ).strip().upper()
+            if captured_handle != expected_handle:
+                raise EditContextInactive(
+                    "처음 연결한 Excel 창과 현재 문서 창이 달라 편집을 차단했습니다."
+                )
+            if captured_runtime_id and captured_runtime_id != expected_runtime_id:
+                raise EditContextInactive(
+                    "처음 연결한 미저장 통합문서와 현재 통합문서가 달라 편집을 차단했습니다."
+                )
+            if not captured_runtime_id and str(
+                raw.get("document_name") or ""
+            ).casefold() != str(current.get("document_name") or "").casefold():
+                raise EditContextInactive(
+                    "미저장 통합문서 이름이 달라 편집을 차단했습니다. 다시 연결해주세요."
+                )
+            raw_path = str(raw.get("file_path") or "").strip()
+            captured_path = canonical_document_path(raw_path) if raw_path else ""
+            expected_path = captured_path
+        else:
+            captured_path = canonical_document_path(raw.get("file_path"))
+            if captured_path != expected_path:
+                raise EditContextInactive(
+                    "현재 활성 문서가 연결된 문서와 달라 문맥을 읽지 않았습니다."
+                )
 
         selected_text = str(raw.get("selected_text") or "")
         selected_text_digest = _text_digest(selected_text)
@@ -631,6 +812,12 @@ class EditContextManager:
             "app_type": app_type,
             "file_path": expected_path,
             "document_fingerprint": expected_document_fingerprint,
+            "identity_kind": identity_kind,
+            "runtime_document_id": str(
+                current.get("runtime_document_id") or ""
+            ) or None,
+            "window_handle": int(current.get("window_handle") or 0),
+            "document_saved": bool(expected_path),
             "active_container": str(raw.get("active_container") or "") or None,
             "selection_reference": str(raw.get("selection_reference") or "") or None,
             "selection_kind": str(raw.get("selection_kind") or "none"),
@@ -674,4 +861,11 @@ class EditContextManager:
             modified=identity["modified"],
             captured_at=_timestamp(),
         )
-        return _json_copy(context.to_dict(), "편집 문맥")
+        result = context.to_dict()
+        result.update({
+            "identity_kind": identity_kind,
+            "runtime_document_id": identity["runtime_document_id"],
+            "window_handle": identity["window_handle"],
+            "document_saved": identity["document_saved"],
+        })
+        return _json_copy(result, "편집 문맥")

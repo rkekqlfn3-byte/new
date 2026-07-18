@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 
 class WindowLayoutError(RuntimeError):
@@ -69,6 +70,141 @@ class Win32WindowBackend:
         import win32gui
 
         return tuple(int(value) for value in win32gui.GetWindowRect(int(handle)))
+
+
+class Win32DocumentActivationBackend:
+    """Activate one validated top-level document window without keystrokes."""
+
+    @staticmethod
+    def is_window(handle: int) -> bool:
+        import win32gui
+
+        return bool(
+            handle
+            and win32gui.IsWindow(int(handle))
+            and win32gui.IsWindowVisible(int(handle))
+        )
+
+    @staticmethod
+    def foreground_root() -> int:
+        import win32con
+        import win32gui
+
+        foreground = int(win32gui.GetForegroundWindow() or 0)
+        if not foreground:
+            return 0
+        return int(win32gui.GetAncestor(foreground, win32con.GA_ROOT) or foreground)
+
+    @staticmethod
+    def restore(handle: int) -> None:
+        import win32con
+        import win32gui
+
+        command = win32con.SW_RESTORE if win32gui.IsIconic(int(handle)) else win32con.SW_SHOW
+        win32gui.ShowWindow(int(handle), command)
+
+    @staticmethod
+    def request_foreground(handle: int) -> None:
+        import ctypes
+        import win32api
+        import win32con
+        import win32gui
+        import win32process
+
+        target = int(handle)
+        foreground = int(win32gui.GetForegroundWindow() or 0)
+        caller_thread = int(win32api.GetCurrentThreadId())
+        target_thread = int(win32process.GetWindowThreadProcessId(target)[0] or 0)
+        foreground_thread = (
+            int(win32process.GetWindowThreadProcessId(foreground)[0] or 0)
+            if foreground
+            else 0
+        )
+        attached = []
+        try:
+            for thread_id in {target_thread, foreground_thread}:
+                if not thread_id or thread_id == caller_thread:
+                    continue
+                if ctypes.windll.user32.AttachThreadInput(
+                    caller_thread,
+                    thread_id,
+                    True,
+                ):
+                    attached.append(thread_id)
+            win32gui.SetWindowPos(
+                target,
+                win32con.HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE
+                | win32con.SWP_NOSIZE
+                | win32con.SWP_SHOWWINDOW,
+            )
+            win32gui.BringWindowToTop(target)
+            win32gui.SetForegroundWindow(target)
+            try:
+                win32gui.SetActiveWindow(target)
+            except Exception:
+                pass
+        finally:
+            for thread_id in reversed(attached):
+                ctypes.windll.user32.AttachThreadInput(
+                    caller_thread,
+                    thread_id,
+                    False,
+                )
+
+
+class DocumentWindowActivator:
+    """Failure-isolated, verified foreground activation for connected documents."""
+
+    def __init__(self, backend=None, attempts=2, retry_delay=0.03):
+        self.backend = backend or Win32DocumentActivationBackend()
+        self.attempts = max(1, min(int(attempts), 3))
+        self.retry_delay = max(0.0, min(float(retry_delay), 0.1))
+        self._lock = threading.RLock()
+
+    def activate(self, document_handle: int) -> dict:
+        handle = int(document_handle or 0)
+        with self._lock:
+            try:
+                if not self.backend.is_window(handle):
+                    return {
+                        "success": False,
+                        "status": "window_unavailable",
+                        "focused": False,
+                    }
+                if self.backend.foreground_root() == handle:
+                    return {
+                        "success": True,
+                        "status": "already_foreground",
+                        "focused": True,
+                    }
+                self.backend.restore(handle)
+                for attempt in range(self.attempts):
+                    self.backend.request_foreground(handle)
+                    if self.backend.foreground_root() == handle:
+                        return {
+                            "success": True,
+                            "status": "focused",
+                            "focused": True,
+                        }
+                    if attempt + 1 < self.attempts and self.retry_delay:
+                        time.sleep(self.retry_delay)
+                return {
+                    "success": False,
+                    "status": "focus_rejected",
+                    "focused": False,
+                }
+            except Exception as error:
+                return {
+                    "success": False,
+                    "status": "focus_failed",
+                    "focused": False,
+                    "message": str(error),
+                }
 
 
 class WindowLayoutManager:

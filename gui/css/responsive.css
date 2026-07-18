@@ -2,6 +2,14 @@
    RESPONSIVE OPTIMIZATIONS (반응형 대응)
    =================================================== */
 @media screen and (max-width: 768px) {
+    .edit-target-preview {
+        display: none;
+    }
+
+    .edit-target-details {
+        flex: 1 1 auto;
+    }
+
     .edit-session-panel {
         grid-template-columns: 1fr;
     }

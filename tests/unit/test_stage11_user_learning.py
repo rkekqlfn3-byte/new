@@ -190,6 +190,29 @@ class Stage11PreferenceIntentTests(unittest.TestCase):
     def test_unrelated_edit_command_is_not_learning(self):
         self.assertIsNone(self.analyzer.analyze("B2에 10 입력해줘", self.context))
 
+    def test_preview_feedback_accepts_loose_correction_only_in_feedback_path(self):
+        text = "그거 말고 좀 더 간결하게 다시 작성해줘"
+        self.assertIsNone(self.analyzer.analyze(text, self.context))
+
+        intent = self.analyzer.analyze_feedback(text, self.context)
+
+        self.assertEqual("report_tone", intent.preference)
+        self.assertEqual("concise", intent.value)
+        self.assertEqual("file", intent.scope_kind)
+        self.assertTrue(intent.scope_id.endswith("sales.xlsx"))
+
+    def test_preview_feedback_generalizes_only_when_user_explicitly_says_so(self):
+        intent = self.analyzer.analyze_feedback(
+            "앞으로는 좀 더 친근하게 해줘", self.context
+        )
+
+        self.assertEqual("friendly", intent.value)
+        self.assertEqual("workflow", intent.scope_kind)
+        self.assertEqual("business_report", intent.scope_id)
+        self.assertIsNone(
+            self.analyzer.analyze_feedback("이 미리보기 좋아", self.context)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

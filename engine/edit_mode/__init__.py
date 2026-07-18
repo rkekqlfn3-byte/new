@@ -14,6 +14,7 @@ from engine.edit_mode.context import (
     EDIT_CONTEXT_SCHEMA_VERSION,
     ContextProvider,
     EditContext,
+    EditContextBusy,
     EditContextError,
     EditContextInactive,
     EditContextManager,
@@ -38,6 +39,7 @@ from engine.edit_mode.intake import (
     APP_LABELS,
     SUPPORTED_DOCUMENT_EXTENSIONS,
     EditAppUnavailable,
+    EditAppBusy,
     EditDocumentAmbiguous,
     EditDocumentOpenTimeout,
     EditIntakeError,
@@ -66,6 +68,15 @@ from engine.edit_mode.session import (
     EditSessionStale,
     canonical_document_path,
     document_identity_fingerprint,
+    runtime_document_identity_fingerprint,
+)
+from engine.edit_mode.selection_overlay import (
+    ExcelComSelectionLocator,
+    ExcelSelectionLocator,
+    ScreenRectangle,
+    SelectionOverlayManager,
+    Win32SelectionOverlayBackend,
+    normalized_excel_range,
 )
 from engine.edit_mode.stage5 import (
     EditIntent,
@@ -110,7 +121,11 @@ from engine.edit_mode.stage11 import (
     Stage11NativeEditAdapter,
     StructuredPreferenceIntentAnalyzer,
 )
-from engine.edit_mode.window_layout import WindowLayoutManager
+from engine.edit_mode.window_layout import (
+    DocumentWindowActivator,
+    Win32DocumentActivationBackend,
+    WindowLayoutManager,
+)
 
 __all__ = [
     "ActionScope",
@@ -118,6 +133,7 @@ __all__ = [
     "EditApprovalRequired",
     "EditContextChanged",
     "EditContext",
+    "EditContextBusy",
     "EditContextError",
     "EditContextInactive",
     "EditContextManager",
@@ -125,6 +141,7 @@ __all__ = [
     "EditContextUnsupported",
     "EditContractError",
     "EditAppUnavailable",
+    "EditAppBusy",
     "EditDocumentAmbiguous",
     "EditDocumentOpenTimeout",
     "EditExecutionCoordinator",
@@ -142,6 +159,8 @@ __all__ = [
     "EditSessionState",
     "EditSessionStateMachine",
     "EditSessionStale",
+    "ExcelSelectionLocator",
+    "ExcelComSelectionLocator",
     "EditIntent",
     "EditStateConflict",
     "EditStateTransitionError",
@@ -151,6 +170,8 @@ __all__ = [
     "ModePermissionError",
     "RequestMode",
     "RiskLevel",
+    "ScreenRectangle",
+    "SelectionOverlayManager",
     "Stage5EditError",
     "Stage5NativeEditAdapter",
     "StructuredEditIntentAnalyzer",
@@ -180,6 +201,7 @@ __all__ = [
     "rewrite_pending_command",
     "rewrite_text_candidate",
     "ContextProvider",
+    "DocumentWindowActivator",
     "EDIT_CONTEXT_SCHEMA_VERSION",
     "APP_LABELS",
     "SUPPORTED_DOCUMENT_EXTENSIONS",
@@ -188,14 +210,18 @@ __all__ = [
     "PowerPointContextProvider",
     "UnsupportedEditDocument",
     "WindowLayoutManager",
+    "Win32DocumentActivationBackend",
+    "Win32SelectionOverlayBackend",
     "WordContextProvider",
     "app_type_for_path",
     "assert_action_allowed",
     "canonical_document_path",
     "document_identity_fingerprint",
+    "runtime_document_identity_fingerprint",
     "edit_preview_message",
     "edit_success_message",
     "default_context_providers",
     "normalize_request_mode",
+    "normalized_excel_range",
     "validate_edit_adapter",
 ]

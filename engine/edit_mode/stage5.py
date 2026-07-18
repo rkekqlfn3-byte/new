@@ -533,7 +533,10 @@ class Stage5NativeEditAdapter:
     def _validate_native_target(self, native: PreparedAction, context: Mapping[str, Any]) -> None:
         if native.app != self.app_type:
             raise Stage5EditError("다른 앱용 작업이 준비되어 실행을 차단했습니다.")
-        if self._path(native.document_id) != self._path(self.session.get("file_path")):
+        expected_document_id = self.session.get("file_path")
+        if self.app_type == "excel" and self.session.get("identity_kind") == "runtime":
+            expected_document_id = f"unsaved:{self.session.get('document_name') or ''}"
+        if self._path(native.document_id) != self._path(expected_document_id):
             raise Stage5EditError("연결된 문서와 다른 네이티브 문서 작업을 차단했습니다.")
         if self.app_type == "excel" and native.sheet != str(context.get("active_container") or ""):
             raise Stage5EditError("연결 후 Excel 시트가 바뀌어 다시 요청해주세요.")

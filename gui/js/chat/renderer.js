@@ -48,10 +48,22 @@ function sanitizeRenderedHtml(html) {
     return template.innerHTML;
 }
 
+function normalizeKoreanMarkdownBoundaries(text) {
+    // Marked treats a closing ** immediately followed by a Hangul syllable as
+    // an in-word delimiter. An invisible boundary keeps the Korean suffix
+    // visually attached while allowing the intended strong span to render.
+    return String(text || '').replace(
+        /\*\*([^*\r\n]+?)\*\*(?=[가-힣])/g,
+        (_match, content) => `**${content}\u200B**\u200B`
+    );
+}
+
 function formatMessageContent(text, isIncoming, image_data = null) {
     if (!text) return '';
 
-    let processed = text.trim().replace('[응/아니오]', '');
+    let processed = normalizeKoreanMarkdownBoundaries(
+        text.trim().replace('[응/아니오]', '')
+    );
     let parsedText = (typeof marked !== 'undefined')
         ? sanitizeRenderedHtml(marked.parse(processed))
         : escapeHtml(processed).replace(/\n/g, '<br>');

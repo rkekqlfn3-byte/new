@@ -17,6 +17,7 @@ from engine.edit_mode.contracts import (
 )
 from engine.edit_mode.stage5 import Stage5EditError
 from engine.edit_mode.stage6 import Stage6NativeEditAdapter
+from engine.edit_mode.target_identity import direct_text_selection_anchor
 
 
 UNDO_PHRASES = (
@@ -30,6 +31,7 @@ UNDO_PHRASES = (
 )
 FOLLOW_UP_PHRASES = (
     "조금 더",
+    "좀 더",
     "너무 길어",
     "너무 많이 줄였어",
     "다시",
@@ -66,7 +68,7 @@ def is_undo_request(value) -> bool:
 
 def is_follow_up_request(value) -> bool:
     text = _normalized(value)
-    if text.startswith("조금 더"):
+    if text.startswith(("조금 더", "좀 더")):
         return True
     return any(
         phrase in text
@@ -200,7 +202,7 @@ class ContinuationResolver:
                 )
             else:
                 resolved = previous_command
-        elif "조금 더" in normalized:
+        elif "조금 더" in normalized or "좀 더" in normalized:
             if operation in TEXT_REPLACE_OPERATIONS:
                 resolved = "조금 줄여줘"
             elif operation == "set_text_format":
@@ -387,6 +389,8 @@ def build_commit_records(
     )
     sequence_count = int(previous.get("sequence_count") or 0) + 1 if same_chain else 1
     last_action = {
+        "action_id": prepared.action_id,
+        "request_id": request.request_id,
         "app_type": prepared.app_type,
         "operation": prepared.operation,
         "original_command": stage7.get("original_command") or request.text,
@@ -396,6 +400,16 @@ def build_commit_records(
         "before_preview": preview.get("before") or "",
         "after_preview": preview.get("after") or "",
         "target": preview.get("target") or prepared.target.get("native_target"),
+        "selection_reference": post_context.get("selection_reference"),
+        "post_document_fingerprint": post_context.get("document_fingerprint"),
+        "post_selection_anchor": direct_text_selection_anchor(
+            prepared.app_type,
+            post_context,
+        ),
+        "post_selected_text_digest": post_context.get("selected_text_digest"),
+        "post_selected_text_length": int(
+            post_context.get("selected_text_length") or 0
+        ),
         "pre_context_fingerprint": prepared.context_fingerprint,
         "post_context_fingerprint": post_context.get("context_fingerprint"),
         "sequence_count": min(sequence_count, 1000),

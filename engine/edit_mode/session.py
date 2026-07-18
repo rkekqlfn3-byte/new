@@ -69,6 +69,21 @@ def document_identity_fingerprint(file_path: str, app_type: str) -> str:
     return hashlib.sha256(identity.encode("utf-8", errors="surrogatepass")).hexdigest().upper()
 
 
+def runtime_document_identity_fingerprint(
+    app_type: str,
+    runtime_document_id: str,
+    window_handle: int,
+) -> str:
+    """Fingerprint one process-local unsaved document identity."""
+    normalized_app = str(app_type or "").strip().casefold()
+    runtime_id = str(runtime_document_id or "").strip().upper()
+    handle = int(window_handle or 0)
+    if normalized_app != "excel" or not runtime_id or handle <= 0:
+        raise EditSessionError("미저장 Excel 문서의 임시 식별 정보가 불완전합니다.")
+    identity = "\x00".join(("runtime", normalized_app, runtime_id, str(handle)))
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest().upper()
+
+
 @dataclass(frozen=True)
 class EditSession:
     session_id: str
@@ -76,6 +91,9 @@ class EditSession:
     file_path: str
     document_name: str
     document_fingerprint: str
+    identity_kind: str = "file"
+    runtime_document_id: str | None = None
+    is_saved: bool = True
     window_handle: int = 0
     active_container: str | None = None
     selection_reference: str | None = None
@@ -228,10 +246,39 @@ class EditSessionManager:
         if not isinstance(document, Mapping):
             raise EditSessionError("연결할 문서 정보가 올바르지 않습니다.")
         app_type = str(document.get("app_type") or "").strip().casefold()
-        file_path = canonical_document_path(document.get("file_path"))
-        fingerprint = document_identity_fingerprint(file_path, app_type)
-        document_name = str(document.get("document_name") or Path(file_path).name)
         window_handle = max(0, int(document.get("window_handle") or 0))
+        identity_kind = str(document.get("identity_kind") or "").casefold()
+        runtime_identity = (
+            identity_kind == "runtime"
+            or document.get("is_saved") is False
+            or not str(document.get("file_path") or "").strip()
+        )
+        if runtime_identity:
+            if app_type != "excel":
+                raise EditSessionError("미저장 문서 연결은 현재 Excel만 지원합니다.")
+            file_path = ""
+            document_name = str(
+                document.get("document_name") or "현재 통합문서"
+            )
+            runtime_document_id = str(
+                document.get("runtime_document_id") or ""
+            ).strip().upper()
+            fingerprint = runtime_document_identity_fingerprint(
+                app_type,
+                runtime_document_id,
+                window_handle,
+            )
+            identity_kind = "runtime"
+            is_saved = False
+        else:
+            file_path = canonical_document_path(document.get("file_path"))
+            fingerprint = document_identity_fingerprint(file_path, app_type)
+            document_name = str(
+                document.get("document_name") or Path(file_path).name
+            )
+            runtime_document_id = None
+            identity_kind = "file"
+            is_saved = True
         active_container = str(document.get("active_container") or "").strip() or None
         selection_reference = (
             str(document.get("selection_reference") or "").strip() or None
@@ -249,6 +296,9 @@ class EditSessionManager:
                 file_path=file_path,
                 document_name=document_name[:260],
                 document_fingerprint=fingerprint,
+                identity_kind=identity_kind,
+                runtime_document_id=runtime_document_id,
+                is_saved=is_saved,
                 window_handle=window_handle,
                 active_container=active_container,
                 selection_reference=selection_reference,
@@ -258,6 +308,55 @@ class EditSessionManager:
             machine.transition(EditSessionState.READY, reason="편집 대상 문서 고정")
             self._active_session = session
             self._state_machine = machine
+            return self._snapshot_locked()
+
+    def promote_runtime_document(
+        self,
+        session_id: str,
+        file_path: str,
+        *,
+        document_name: str | None = None,
+        runtime_document_id: str | None = None,
+    ) -> dict:
+        """Convert the same live Excel workbook to durable file identity."""
+        canonical_path = canonical_document_path(file_path)
+        with self._lock:
+            if self._active_session is None or self._state_machine is None:
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            session = self._active_session
+            if session.session_id != str(session_id):
+                raise EditSessionStale("다른 편집 세션의 문서 신원 변경을 거부했습니다.")
+            if session.identity_kind != "runtime":
+                return self._snapshot_locked()
+            if self._state_machine.state is not EditSessionState.READY:
+                raise EditSessionBusy(
+                    "편집 작업이 진행 중이라 저장된 문서 신원 전환을 잠시 미뤘습니다."
+                )
+            actual_runtime_id = str(runtime_document_id or "").strip().upper()
+            if (
+                actual_runtime_id
+                and actual_runtime_id != str(session.runtime_document_id or "").upper()
+            ):
+                raise EditSessionStale(
+                    "저장된 통합문서가 처음 연결한 임시 문서와 달라 전환하지 않았습니다."
+                )
+            self._active_session = replace(
+                session,
+                file_path=canonical_path,
+                document_name=str(
+                    document_name or Path(canonical_path).name
+                )[:260],
+                document_fingerprint=document_identity_fingerprint(
+                    canonical_path,
+                    session.app_type,
+                ),
+                identity_kind="file",
+                runtime_document_id=None,
+                is_saved=True,
+                last_target=None,
+                last_action=None,
+                undo_record=None,
+            )
             return self._snapshot_locked()
 
     def _disconnect_locked(self, *, reason: str) -> dict:
@@ -303,7 +402,17 @@ class EditSessionManager:
             if request.document_fingerprint != session.document_fingerprint:
                 raise EditSessionStale("현재 연결된 문서 fingerprint와 요청이 일치하지 않습니다.")
             self._state_machine.require_state(EditSessionState.READY)
-            current = document_identity_fingerprint(session.file_path, session.app_type)
+            if session.identity_kind == "runtime":
+                current = runtime_document_identity_fingerprint(
+                    session.app_type,
+                    session.runtime_document_id or "",
+                    session.window_handle,
+                )
+            else:
+                current = document_identity_fingerprint(
+                    session.file_path,
+                    session.app_type,
+                )
             if current != session.document_fingerprint:
                 self._state_machine.transition(
                     EditSessionState.STALE_CONTEXT,

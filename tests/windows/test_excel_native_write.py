@@ -134,6 +134,19 @@ class BusyExcel:
         return self.sheet
 
 
+class BusyExcelGetter:
+    def __init__(self, application, failures):
+        self.application = application
+        self.failures = failures
+        self.attempts = 0
+
+    def __call__(self):
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise AttributeError("Excel.Application.Workbooks")
+        return self.application
+
+
 def adapter_for(application):
     return ExcelAdapter(
         application_getter=lambda: application,
@@ -166,6 +179,39 @@ class ExcelValueNormalizerTests(unittest.TestCase):
 
 
 class ExcelAdapterTests(unittest.TestCase):
+    def test_edit_session_binding_targets_one_unsaved_workbook(self):
+        excel = FakeExcel()
+        excel.ActiveWorkbook.Path = ""
+        excel.ActiveWorkbook.Name = "통합 문서1"
+        excel.ActiveWorkbook.FullName = "통합 문서1"
+        session = {
+            "app_type": "excel",
+            "file_path": "",
+            "document_name": "통합 문서1",
+            "window_handle": 12345,
+            "identity_kind": "runtime",
+            "runtime_document_id": "RUNTIME-12345",
+        }
+        with mock.patch(
+            "engine.edit_mode.native_bridge.excel_reference_for_identity",
+            return_value=(excel, excel.ActiveWorkbook, {}),
+        ) as locate:
+            adapter = ExcelAdapter(discovery_retry_delay=0).for_edit_session(session)
+            prepared = adapter.prepare(
+                "write_cell",
+                {"cell": "B2", "value": 100},
+            )
+            result = adapter.execute(prepared)
+
+        self.assertEqual("unsaved:통합 문서1", prepared.document_id)
+        self.assertTrue(result["verified"])
+        self.assertEqual(100, excel.ActiveSheet.Range("B2").Value2)
+        self.assertGreaterEqual(locate.call_count, 2)
+        self.assertEqual(
+            "RUNTIME-12345",
+            locate.call_args.kwargs["runtime_document_id"],
+        )
+
     def test_blank_cell_is_prepared_written_and_verified(self):
         excel = FakeExcel()
         adapter = adapter_for(excel)
@@ -328,6 +374,32 @@ class ExcelAdapterTests(unittest.TestCase):
             blocked.prepare("write_cell", {"cell": "A1", "value": "실행 안 함"})
         self.assertIn("Enter 또는 Esc", str(raised.exception))
         self.assertIsNone(always_busy.sheet.Range("A1").Value2)
+
+    def test_busy_excel_application_acquisition_retries_before_prepare(self):
+        excel = FakeExcel()
+        getter = BusyExcelGetter(excel, failures=2)
+        adapter = ExcelAdapter(
+            application_getter=getter,
+            process_counter=lambda: 1,
+            discovery_attempts=3,
+            discovery_retry_delay=0,
+        )
+        prepared = adapter.prepare(
+            "write_cell", {"cell": "A1", "value": "연결 재시도 성공"}
+        )
+        self.assertEqual("A1", prepared.target)
+        self.assertEqual(3, getter.attempts)
+
+        blocked_getter = BusyExcelGetter(excel, failures=10)
+        blocked = ExcelAdapter(
+            application_getter=blocked_getter,
+            process_counter=lambda: 1,
+            discovery_attempts=3,
+            discovery_retry_delay=0,
+        )
+        with self.assertRaises(AppActionBusy) as raised:
+            blocked.prepare("write_cell", {"cell": "A1", "value": "실행 안 함"})
+        self.assertIn("Enter 또는 Esc", str(raised.exception))
 
 
 class PreparedActionPlanBoundaryTests(unittest.TestCase):

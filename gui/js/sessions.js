@@ -2,6 +2,7 @@
 
 let saveSessionTimer = null;
 let lastSavedSessionSignature = null;
+let sessionSwitchVersion = 0;
 
 function createSessionDateMessage() {
     const message = document.createElement('div');
@@ -71,47 +72,78 @@ function updateActiveSessionHighlight() {
 }
 
 async function switchSession(id) {
-    if (currentSessionId === id) return;
-    if (typeof saveCurrentSession === 'function') {
-        try { await saveCurrentSession(true); } catch (saveError) {}
-    }
-    if (typeof _summaryVersion !== 'undefined') _summaryVersion += 1;
-    currentSessionId = id;
-    lastSavedSessionSignature = null;
-    resetChatArea();
-
-    const sessionData = await eel.load_chat_session(id)();
-    const messages = Array.isArray(sessionData?.messages) ? sessionData.messages : [];
-    window.conversationSummary = sessionData?.summary || '';
-
-    const fragment = document.createDocumentFragment();
-    messages.forEach(message => {
-        const content = String(message?.content || '');
-        const incoming = message?.role === 'assistant';
-        if (typeof window.createChatMessage === 'function') {
-            fragment.appendChild(window.createChatMessage(content, incoming));
-        } else {
-            const item = document.createElement('div');
-            item.className = `message ${incoming ? 'incoming' : 'outgoing'}`;
-            item.dataset.rawContent = content;
-            item.textContent = content;
-            fragment.appendChild(item);
+    const requestedId = String(id || '');
+    if (!requestedId || currentSessionId === requestedId) return false;
+    const switchVersion = ++sessionSwitchVersion;
+    const requestedItem = sessionList?.querySelector(
+        `.session-item[data-session-id="${CSS.escape(requestedId)}"]`
+    );
+    requestedItem?.classList.add('loading');
+    try {
+        if (typeof saveCurrentSession === 'function') {
+            try { await saveCurrentSession(true); } catch (saveError) {}
         }
-    });
-    chatArea.appendChild(fragment);
+        const loader = () => eel.load_chat_session(requestedId)();
+        const sessionData = typeof window.runUiLoadWithRetry === 'function'
+            ? await window.runUiLoadWithRetry(loader)
+            : await loader();
+        if (switchVersion !== sessionSwitchVersion) return false;
+        if (
+            !sessionData
+            || String(sessionData.id || '') !== requestedId
+            || !Array.isArray(sessionData.messages)
+        ) {
+            throw new Error('저장된 대화 내용을 확인할 수 없습니다.');
+        }
 
-    if (window.conversationSummary) {
-        const restored = Array.from(chatArea.querySelectorAll('.message'))
-            .filter(element => !element.classList.contains('system-date'));
-        restored.slice(0, Math.max(0, restored.length - 10))
-            .forEach(element => element.classList.add('summarized'));
-    }
+        if (typeof _summaryVersion !== 'undefined') _summaryVersion += 1;
+        currentSessionId = requestedId;
+        lastSavedSessionSignature = null;
+        resetChatArea();
 
-    updateActiveSessionHighlight();
-    if (typeof restorePendingConfirmationCard === 'function') {
-        await restorePendingConfirmationCard(id);
+        const messages = sessionData.messages;
+        window.conversationSummary = sessionData.summary || '';
+
+        const fragment = document.createDocumentFragment();
+        messages.forEach(message => {
+            const content = String(message?.content || '');
+            const incoming = message?.role === 'assistant';
+            if (typeof window.createChatMessage === 'function') {
+                fragment.appendChild(window.createChatMessage(content, incoming));
+            } else {
+                const item = document.createElement('div');
+                item.className = `message ${incoming ? 'incoming' : 'outgoing'}`;
+                item.dataset.rawContent = content;
+                item.textContent = content;
+                fragment.appendChild(item);
+            }
+        });
+        chatArea.appendChild(fragment);
+
+        if (window.conversationSummary) {
+            const restored = Array.from(chatArea.querySelectorAll('.message'))
+                .filter(element => !element.classList.contains('system-date'));
+            restored.slice(0, Math.max(0, restored.length - 10))
+                .forEach(element => element.classList.add('summarized'));
+        }
+
+        updateActiveSessionHighlight();
+        if (typeof restorePendingConfirmationCard === 'function') {
+            await restorePendingConfirmationCard(requestedId);
+        }
+        scrollToBottom();
+        return true;
+    } catch (error) {
+        if (switchVersion === sessionSwitchVersion) {
+            console.warn('저장된 대화 로딩 실패', error);
+            if (typeof addSystemError === 'function') {
+                addSystemError('저장된 대화를 불러오지 못했습니다. 잠시 후 다시 눌러주세요.');
+            }
+        }
+        return false;
+    } finally {
+        requestedItem?.classList.remove('loading');
     }
-    scrollToBottom();
 }
 
 async function deleteSession(id, event) {
@@ -137,6 +169,12 @@ async function _doSaveSession() {
         });
     });
     if (!history.length) return;
+    if (!history.some(message => message.role === 'user')) {
+        // The boot/new-chat greeting is a draft, not a real conversation.
+        // Saving it while the first persisted session is being opened creates
+        // a misleading extra "새로운 대화" record.
+        return false;
+    }
 
     const title = (history.find(message => message.role === 'user')?.content || '새로운 대화')
         .substring(0, 20);

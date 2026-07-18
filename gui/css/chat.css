@@ -22,6 +22,90 @@
     background-color: var(--bg-chat);
 }
 
+.edit-target-bar {
+    min-height: 48px;
+    padding: 9px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(90deg, rgba(237, 249, 255, 0.98), rgba(246, 244, 255, 0.98));
+    border-bottom: 1px solid rgba(74, 166, 232, 0.3);
+    box-shadow: 0 5px 16px rgba(47, 91, 137, 0.08);
+    color: var(--text-dark);
+    z-index: 3;
+}
+
+.edit-target-dot {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: #4aa6e8;
+    box-shadow: 0 0 0 4px rgba(74, 166, 232, 0.14);
+}
+
+.edit-target-state {
+    color: #2679b5;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
+.edit-target-address {
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(74, 166, 232, 0.35);
+    color: #215d88;
+    font-size: 14px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.edit-target-details,
+.edit-target-preview {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.edit-target-details {
+    color: #53657a;
+    font-size: 12px;
+}
+
+.edit-target-preview {
+    flex: 1 1 auto;
+    color: #75859a;
+    font-size: 12px;
+    text-align: right;
+}
+
+.edit-target-bar.target-busy {
+    background: linear-gradient(90deg, rgba(255, 249, 231, 0.98), rgba(255, 244, 228, 0.98));
+    border-bottom-color: rgba(230, 152, 43, 0.35);
+}
+
+.edit-target-bar.target-busy .edit-target-dot {
+    background: #e6982b;
+    box-shadow: 0 0 0 4px rgba(230, 152, 43, 0.15);
+}
+
+.edit-target-bar.target-busy .edit-target-state {
+    color: #a9650d;
+}
+
+.edit-target-bar.target-error .edit-target-dot {
+    background: #d85b5b;
+    box-shadow: 0 0 0 4px rgba(216, 91, 91, 0.14);
+}
+
+.edit-target-bar.target-error .edit-target-state {
+    color: #b33d3d;
+}
+
 .message {
     display: flex;
     align-items: flex-end;
@@ -53,6 +137,9 @@
 .message-content {
     display: flex;
     flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .message.outgoing .message-content {
@@ -77,8 +164,55 @@
     font-size: 0.95em;
     line-height: 1.5;
     word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
     box-shadow: var(--shadow-sm);
     position: relative;
+}
+
+/* Keep every Markdown element within the message width. Long URLs, code,
+   tables and default outside list markers otherwise expand past the bubble. */
+.bubble > * {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.bubble p {
+    margin: 0 0 0.65em;
+}
+
+.bubble p:last-child {
+    margin-bottom: 0;
+}
+
+.bubble ul,
+.bubble ol {
+    margin: 0.35em 0 0.65em;
+    padding-inline-start: 1.45em;
+}
+
+.bubble li,
+.bubble a,
+.bubble code {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.bubble pre {
+    margin: 0.65em 0;
+    padding: 0.7em 0.85em;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.bubble table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
 }
 
 .message.incoming .bubble {
@@ -471,7 +605,9 @@
 }
 
 .chat-image-attachment {
+    width: auto;
     max-width: 250px;
+    max-width: min(250px, 100%);
     max-height: 250px;
     border-radius: var(--radius-sm);
     margin-bottom: 8px;

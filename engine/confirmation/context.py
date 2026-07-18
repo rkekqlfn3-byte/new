@@ -8,6 +8,7 @@ class ConfirmationContext:
     option_id: Optional[str]
     consumed: Dict[str, Any]
     remember_preference: bool = False
+    feedback_text: str = ""
     log_callback: Any = None
 
     @property

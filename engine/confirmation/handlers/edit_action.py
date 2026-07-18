@@ -17,12 +17,14 @@ def resolve(owner, context):
             status="blocked",
         )
     try:
-        return callback(
-            context.payload,
-            **{"chat_session_id": context.session_id},
-            confirmation_id=context.consumed.get("confirmation_id"),
-            log_callback=context.log_callback,
-        )
+        kwargs = {
+            "chat_session_id": context.session_id,
+            "confirmation_id": context.consumed.get("confirmation_id"),
+            "log_callback": context.log_callback,
+        }
+        if context.option_id == "rewrite":
+            kwargs["feedback_text"] = context.feedback_text
+        return callback(context.payload, **kwargs)
     except Exception as error:
         return failure_result(
             str(error),

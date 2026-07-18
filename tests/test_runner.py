@@ -22,6 +22,7 @@ TEST_GROUPS = {
         "tests.unit.test_browser_launcher",
         "tests.unit.test_edit_context",
         "tests.unit.test_edit_mode_contracts",
+        "tests.unit.test_edit_target_ui",
         "tests.unit.test_edit_target_identity",
         "tests.unit.test_edit_session",
         "tests.unit.test_learning_quality",

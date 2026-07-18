@@ -141,12 +141,50 @@ class ExcelAdapter:
         discovery_retry_delay=0.15,
         com_runtime=None,
     ):
+        self._uses_default_application_getter = application_getter is None
         self._application_getter = application_getter or _default_application_getter
         self._process_counter = process_counter or _default_process_counter
         self._com_runtime = com_runtime
         self._discovery_attempts = max(1, min(int(discovery_attempts), 10))
         self._discovery_retry_delay = max(
             0.0, min(float(discovery_retry_delay), 0.5)
+        )
+
+    def _targeted_clone_kwargs(self) -> dict:
+        return {}
+
+    def for_edit_session(self, session):
+        """Return an adapter bound to one saved or unsaved Excel workbook."""
+        if not self._uses_default_application_getter:
+            return self
+        target = dict(session or {})
+
+        def application_getter():
+            from engine.edit_mode.native_bridge import (
+                excel_reference_for_identity,
+            )
+
+            application, _, _ = excel_reference_for_identity(
+                expected_path=str(target.get("file_path") or ""),
+                window_handle=int(target.get("window_handle") or 0),
+                runtime_document_id=str(
+                    target.get("runtime_document_id") or ""
+                ),
+                document_name=str(target.get("document_name") or ""),
+            )
+            if application is None:
+                raise AppActionUnavailable(
+                    "연결한 Excel 통합문서를 해당 창에서 다시 찾지 못했습니다."
+                )
+            return application
+
+        return self.__class__(
+            application_getter=application_getter,
+            process_counter=lambda: 1,
+            discovery_attempts=self._discovery_attempts,
+            discovery_retry_delay=self._discovery_retry_delay,
+            com_runtime=self._com_runtime,
+            **self._targeted_clone_kwargs(),
         )
 
     @contextmanager
@@ -159,8 +197,14 @@ class ExcelAdapter:
     def _application_reference(self):
         lease = None
         try:
-            lease = application_lease(self._application_getter(), "excel")
+            application = self._retry_discovery(
+                self._application_getter,
+                "실행 중인 Excel을 찾지 못했습니다. Excel에서 통합문서를 먼저 열어주세요.",
+            )
+            lease = application_lease(application, "excel")
             application = lease.application
+        except AppActionBusy:
+            raise
         except Exception as error:
             raise AppActionUnavailable(
                 "실행 중인 Excel을 찾지 못했습니다. Excel에서 통합문서를 먼저 열어주세요."

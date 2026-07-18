@@ -21,10 +21,15 @@ def main():
         "macro_name": "Excel 창 제목 표시",
         "description": "활성 Excel 제목을 표시",
         "code": (
-            "import win32api\n"
-            "import win32com.client\n"
-            "excel = win32com.client.GetActiveObject('Excel.Application')\n"
-            "win32api.MessageBox(0, excel.Caption, 'JARVIS', 0)"
+            "import pythoncom\n"
+            "pythoncom.CoInitialize()\n"
+            "try:\n"
+            "    import win32api\n"
+            "    import win32com.client\n"
+            "    excel = win32com.client.GetActiveObject('Excel.Application')\n"
+            "    win32api.MessageBox(0, excel.Caption, 'JARVIS', 0)\n"
+            "finally:\n"
+            "    pythoncom.CoUninitialize()"
         ),
         "explanation_steps": [{
             "step": "Excel 창 제목 표시",

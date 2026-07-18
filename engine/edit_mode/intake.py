@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.edit_mode.native_bridge import NativeBridgeError, NativeDocumentBridge
+from engine.edit_mode.native_bridge import (
+    NativeBridgeError,
+    NativeDocumentBridge,
+    NativeOfficeBusy,
+)
 from engine.edit_mode.session import canonical_document_path
 
 
@@ -45,6 +49,12 @@ class EditAppUnavailable(EditIntakeError):
     error_type = "environment_error"
 
 
+class EditAppBusy(EditIntakeError):
+    error_type = "environment_error"
+    status = "busy"
+    retryable = True
+
+
 class EditDocumentOpenTimeout(EditIntakeError):
     error_type = "target_not_found"
     status = "failed"
@@ -70,9 +80,57 @@ def app_type_for_path(file_path: str) -> str:
 class FileIntakeManager:
     """Open one supported local file and verify the exact native document path."""
 
-    def __init__(self, bridge=None, open_timeout=15.0):
+    def __init__(self, bridge=None, open_timeout=15.0, busy_timeout=2.0):
         self.bridge = bridge or NativeDocumentBridge()
         self.open_timeout = max(1.0, min(float(open_timeout), 30.0))
+        self.busy_timeout = max(0.5, min(float(busy_timeout), 5.0))
+
+    @staticmethod
+    def _busy_error(app_type: str, error) -> EditAppBusy:
+        label = APP_LABELS.get(app_type, "Office")
+        return EditAppBusy(
+            f"{label}이 셀·문서 입력 중이거나 대화상자를 처리 중이라 "
+            "문서 연결을 잠시 거부했습니다. 입력을 마친 뒤 다시 시도해주세요."
+        )
+
+    def _runtime_excel_document(self, document: dict) -> dict:
+        item = dict(document or {})
+        handle = int(item.get("window_handle") or 0)
+        name = str(item.get("document_name") or "현재 통합문서").strip()
+        if handle <= 0:
+            raise EditDocumentOpenTimeout(
+                "현재 미저장 Excel 창을 안전하게 식별하지 못했습니다. "
+                "통합문서 창을 다시 선택한 뒤 연결해주세요."
+            )
+        runtime_id = ""
+        bind_runtime = getattr(self.bridge, "bind_runtime_excel_document", None)
+        if callable(bind_runtime):
+            runtime_id = str(bind_runtime(item) or "").strip().upper()
+        if not runtime_id:
+            try:
+                from engine.edit_mode.native_bridge import (
+                    bind_excel_runtime_window,
+                )
+
+                runtime_id = str(
+                    bind_excel_runtime_window(handle) or ""
+                ).strip().upper()
+            except Exception:
+                runtime_id = ""
+        if not runtime_id:
+            runtime_id = str(item.get("runtime_document_id") or "").strip().upper()
+        if not runtime_id:
+            runtime_id = f"EXCEL-WINDOW:{handle}:{name.casefold()}"
+        item.update({
+            "app_type": "excel",
+            "file_path": "",
+            "document_name": name,
+            "runtime_document_id": runtime_id,
+            "identity_kind": "runtime",
+            "is_saved": False,
+            "launch_requested": False,
+        })
+        return item
 
     def connect_file(self, file_path: str) -> dict:
         canonical_path = canonical_document_path(file_path)
@@ -82,18 +140,33 @@ class FileIntakeManager:
                 f"{APP_LABELS[app_type]}이 설치되어 있지 않아 문서를 열 수 없습니다."
             )
 
-        document = self.bridge.find_document(app_type, canonical_path)
+        try:
+            document = self.bridge.find_document(app_type, canonical_path)
+        except NativeOfficeBusy as error:
+            # Do not launch the path again while Office is busy: the exact file
+            # may already be open and a duplicate launch can create a modal.
+            try:
+                document = self.bridge.wait_for_document(
+                    app_type,
+                    canonical_path,
+                    timeout=self.busy_timeout,
+                )
+            except NativeOfficeBusy as retry_error:
+                raise self._busy_error(app_type, retry_error) from retry_error
         launch_requested = document is None
         if launch_requested:
             try:
                 self.bridge.launch_document(app_type, canonical_path)
             except NativeBridgeError as error:
                 raise EditAppUnavailable(str(error)) from error
-            document = self.bridge.wait_for_document(
-                app_type,
-                canonical_path,
-                timeout=self.open_timeout,
-            )
+            try:
+                document = self.bridge.wait_for_document(
+                    app_type,
+                    canonical_path,
+                    timeout=self.open_timeout,
+                )
+            except NativeOfficeBusy as error:
+                raise self._busy_error(app_type, error) from error
         if not document:
             raise EditDocumentOpenTimeout(
                 f"{APP_LABELS[app_type]}에서 선택한 파일이 열린 것을 확인하지 못했습니다. "
@@ -119,7 +192,23 @@ class FileIntakeManager:
         requested = str(app_type or "").strip().casefold()
         if requested and requested not in APP_LABELS:
             raise EditIntakeError("현재 문서 연결 앱 유형이 올바르지 않습니다.")
-        documents = self.bridge.active_documents(requested or None)
+        try:
+            documents = self.bridge.active_documents(requested or None)
+        except NativeOfficeBusy as error:
+            raise self._busy_error(requested, error) from error
+        ranked = [
+            document for document in documents
+            if isinstance(document.get("window_rank"), int)
+        ]
+        preferred = min(ranked, key=lambda item: item["window_rank"]) if ranked else None
+        if preferred is not None and not preferred.get("is_saved", True):
+            if str(preferred.get("app_type") or requested).casefold() == "excel":
+                return self._runtime_excel_document(preferred)
+            name = str(preferred.get("document_name") or "현재 문서")
+            raise EditDocumentOpenTimeout(
+                f"현재 전면의 문서 '{name}'은 아직 저장되지 않았습니다. "
+                "먼저 저장한 뒤 다시 연결해주세요."
+            )
         supported = []
         for document in documents:
             try:
@@ -137,11 +226,37 @@ class FileIntakeManager:
             supported.append(item)
 
         if not supported:
+            unsaved = [
+                item for item in documents
+                if item.get("is_saved") is False
+            ]
+            if unsaved:
+                candidate = unsaved[0]
+                if str(candidate.get("app_type") or requested).casefold() == "excel":
+                    return self._runtime_excel_document(candidate)
+                name = str(candidate.get("document_name") or "현재 문서")
+                label = APP_LABELS.get(
+                    str(candidate.get("app_type") or requested).casefold(),
+                    "Office",
+                )
+                raise EditDocumentOpenTimeout(
+                    f"열려 있는 {label} 문서 '{name}'은 아직 저장되지 않았습니다. "
+                    "먼저 Ctrl+S로 저장한 뒤 다시 연결해주세요."
+                )
             label = APP_LABELS.get(requested, "Office 또는 한글")
             raise EditDocumentOpenTimeout(
                 f"저장된 {label} 문서를 찾지 못했습니다. 문서를 연 뒤 다시 시도해주세요."
             )
         if len(supported) > 1:
+            ranked_supported = [
+                item for item in supported
+                if isinstance(item.get("window_rank"), int)
+            ]
+            if ranked_supported:
+                return min(
+                    ranked_supported,
+                    key=lambda item: item["window_rank"],
+                )
             candidates = tuple({
                 "app_type": item["app_type"],
                 "document_name": item.get("document_name") or Path(

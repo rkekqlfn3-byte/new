@@ -157,7 +157,14 @@ class Stage7EditingTests(unittest.TestCase):
             request,
             prepared,
             result,
-            {"context_fingerprint": FP_B, "document_fingerprint": FP_B},
+            {
+                "app_type": "word",
+                "context_fingerprint": FP_B,
+                "document_fingerprint": FP_B,
+                "selection_reference": "10:110",
+                "selection_kind": "text",
+                "target": {"start": 10, "end": 110},
+            },
         )
         second, _ = build_commit_records(
             request,
@@ -171,6 +178,15 @@ class Stage7EditingTests(unittest.TestCase):
         )
         self.assertEqual(1, first["sequence_count"])
         self.assertEqual(2, second["sequence_count"])
+        self.assertEqual(FP_B, first["post_document_fingerprint"])
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "kind": "word_text",
+                "start": 10,
+            },
+            first["post_selection_anchor"],
+        )
         self.assertEqual("replace_selection", undo["operation"])
 
 

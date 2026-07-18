@@ -5,12 +5,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from engine.edit_mode.context import (
+    EditContextBusy,
     EditContextInactive,
     EditContextManager,
     NativeDocumentContextReader,
     default_context_providers,
 )
-from engine.edit_mode.session import document_identity_fingerprint
+from engine.edit_mode.native_bridge import NativeOfficeBusy
+from engine.edit_mode.session import (
+    document_identity_fingerprint,
+    runtime_document_identity_fingerprint,
+)
 from verification.prototype1_stage4_probe import _probe_app
 
 
@@ -91,8 +96,101 @@ class EditContextManagerTests(unittest.TestCase):
         with self.assertRaises(EditContextInactive):
             self.manager.capture(self.session)
 
+    def test_unsaved_excel_context_uses_runtime_identity_and_detects_save(self):
+        class RuntimeProvider:
+            app_type = "excel"
+
+            def __init__(self):
+                self.handle = 77
+                self.saved_path = ""
+
+            def capture(self, session):
+                return {
+                    "app_type": "excel",
+                    "file_path": self.saved_path,
+                    "document_name": "통합 문서1",
+                    "runtime_document_id": "RUNTIME-77",
+                    "window_handle": self.handle,
+                    "active_container": "Sheet1",
+                    "selection_reference": "A1",
+                    "selection_kind": "range",
+                    "target": {"sheet_name": "Sheet1", "address": "A1"},
+                    "selected_text": "",
+                    "cursor_reference": "A1",
+                    "read_only": False,
+                    "modified": True,
+                }
+
+        provider = RuntimeProvider()
+        manager = EditContextManager(providers=(provider,))
+        session = {
+            "session_id": "edit-runtime-test",
+            "app_type": "excel",
+            "file_path": "",
+            "document_name": "통합 문서1",
+            "identity_kind": "runtime",
+            "runtime_document_id": "RUNTIME-77",
+            "window_handle": 77,
+            "document_fingerprint": runtime_document_identity_fingerprint(
+                "excel", "RUNTIME-77", 77
+            ),
+        }
+
+        context = manager.capture(session)
+        self.assertEqual("", context["file_path"])
+        self.assertFalse(context["document_saved"])
+
+        saved = Path(self.temp_dir.name) / "저장됨.xlsx"
+        saved.write_bytes(b"saved")
+        provider.saved_path = str(saved)
+        transitioned = manager.capture(session)
+        self.assertTrue(transitioned["document_saved"])
+        self.assertEqual(str(saved.resolve()).casefold(), transitioned["file_path"].casefold())
+
+        provider.saved_path = ""
+        provider.handle = 88
+        with self.assertRaises(EditContextInactive):
+            manager.capture(session)
+
 
 class NativeContextExtractionTests(unittest.TestCase):
+    def test_office_busy_context_retries_then_preserves_selected_address(self):
+        class FlakyReader(NativeDocumentContextReader):
+            def __init__(self, failures):
+                runtime = SimpleNamespace(
+                    CoInitialize=lambda: None,
+                    CoUninitialize=lambda: None,
+                )
+                super().__init__(
+                    runtime,
+                    busy_retry_attempts=3,
+                    busy_retry_delay=0,
+                )
+                self.failures = failures
+                self.attempts = 0
+
+            def _capture_office_document(self, app_type, expected_path):
+                self.attempts += 1
+                if self.attempts <= self.failures:
+                    raise NativeOfficeBusy("Excel busy")
+                return {
+                    "app_type": app_type,
+                    "file_path": expected_path,
+                    "selection_reference": "G16",
+                }
+
+        recovered = FlakyReader(failures=2)
+        context = recovered.capture("excel", "C:/test.xlsx")
+        self.assertEqual("G16", context["selection_reference"])
+        self.assertEqual(3, recovered.attempts)
+
+        blocked = FlakyReader(failures=10)
+        with self.assertRaises(EditContextBusy) as raised:
+            blocked.capture("excel", "C:/test.xlsx")
+        self.assertEqual(3, blocked.attempts)
+        self.assertEqual("busy", raised.exception.status)
+        self.assertTrue(raised.exception.retryable)
+
     def test_excel_range_context_contains_sheet_address_and_small_value_preview(self):
         selection = SimpleNamespace(
             Address=lambda row_absolute, column_absolute: "$B$3:$F$18",
