@@ -337,12 +337,20 @@ def _owned_probe(report_format="word", progress=None):
             .get("analyze_excel", {})
             .get("sheet_count")
         )
+        analyzed_pivot_count = (
+            stored.get("verification_results", {})
+            .get("analyze_excel", {})
+            .get("pivot_summary_count")
+        )
         checks = {
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),
             "two_tables_created": len(analyzed_tables) == 2,
             "both_fixture_sheet_names_present": analyzed_sheet_names == {"매출", "비용"},
             "verification_sheet_count_is_two": analyzed_sheet_count == 2,
+            "bounded_pivot_summaries_created": int(
+                analyzed_pivot_count or 0
+            ) == 2,
             "all_requested_steps_succeeded": (
                 stored.get("successful_steps") == expected_steps
             ),

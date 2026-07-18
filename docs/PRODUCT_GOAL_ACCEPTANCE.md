@@ -35,6 +35,8 @@ Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 �
 경로·지문·세션 ID·`ready` 상태가 모두 일치하는 실제 Office 검사도 요구한다.
 인계 뒤 선택한 Word Range와 PowerPoint Shape에 승인된 후속 편집이 적용되어
 read-back되고 같은 세션이 `ready`로 복귀하는 증거도 필수다.
+Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개를 만들고
+분석 검증에 기록한 뒤 보고서와 발표자료가 재열기 검증되는지도 요구한다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

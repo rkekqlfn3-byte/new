@@ -38,6 +38,10 @@ MAX_TABLE_COLUMNS = 30
 MAX_METRICS = 50
 MAX_INSIGHTS = 50
 MAX_CHARTS = 20
+MAX_RELATIONSHIPS = 10
+MAX_RELATION_VALUES = 5_000
+MAX_PIVOT_SUMMARIES = 10
+MAX_PIVOT_GROUPS = 5
 MAX_WORK_PRODUCT_BYTES = 1_000_000
 SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xlsb", ".xls"})
 REPORT_FORMATS = {
@@ -442,6 +446,264 @@ class ExcelSalesAnalyzer:
             pass
         return charts
 
+    @staticmethod
+    def _header_key(value) -> str:
+        return re.sub(r"[\s_\-]+", "", str(value or "")).casefold()
+
+    @classmethod
+    def _looks_like_key_header(cls, value) -> bool:
+        key = cls._header_key(value)
+        return bool(
+            key in {"id", "key", "no", "번호", "코드", "식별자"}
+            or key.endswith(("id", "key", "번호", "코드"))
+        )
+
+    @classmethod
+    def _looks_like_measure_header(cls, value) -> bool:
+        key = cls._header_key(value)
+        return any(
+            token in key
+            for token in (
+                "amount", "revenue", "sales", "cost", "quantity", "score",
+                "total", "value", "금액", "매출", "비용", "수량", "점수",
+                "합계", "평균", "단가", "값",
+            )
+        )
+
+    @classmethod
+    def _relation_column_profile(cls, rows, column: int) -> dict[str, Any]:
+        values = []
+        for row in rows:
+            value = row[column] if column < len(row) else None
+            if value in (None, ""):
+                continue
+            number = cls._number(value)
+            normalized = (
+                f"number:{number:.15g}"
+                if number is not None
+                else "text:" + str(value).strip().casefold()
+            )
+            if not normalized:
+                continue
+            values.append(hashlib.sha256(
+                normalized[:500].encode("utf-8")
+            ).hexdigest())
+            if len(values) >= MAX_RELATION_VALUES:
+                break
+        unique = set(values)
+        return {
+            "values": unique,
+            "nonempty_count": len(values),
+            "unique_count": len(unique),
+            "sample_limited": len(values) >= MAX_RELATION_VALUES,
+        }
+
+    @classmethod
+    def _relationship_insights(cls, profiles) -> list[str]:
+        insights = []
+        relationship_count = 0
+        for left_index, left in enumerate(profiles):
+            left_headers = {}
+            for column, header in enumerate(left["headers"]):
+                left_headers.setdefault(cls._header_key(header), []).append(
+                    (column, header)
+                )
+            for right in profiles[left_index + 1:]:
+                right_headers = {}
+                for column, header in enumerate(right["headers"]):
+                    right_headers.setdefault(cls._header_key(header), []).append(
+                        (column, header)
+                    )
+                shared = sorted(set(left_headers) & set(right_headers))
+                for header_key in shared:
+                    if relationship_count >= MAX_RELATIONSHIPS:
+                        return insights
+                    if (
+                        not header_key
+                        or len(left_headers[header_key]) != 1
+                        or len(right_headers[header_key]) != 1
+                    ):
+                        continue
+                    left_column, display_header = left_headers[header_key][0]
+                    right_column, _ = right_headers[header_key][0]
+                    left_profile = cls._relation_column_profile(
+                        left["rows"], left_column
+                    )
+                    right_profile = cls._relation_column_profile(
+                        right["rows"], right_column
+                    )
+                    left_values = left_profile["values"]
+                    right_values = right_profile["values"]
+                    if not left_values or not right_values:
+                        continue
+                    matched = len(left_values & right_values)
+                    if matched <= 0:
+                        continue
+                    left_coverage = matched / len(left_values)
+                    right_coverage = matched / len(right_values)
+                    left_unique_ratio = (
+                        left_profile["unique_count"]
+                        / left_profile["nonempty_count"]
+                    )
+                    right_unique_ratio = (
+                        right_profile["unique_count"]
+                        / right_profile["nonempty_count"]
+                    )
+                    if (
+                        max(left_coverage, right_coverage) < 0.5
+                        or (
+                            not cls._looks_like_key_header(display_header)
+                            and max(left_unique_ratio, right_unique_ratio) < 0.8
+                        )
+                        or cls._looks_like_measure_header(display_header)
+                    ):
+                        continue
+                    left_unique = left_unique_ratio >= 0.98
+                    right_unique = right_unique_ratio >= 0.98
+                    if left_unique and right_unique:
+                        cardinality = "one_to_one"
+                    elif left_unique:
+                        cardinality = "one_to_many"
+                    elif right_unique:
+                        cardinality = "many_to_one"
+                    else:
+                        cardinality = "many_to_many"
+                    relationship = {
+                        "other_sheet": right["sheet_name"],
+                        "column": str(display_header),
+                        "cardinality": cardinality,
+                        "matched_key_count": matched,
+                        "left_distinct_count": len(left_values),
+                        "right_distinct_count": len(right_values),
+                        "left_coverage": round(left_coverage, 4),
+                        "right_coverage": round(right_coverage, 4),
+                        "sample_limited": bool(
+                            left_profile["sample_limited"]
+                            or right_profile["sample_limited"]
+                        ),
+                    }
+                    left["table"].setdefault("relationships", []).append(
+                        relationship
+                    )
+                    labels = {
+                        "one_to_one": "1:1",
+                        "one_to_many": "1:N",
+                        "many_to_one": "N:1",
+                        "many_to_many": "N:M",
+                    }
+                    insights.append(
+                        f"시트 관계 후보: {left['sheet_name']} ↔ "
+                        f"{right['sheet_name']}의 '{display_header}' 열에서 "
+                        f"{matched}개 키가 겹치며 관계 형태는 "
+                        f"{labels[cardinality]}입니다."
+                    )
+                    relationship_count += 1
+        return insights
+
+    @classmethod
+    def _pivot_insights(cls, profiles) -> list[str]:
+        insights = []
+        summary_count = 0
+        for profile in profiles:
+            if summary_count >= MAX_PIVOT_SUMMARIES:
+                break
+            headers = list(profile["headers"])
+            rows = list(profile["rows"])
+            category_columns = []
+            measure_columns = []
+            for column, header in enumerate(headers):
+                values = [
+                    row[column]
+                    for row in rows
+                    if column < len(row) and row[column] not in (None, "")
+                ]
+                if not values:
+                    continue
+                numeric_values = []
+                for value in values:
+                    number = cls._number(value)
+                    if number is not None:
+                        numeric_values.append(number)
+                distinct_labels = {
+                    str(value).strip().casefold()
+                    for value in values
+                    if str(value).strip()
+                }
+                if (
+                    2 <= len(distinct_labels) <= 20
+                    and len(numeric_values) < len(values) / 2
+                ):
+                    category_columns.append(column)
+                if (
+                    numeric_values
+                    and cls._looks_like_measure_header(header)
+                ):
+                    measure_columns.append((column, len(numeric_values)))
+            if not category_columns or not measure_columns:
+                continue
+            category_column = category_columns[0]
+            measure_column = max(
+                measure_columns, key=lambda item: (item[1], -item[0])
+            )[0]
+            groups = {}
+            for row in rows:
+                category = (
+                    row[category_column]
+                    if category_column < len(row)
+                    else None
+                )
+                number = cls._number(
+                    row[measure_column]
+                    if measure_column < len(row)
+                    else None
+                )
+                label = (
+                    "" if category is None else str(category)
+                ).strip()
+                if not label or number is None:
+                    continue
+                group_key = label.casefold()
+                group = groups.setdefault(
+                    group_key,
+                    {"label": label[:80], "count": 0, "sum": 0.0},
+                )
+                group["count"] += 1
+                group["sum"] += number
+            if len(groups) < 2:
+                continue
+            ranked = sorted(
+                groups.values(),
+                key=lambda item: (-item["sum"], item["label"].casefold()),
+            )
+            top_groups = [
+                {
+                    "label": item["label"],
+                    "count": int(item["count"]),
+                    "sum": round(item["sum"], 6),
+                }
+                for item in ranked[:MAX_PIVOT_GROUPS]
+            ]
+            summary = {
+                "group_by": str(headers[category_column]),
+                "value_column": str(headers[measure_column]),
+                "group_count": len(groups),
+                "groups": top_groups,
+                "truncated": len(groups) > MAX_PIVOT_GROUPS,
+            }
+            profile["table"].setdefault("pivot_summaries", []).append(
+                summary
+            )
+            top = top_groups[0]
+            insights.append(
+                f"{profile['sheet_name']} 시트의 "
+                f"'{headers[category_column]}'별 "
+                f"'{headers[measure_column]}' 합계는 "
+                f"'{top['label']}'이 {_format_number(top['sum'])}으로 "
+                "가장 큽니다."
+            )
+            summary_count += 1
+        return insights
+
     def run(self, context: Mapping[str, Any]) -> dict[str, Any]:
         from engine.app_actions.com_lifecycle import com_apartment
 
@@ -502,6 +764,7 @@ class ExcelSalesAnalyzer:
                 metrics = []
                 tables = []
                 charts = []
+                analysis_profiles = []
                 remaining_table_rows = MAX_TOTAL_TABLE_ROWS
                 qualify_metrics = len(visible_sheets) > 1
                 for (
@@ -555,13 +818,20 @@ class ExcelSalesAnalyzer:
                         for row in data_rows[:included_count]
                     ]
                     remaining_table_rows -= included_count
-                    tables.append({
+                    table = {
                         "name": sheet_name,
                         "headers": headers,
                         "rows": table_rows,
                         "total_rows": max(0, rows - 1),
                         "included_rows": len(table_rows),
                         "used_cells": sheet_cells,
+                    }
+                    tables.append(table)
+                    analysis_profiles.append({
+                        "sheet_name": sheet_name,
+                        "headers": headers,
+                        "rows": data_rows,
+                        "table": table,
                     })
                     charts.extend(self._chart_data(
                         worksheet, MAX_CHARTS - len(charts)
@@ -570,10 +840,15 @@ class ExcelSalesAnalyzer:
                 if not tables:
                     raise WorkflowError("표시된 Excel 시트에 분석할 데이터가 없습니다.")
                 summary_lines = max(1, min(int(context.get("preferences", {}).get("summary_lines", 8)), 20))
-                insights = [
+                advanced_insights = (
+                    self._relationship_insights(analysis_profiles)
+                    + self._pivot_insights(analysis_profiles)
+                )
+                metric_insights = [
                     f"{item['name']} 합계는 {item['sum']:,}, 평균은 {item['average']:,}입니다."
-                    for item in metrics[:summary_lines]
+                    for item in metrics
                 ]
+                insights = (advanced_insights + metric_insights)[:summary_lines]
                 if not insights:
                     insights.append("숫자형 열이 없어 표 구조와 원본 행 수를 중심으로 정리했습니다.")
                 product = WorkProductData(
@@ -591,6 +866,7 @@ class ExcelSalesAnalyzer:
                 worksheets = None
                 sheet_ranges = []
                 visible_sheets = []
+                analysis_profiles = []
                 workbook = None
                 if lease is not None:
                     lease.cleanup()
@@ -1940,6 +2216,14 @@ class WorkflowExecutor:
                         "table_count": len(artifact["tables"]),
                         "sheet_count": len(artifact["tables"]),
                         "chart_count": len(artifact["charts"]),
+                        "relationship_count": sum(
+                            len(table.get("relationships") or [])
+                            for table in artifact["tables"]
+                        ),
+                        "pivot_summary_count": sum(
+                            len(table.get("pivot_summaries") or [])
+                            for table in artifact["tables"]
+                        ),
                     }
                     stored_artifact = None
                 else:

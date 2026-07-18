@@ -309,6 +309,70 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertIn("분석 시트: 2개 (매출, 비용)", slides[2][1])
         self.assertIn("전체 데이터 행: 4", slides[2][1])
 
+    def test_excel_analyzer_detects_bounded_relationship_and_pivot_summary(self):
+        result = self._analyze_sheets([
+            FakeWorksheet("고객", (
+                ("고객ID", "고객명"),
+                (1, "가"),
+                (2, "나"),
+                (3, "다"),
+            )),
+            FakeWorksheet("주문", (
+                ("주문ID", "고객ID", "지역", "매출"),
+                (101, "1", "서울", 100),
+                (102, "1", "서울", 300),
+                (103, "2", "부산", 200),
+                (104, "4", "대전", 150),
+                (105, "5", "대구", 120),
+                (106, "6", "광주", 110),
+                (107, "7", "인천", 90),
+            )),
+        ])
+
+        relationship = result["tables"][0]["relationships"][0]
+        self.assertEqual("주문", relationship["other_sheet"])
+        self.assertEqual("고객ID", relationship["column"])
+        self.assertEqual("one_to_many", relationship["cardinality"])
+        self.assertEqual(2, relationship["matched_key_count"])
+        self.assertNotIn("values", relationship)
+        pivot = result["tables"][1]["pivot_summaries"][0]
+        self.assertEqual("지역", pivot["group_by"])
+        self.assertEqual("매출", pivot["value_column"])
+        self.assertEqual(6, pivot["group_count"])
+        self.assertEqual(5, len(pivot["groups"]))
+        self.assertTrue(pivot["truncated"])
+        self.assertEqual(
+            {"label": "서울", "count": 2, "sum": 400.0},
+            pivot["groups"][0],
+        )
+        self.assertTrue(any(
+            "시트 관계 후보" in insight for insight in result["insights"]
+        ))
+        self.assertTrue(any(
+            "'지역'별 '매출' 합계" in insight
+            for insight in result["insights"]
+        ))
+
+    def test_excel_analyzer_never_treats_shared_measure_as_join_key(self):
+        result = self._analyze_sheets([
+            FakeWorksheet("매출", (
+                ("항목", "금액"), ("A", 100), ("B", 200),
+            )),
+            FakeWorksheet("비용", (
+                ("항목", "금액"), ("C", 100), ("D", 200),
+            )),
+        ])
+
+        relationships = [
+            relationship
+            for table in result["tables"]
+            for relationship in table.get("relationships") or []
+        ]
+        self.assertFalse(any(
+            relationship["column"] == "금액"
+            for relationship in relationships
+        ))
+
     def test_excel_analyzer_rejects_one_oversized_sheet_before_reading_values(self):
         lease = FakeLease()
         workbook = FakeWorkbook(self.source, [
@@ -464,6 +528,38 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual(0, word.calls)
         self.assertEqual(1, hwp.calls)
         self.assertEqual(1, powerpoint.calls)
+
+    def test_workflow_records_relationship_and_pivot_verification_counts(self):
+        class EnrichedAnalyzer(FakeAnalyzer):
+            def run(self, context):
+                value = super().run(context)
+                value["tables"][0]["relationships"] = [{
+                    "other_sheet": "주문",
+                    "column": "고객ID",
+                    "cardinality": "one_to_many",
+                    "matched_key_count": 2,
+                }]
+                value["tables"][0]["pivot_summaries"] = [{
+                    "group_by": "지역",
+                    "value_column": "매출",
+                    "group_count": 2,
+                    "groups": [],
+                }]
+                return value
+
+        executor = WorkflowExecutor(
+            self.root / "enriched-state",
+            analyzer=EnrichedAnalyzer(),
+            word_writer=FakeWriter("word"),
+            hwp_writer=FakeWriter("hwp"),
+            powerpoint_writer=FakeWriter("ppt", slides=5),
+        )
+
+        result = executor.start(executor.prepare(self.source))
+        verification = result["verification_results"]["analyze_excel"]
+
+        self.assertEqual(1, verification["relationship_count"])
+        self.assertEqual(1, verification["pivot_summary_count"])
 
     def test_hwp_writer_inserts_formats_reads_and_saves_owned_report(self):
         application = FakeHwpApplication()
