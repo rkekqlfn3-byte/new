@@ -443,6 +443,24 @@ class EditSessionManagerTests(unittest.TestCase):
         self.assertTrue(self.file.exists())
         self.assertIsNone(self.manager.current())
 
+    def test_rebind_window_handle_updates_only_window_metadata(self):
+        updated = self.manager.rebind_window_handle(
+            self.session["session_id"], 777
+        )
+        self.assertEqual(777, updated["window_handle"])
+        self.assertEqual(
+            self.session["document_fingerprint"],
+            updated["document_fingerprint"],
+        )
+        self.assertEqual(self.session["file_path"], updated["file_path"])
+        self.assertEqual("ready", updated["state"])
+        with self.assertRaises(EditSessionStale):
+            self.manager.rebind_window_handle("edit-other-session", 88)
+        from engine.edit_mode.session import EditSessionError
+
+        with self.assertRaises(EditSessionError):
+            self.manager.rebind_window_handle(self.session["session_id"], 0)
+
     def test_replacement_is_blocked_while_an_edit_is_preparing(self):
         machine = self.manager.state_machine_for(self.session["session_id"])
         machine.transition(EditSessionState.PREPARING, reason="test edit")

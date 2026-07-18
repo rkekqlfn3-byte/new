@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-18 — 연결 문서 재탐색 복구
+
+- 명시적 편집 요청의 문맥 캡처가 연결 문서를 찾지 못하면
+  `connected_document_rediscovery` 전략이 공통 실행 전 복구 계약 아래에서
+  열린 문서 컬렉션·ROT·Excel 창을 한 번만 다시 읽어 같은 경로의 문서를 찾는다.
+- 탐색 전에 파일 신원 fingerprint를 재계산해 교체·삭제된 파일은
+  `target_changed`로 차단한다. 세션 검증과 캡처 사이 race에 대한 이중 방어다.
+- 같은 문서를 찾으면 세션의 창 handle만 재바인딩한다
+  (`EditSessionManager.rebind_window_handle`). 문서 상태와 편집 상태 기계는
+  변경하지 않으며, 재캡처한 fingerprint가 요청과 같아야 계속한다.
+- 못 찾으면 `not_found`로 종료하고 문서를 다시 열어 연결하라고 안내한다.
+  닫힌 문서를 대신 열거나 창 focus를 바꾸지 않는다. Office 입력 중이면
+  `unavailable`(재시도 가능)로 분류한다.
+- 미저장 Excel(runtime) 세션과 상태 조회·polling은 재탐색 대상이 아니다.
+- UI Automation 학습 행동의 대상 재탐색은 검토 후 다음 후보로 남겼다.
+- 전체 자동 회귀 763개 중 760개 통과(unit 260·integration 302·windows 198),
+  외부 AI 라이브 3개 skip, 실패 0을 확인했다.
+
 ## 2026-07-18 — 직접 수정 관찰 확장 (서식·말투)
 
 - JARVIS 검증 편집 직후의 직접 수정을 한 사건당 하나의 관찰로 분류한다.

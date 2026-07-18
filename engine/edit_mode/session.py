@@ -359,6 +359,26 @@ class EditSessionManager:
             )
             return self._snapshot_locked()
 
+    def rebind_window_handle(self, session_id: str, window_handle) -> dict:
+        """Update only the stored window handle after a verified rediscovery.
+
+        The document identity (path, fingerprint, session id) must already be
+        proven unchanged by the caller; this never touches document state or
+        the session state machine.
+        """
+        handle = int(window_handle or 0)
+        if handle <= 0:
+            raise EditSessionError("갱신할 문서 창 핸들이 올바르지 않습니다.")
+        with self._lock:
+            if self._active_session is None:
+                raise EditSessionNotFound("현재 편집 세션을 찾지 못했습니다.")
+            session = self._active_session
+            if session.session_id != str(session_id):
+                raise EditSessionStale("다른 편집 세션의 창 핸들 갱신을 거부했습니다.")
+            if session.window_handle != handle:
+                self._active_session = replace(session, window_handle=handle)
+            return self._snapshot_locked()
+
     def _disconnect_locked(self, *, reason: str) -> dict:
         if self._active_session is None or self._state_machine is None:
             raise EditSessionNotFound("연결된 편집 문서가 없습니다.")

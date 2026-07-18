@@ -7,13 +7,44 @@ from engine.edit_mode import (
     EditContextInactive,
     EditModeController,
     EditSessionManager,
+    EditSessionStale,
 )
+from engine.edit_mode.context import EditContextUnavailable
+from engine.edit_mode.contracts import EditRequest
+from engine.edit_mode.native_bridge import NativeOfficeBusy
 from engine.parser import CommandParser
+
+
+class FakeDocumentBridge:
+    def __init__(self, path):
+        self.path = str(Path(path).resolve())
+        self.window_handle = 10
+        self.document_open = True
+        self.busy_error = None
+        self.find_calls = 0
+
+    def find_document(self, app_type, expected_path=None):
+        self.find_calls += 1
+        if self.busy_error is not None:
+            raise self.busy_error
+        if not self.document_open:
+            return None
+        return {
+            "app_type": app_type,
+            "file_path": self.path,
+            "document_name": Path(self.path).name,
+            "window_handle": self.window_handle,
+            "is_saved": True,
+        }
+
+    def active_documents(self, app_type=None):
+        return []
 
 
 class FakeIntakeManager:
     def __init__(self, path):
         self.path = str(Path(path).resolve())
+        self.bridge = FakeDocumentBridge(path)
 
     def connect_file(self, file_path):
         return {
@@ -42,15 +73,23 @@ class MutableContextManager:
         self.context_fingerprint = "C" * 64
         self.address = "A2"
         self.inactive_captures = 0
+        self.unavailable_captures = 0
         self.document_fingerprint_override = None
+        self.captured_window_handles = []
 
     def capture(self, session):
+        value = session.to_dict() if hasattr(session, "to_dict") else dict(session)
+        self.captured_window_handles.append(int(value.get("window_handle") or 0))
+        if self.unavailable_captures > 0:
+            self.unavailable_captures -= 1
+            raise EditContextUnavailable(
+                "연결된 문서가 닫혔거나 네이티브 앱에서 다시 찾을 수 없습니다."
+            )
         if self.inactive_captures > 0:
             self.inactive_captures -= 1
             raise EditContextInactive(
                 "연결된 문서가 현재 활성 문서가 아닙니다."
             )
-        value = session.to_dict() if hasattr(session, "to_dict") else dict(session)
         return {
             "schema_version": 1,
             "session_id": value["session_id"],
@@ -142,8 +181,10 @@ class Stage5EditFlowTests(unittest.TestCase):
         self.context = MutableContextManager()
         self.native = FakeExcelAdapter(self.file)
         self.activator = FakeWindowActivator()
+        self.intake = FakeIntakeManager(self.file)
+        self.bridge = self.intake.bridge
         self.controller = EditModeController(
-            intake_manager=FakeIntakeManager(self.file),
+            intake_manager=self.intake,
             session_manager=EditSessionManager(),
             layout_manager=FakeLayoutManager(),
             context_manager=self.context,
@@ -260,6 +301,116 @@ class Stage5EditFlowTests(unittest.TestCase):
 
         self.assertIsNotNone(status["context_error"])
         self.assertEqual([], self.activator.calls)
+
+    def test_closed_document_is_rediscovered_and_window_rebound_once(self):
+        self.context.unavailable_captures = 1
+        self.bridge.window_handle = 77
+
+        preview = self.command("42 입력해줘", "request-rediscovery")
+
+        self.assertEqual("confirmation_required", preview["status"])
+        recovery = preview["data"]["automatic_recovery"]
+        self.assertEqual("connected_document_rediscovery", recovery["strategy"])
+        self.assertEqual("recovered", recovery["outcome"])
+        self.assertEqual("pre_execution", recovery["phase"])
+        self.assertFalse(recovery["execution_started"])
+        self.assertTrue(recovery["target_unchanged"])
+        self.assertEqual(1, recovery["retry_count"])
+        self.assertEqual(1, recovery["retry_limit"])
+        self.assertEqual(1, self.bridge.find_calls)
+        self.assertEqual(
+            77, self.controller.status()["session"]["window_handle"]
+        )
+        self.assertEqual(77, self.context.captured_window_handles[-1])
+        self.assertEqual(0, self.native.executed)
+        self.assertIn("다시 찾아", preview["message"])
+
+    def test_truly_closed_document_reports_not_found_without_retry_loop(self):
+        self.context.unavailable_captures = 1
+        self.bridge.document_open = False
+
+        result = self.command("42 입력해줘", "request-rediscovery-missing")
+
+        self.assertFalse(result["success"])
+        recovery = result["data"]["automatic_recovery"]
+        self.assertEqual("connected_document_rediscovery", recovery["strategy"])
+        self.assertEqual("not_found", recovery["outcome"])
+        self.assertEqual(1, recovery["retry_count"])
+        self.assertEqual(1, self.bridge.find_calls)
+        self.assertEqual(0, self.native.executed)
+        self.assertIn("닫혔거나", result["message"])
+
+    def test_busy_rediscovery_is_environment_blocked_and_retryable(self):
+        self.context.unavailable_captures = 1
+        self.bridge.busy_error = NativeOfficeBusy("Office 응답 대기")
+
+        result = self.command("42 입력해줘", "request-rediscovery-busy")
+
+        self.assertFalse(result["success"])
+        recovery = result["data"]["automatic_recovery"]
+        self.assertEqual("unavailable", recovery["outcome"])
+        self.assertTrue(result["retryable"])
+        self.assertEqual(0, self.native.executed)
+
+    def test_replaced_document_command_is_blocked_by_session_validation(self):
+        self.file.unlink()
+        self.file.write_bytes(b"replacement-with-new-identity")
+
+        result = self.command("42 입력해줘", "request-rediscovery-replaced")
+
+        self.assertFalse(result["success"])
+        self.assertNotIn("automatic_recovery", result.get("data") or {})
+        self.assertEqual(0, self.bridge.find_calls)
+        self.assertEqual(0, self.native.executed)
+        self.assertIn("다시 연결", result["message"])
+
+    def test_replaced_file_race_is_target_changed_before_any_search(self):
+        # A replacement between session validation and context capture must
+        # close the recovery as target_changed without touching the bridge.
+        self.context.unavailable_captures = 1
+        request = EditRequest(
+            text="42 입력해줘",
+            edit_session_id=self.session["session_id"],
+            document_fingerprint=self.session["document_fingerprint"],
+        )
+        self.file.unlink()
+        self.file.write_bytes(b"replacement-with-new-identity")
+
+        with self.assertRaises(EditSessionStale) as raised:
+            self.controller._capture_context_for_edit_request(
+                dict(self.controller.session_manager.current()), request
+            )
+
+        recovery = raised.exception.diagnostic_context["automatic_recovery"]
+        self.assertEqual("connected_document_rediscovery", recovery["strategy"])
+        self.assertEqual("target_changed", recovery["outcome"])
+        self.assertFalse(recovery["target_unchanged"])
+        self.assertEqual(0, self.bridge.find_calls)
+        self.assertIn("다시 연결", str(raised.exception))
+
+    def test_runtime_document_is_never_rediscovered(self):
+        self.context.unavailable_captures = 1
+        request = EditRequest(
+            text="42 입력해줘",
+            edit_session_id=self.session["session_id"],
+            document_fingerprint=self.session["document_fingerprint"],
+        )
+        runtime_session = dict(self.controller.session_manager.current())
+        runtime_session["identity_kind"] = "runtime"
+
+        with self.assertRaises(EditContextUnavailable):
+            self.controller._capture_context_for_edit_request(
+                runtime_session, request
+            )
+        self.assertEqual(0, self.bridge.find_calls)
+
+    def test_status_polling_never_rediscovers_documents(self):
+        self.context.unavailable_captures = 1
+
+        status = self.controller.status()
+
+        self.assertIsNotNone(status["context_error"])
+        self.assertEqual(0, self.bridge.find_calls)
 
     def test_cancel_never_executes_and_returns_ready(self):
         preview = self.command('"완료" 입력해줘', "request-cancel")

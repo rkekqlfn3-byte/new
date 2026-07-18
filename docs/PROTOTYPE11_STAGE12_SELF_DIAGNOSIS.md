@@ -116,6 +116,13 @@ retry_count <= retry_limit = 1
 편집 탭 갱신은 사용자의 focus를 바꾸지 않는다. focus 거부는 환경 문제, 재조회한
 문서 불일치는 사용자 재연결 필요로 구분하며 두 경우 모두 문서 변경 전에 멈춘다.
 
+연결 문서를 아예 찾지 못한 경우에는 `connected_document_rediscovery`가 같은
+계약 아래에서 열린 문서 목록·ROT·Excel 창을 한 번만 다시 읽는다. 파일 신원이
+바뀌었으면 `target_changed`, 문서를 못 찾으면 `not_found`(사용자 재연결 필요),
+Office 입력 중이면 `unavailable`(환경 차단·재시도 가능)로 구분한다. 찾은 경우에도
+세션의 창 handle 재바인딩과 fingerprint 재검증까지만 수행하며 문서 내용은
+변경하지 않는다.
+
 ## 사용자 명령과 API
 
 명령 모드에서 다음과 같이 요청할 수 있다.
