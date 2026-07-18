@@ -77,11 +77,17 @@ python -m verification.product_goal_acceptance `
   --manual-evidence verification/product_goal_manual_acceptance.json
 ```
 
-판정은 다음 셋 중 하나다.
+판정은 다음 넷 중 하나다.
 
+- `environment_blocked`: 자동 회귀와 다른 probe는 통과했지만, 한글 실제 생성이
+  공식 Automation 보안 모듈 부재로 정확히 차단됐다. 이 상태는 성공이 아니며
+  설치 가이드만 표시하고 자동 설치·레지스트리 변경을 하지 않는다.
 - `automated_failed`: 자동 회귀나 필수 소유 문서 probe가 실패했다.
 - `automated_pass_manual_pending`: 자동 범위는 통과했지만 사람만 검증할 수 있는
   항목이 남았다.
 - `accepted`: 자동 증거와 세 수동 항목이 모두 명시적으로 통과했다.
+
+CLI 종료 코드는 각각 `3`, `1`, `2`, `0`이다. `--automated-only`에서도 환경
+차단은 통과로 바꾸지 않고 종료 코드 `3`을 유지한다.
 
 개발 단계에서는 Python 소스로만 실행한다. 이 게이트는 EXE를 만들지 않는다.

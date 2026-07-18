@@ -53,6 +53,26 @@ def probe_report(spec, *, success=True, generated_at=NOW, checks=True):
     return report
 
 
+def hwp_security_module_block_report(spec, *, generated_at=NOW):
+    report = probe_report(spec, success=False, generated_at=generated_at)
+    report["result"] = {
+        "status": "blocked",
+        "stage": "prepare_approval_state",
+        "error_type": "environment_error",
+        "exception_type": "HwpSecurityModuleUnavailable",
+        "retryable": True,
+        "user_process_protected": True,
+        "owned_process_cleanup_verified": True,
+        "diagnostic_context": {
+            "environment_component": "hwp_automation_security_module",
+            "setup_guide_url": "https://developer.hancom.com/hwpautomation",
+            "registry_location": r"HKCU\Software\HNC\HwpAutomation\Modules",
+            "automatic_install_attempted": False,
+        },
+    }
+    return report
+
+
 class ProductGoalAcceptanceTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -190,6 +210,62 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(
             "passed", report["goal_axes"]["failure_classification"]["automated_status"]
+        )
+
+    def test_exact_hwp_setup_block_is_reported_without_becoming_a_pass(self):
+        self._write_all_probes()
+        spec = PROBE_SPECS["workflow_hwp"]
+        (self.root / spec["file"]).write_text(
+            json.dumps(hwp_security_module_block_report(spec)),
+            encoding="utf-8",
+        )
+
+        report = evaluate_acceptance(
+            report_dir=self.root,
+            test_summary={"status": "passed"},
+            now=NOW,
+        )
+
+        self.assertFalse(report["automated_passed"])
+        self.assertTrue(report["environment_blocked"])
+        self.assertEqual("environment_blocked", report["overall_status"])
+        probe = report["owned_fixture_probes"]["workflow_hwp"]
+        self.assertEqual("environment_blocked", probe["status"])
+        self.assertEqual(
+            "hwp_automation_security_module",
+            probe["environment"]["component"],
+        )
+        self.assertEqual(
+            "environment_blocked",
+            report["goal_axes"]["cross_app_workflow"]["automated_status"],
+        )
+        rendered = json.dumps(report, ensure_ascii=False)
+        self.assertNotIn("registry_location", rendered)
+        self.assertNotIn("message", rendered)
+
+    def test_hwp_environment_block_requires_exact_safe_diagnostics(self):
+        self._write_all_probes()
+        spec = PROBE_SPECS["workflow_hwp"]
+        unsafe = hwp_security_module_block_report(spec)
+        unsafe["result"]["diagnostic_context"][
+            "automatic_install_attempted"
+        ] = True
+        (self.root / spec["file"]).write_text(
+            json.dumps(unsafe),
+            encoding="utf-8",
+        )
+
+        report = evaluate_acceptance(
+            report_dir=self.root,
+            test_summary={"status": "passed"},
+            now=NOW,
+        )
+
+        self.assertFalse(report["environment_blocked"])
+        self.assertEqual("automated_failed", report["overall_status"])
+        self.assertEqual(
+            "failed",
+            report["owned_fixture_probes"]["workflow_hwp"]["status"],
         )
 
 

@@ -27,6 +27,15 @@ MANUAL_CHECK_IDS = (
     "voice_input",
     "novice_user_observation",
 )
+HWP_SECURITY_MODULE_COMPONENT = "hwp_automation_security_module"
+HWP_SECURITY_MODULE_GUIDE_URL = "https://developer.hancom.com/hwpautomation"
+HWP_SECURITY_MODULE_BLOCK_REASONS = frozenset(
+    {
+        "probe_not_successful",
+        "probe_result_not_passed",
+        "required_probe_check_missing_or_failed",
+    }
+)
 PROBE_SPECS = {
     "native_excel_hwp": {
         "file": "prototype1_stage5_report.json",
@@ -316,6 +325,50 @@ def _manual_checks(value: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]
     return checks
 
 
+def _recognized_environment_block(
+    probe_id: str,
+    report: Mapping[str, Any] | None,
+    reasons: list[str],
+) -> dict[str, Any] | None:
+    """Recognize one exact, safe HWP setup block without treating it as pass."""
+    if (
+        probe_id != "workflow_hwp"
+        or not isinstance(report, Mapping)
+        or set(reasons) != HWP_SECURITY_MODULE_BLOCK_REASONS
+        or report.get("success") is not False
+        or report.get("user_documents_modified") is not False
+        or report.get("paths_or_contents_reported") is not False
+    ):
+        return None
+    result = report.get("result")
+    if not isinstance(result, Mapping):
+        return None
+    diagnostic = result.get("diagnostic_context")
+    if not isinstance(diagnostic, Mapping):
+        return None
+    if (
+        result.get("status") != "blocked"
+        or result.get("stage") != "prepare_approval_state"
+        or result.get("error_type") != "environment_error"
+        or result.get("exception_type") != "HwpSecurityModuleUnavailable"
+        or result.get("retryable") is not True
+        or result.get("user_process_protected") is not True
+        or result.get("owned_process_cleanup_verified") is not True
+        or diagnostic.get("environment_component")
+        != HWP_SECURITY_MODULE_COMPONENT
+        or diagnostic.get("setup_guide_url")
+        != HWP_SECURITY_MODULE_GUIDE_URL
+        or diagnostic.get("automatic_install_attempted") is not False
+    ):
+        return None
+    return {
+        "component": HWP_SECURITY_MODULE_COMPONENT,
+        "setup_guide_url": HWP_SECURITY_MODULE_GUIDE_URL,
+        "retryable": True,
+        "automatic_install_attempted": False,
+    }
+
+
 def evaluate_acceptance(
     *,
     report_dir: Path,
@@ -340,13 +393,26 @@ def evaluate_acceptance(
             reasons = validate_probe_report(
                 report, spec, now=now, max_age_hours=max_probe_age_hours
             )
-        probes[probe_id] = {
-            "status": "passed" if not reasons else "failed",
+        environment = _recognized_environment_block(
+            probe_id, report if isinstance(report, Mapping) else None, reasons
+        )
+        probe_status = (
+            "passed"
+            if not reasons
+            else "environment_blocked"
+            if environment
+            else "failed"
+        )
+        probe_result = {
+            "status": probe_status,
             "reasons": reasons,
             "generated_at": (
                 str(report.get("generated_at") or "") if isinstance(report, Mapping) else None
             ),
         }
+        if environment:
+            probe_result["environment"] = environment
+        probes[probe_id] = probe_result
 
     tests_passed = test_summary.get("status") == "passed"
     axes = {}
@@ -356,10 +422,21 @@ def evaluate_acceptance(
             probe_id for probe_id in required
             if probes[probe_id]["status"] != "passed"
         ]
+        failed_statuses = {
+            probes[probe_id]["status"] for probe_id in failed_probes
+        }
+        if tests_passed and not failed_probes:
+            automated_status = "passed"
+        elif (
+            tests_passed
+            and failed_statuses
+            and failed_statuses == {"environment_blocked"}
+        ):
+            automated_status = "environment_blocked"
+        else:
+            automated_status = "failed"
         axes[axis_id] = {
-            "automated_status": (
-                "passed" if tests_passed and not failed_probes else "failed"
-            ),
+            "automated_status": automated_status,
             "required_probes": list(required),
             "failed_probes": failed_probes,
         }
@@ -368,21 +445,41 @@ def evaluate_acceptance(
     automated_passed = tests_passed and all(
         item["status"] == "passed" for item in probes.values()
     ) and all(item["automated_status"] == "passed" for item in axes.values())
+    environment_blocked = (
+        tests_passed
+        and any(
+            item["status"] == "environment_blocked"
+            for item in probes.values()
+        )
+        and all(
+            item["status"] in {"passed", "environment_blocked"}
+            for item in probes.values()
+        )
+        and all(
+            item["automated_status"] in {"passed", "environment_blocked"}
+            for item in axes.values()
+        )
+    )
     manual_passed = all(item["status"] == "passed" for item in manual.values())
     if not automated_passed:
-        overall_status = "automated_failed"
+        overall_status = (
+            "environment_blocked"
+            if environment_blocked
+            else "automated_failed"
+        )
     elif not manual_passed:
         overall_status = "automated_pass_manual_pending"
     else:
         overall_status = "accepted"
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "goal_axes": axes,
         "automated_tests": dict(test_summary),
         "owned_fixture_probes": probes,
         "manual_acceptance": manual,
         "automated_passed": automated_passed,
+        "environment_blocked": environment_blocked,
         "manual_passed": manual_passed,
         "overall_status": overall_status,
         "privacy": {
@@ -458,6 +555,8 @@ def main(argv=None) -> int:
         encoding="utf-8",
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["overall_status"] == "environment_blocked":
+        return 3
     if not report["automated_passed"]:
         return 1
     if report["manual_passed"] or args.automated_only:
