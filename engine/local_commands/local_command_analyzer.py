@@ -5,6 +5,62 @@ import os
 import re
 
 
+_VOLUME_PERCENT_RE = re.compile(
+    r"(?:시스템\s*)?(?:볼륨|소리)(?:을|를|은|는)?\s*"
+    r"(?:크기(?:를)?\s*)?[\s:=]*(-?\d{1,3})(?!\d)\s*(?:%|퍼센트|프로)?"
+)
+
+_VOLUME_NUMBER_RE = re.compile(r"(-?\d{1,3})(?!\d)")
+_VOLUME_TARGET_RE = re.compile(
+    r"-?\d{1,3}(?!\d)\s*(?:%|퍼센트|프로)?\s*(?:으로|로)"
+)
+_VOLUME_UP_MARKERS = ("올려", "올리", "높여", "높이", "키워", "키우", "크게")
+_VOLUME_DOWN_MARKERS = ("내려", "내리", "낮춰", "낮추", "줄여", "줄이", "작게")
+_VOLUME_SMALL_MARKERS = ("조금만", "조금", "살짝", "약간", "한칸", "한 칸")
+
+
+def extract_volume_percent(text):
+    """Extract an explicit master-volume percentage from a Korean request."""
+    match = _VOLUME_PERCENT_RE.search(str(text or "").casefold())
+    return int(match.group(1)) if match else None
+
+
+def extract_volume_adjustment(text):
+    """Return ``(direction, amount)`` for a relative volume request.
+
+    Korean requests such as ``볼륨 10만큼 내려줘`` contain a number but do
+    not describe an absolute target.  A target marker (``30으로``) or an
+    explicit setting verb keeps the request on the absolute-volume path.
+    """
+    lowered = str(text or "").casefold()
+    compact = re.sub(r"\s+", "", lowered)
+    if not any(subject in compact for subject in ("볼륨", "소리")):
+        return None
+
+    direction = None
+    if any(marker in compact for marker in _VOLUME_UP_MARKERS):
+        direction = "up"
+    elif any(marker in compact for marker in _VOLUME_DOWN_MARKERS):
+        direction = "down"
+    if direction is None:
+        return None
+
+    if (
+        any(marker in compact for marker in ("설정", "맞춰", "맞추"))
+        or _VOLUME_TARGET_RE.search(lowered)
+    ):
+        return None
+
+    number_match = _VOLUME_NUMBER_RE.search(lowered)
+    if number_match:
+        amount = abs(int(number_match.group(1)))
+    elif any(marker in compact for marker in _VOLUME_SMALL_MARKERS):
+        amount = 5
+    else:
+        amount = 10
+    return direction, amount
+
+
 COMMAND_SUFFIXES = tuple(sorted({
     "실행해줘", "검색해줘", "알아봐줘", "알려줘", "닫아줘", "열어줘", "찾아줘",
     "실행해", "검색해", "해줘", "켜줘", "쳐줘", "찾아", "검색",
@@ -85,13 +141,27 @@ class LocalCommandAnalyzer:
 
     def analyze_single_command(self, text, template_match=None):
         tokens = self.normalize_text(text)
-        if template_match is None:
+        volume_adjustment = extract_volume_adjustment(text)
+        volume_percent = extract_volume_percent(text)
+        if volume_adjustment is not None:
+            # A relative verb wins over a bare number: ``10만큼 내려줘`` is
+            # a delta, while ``30으로 맞춰줘`` remains an absolute setting.
+            template_match = None
+            macro = "VOL_UP" if volume_adjustment[0] == "up" else "VOL_DOWN"
+        elif volume_percent is not None:
+            # Deterministic local system controls take precedence over learned
+            # or generated Python actions for the same utterance.
+            template_match = None
+            macro = "VOL_SET"
+        elif template_match is None:
             template_match = self.owner.template_matcher.match(
                 text,
                 getattr(self.dict_mgr, "learned_macros", {}),
                 self.dict_mgr.noun_dict,
             )
-        macro = template_match["macro"] if template_match else self.identify_macro(text)
+            macro = template_match["macro"] if template_match else self.identify_macro(text)
+        else:
+            macro = template_match["macro"]
         # "폴더에서 파일 찾아줘" describes a local filesystem task, not a
         # web search.  Keep explicit search-engine requests intact and hand
         # local-file searches to the AI/action-plan path instead of opening a

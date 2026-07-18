@@ -68,6 +68,16 @@ class Stage12DiagnosticFlowTests(unittest.TestCase):
             )
 
         self.assertFalse(result["success"])
+        self.assertEqual(
+            "implementation_bug",
+            result["data"]["failure_triage"]["category"],
+        )
+        self.assertEqual("developer", result["data"]["failure_triage"]["owner"])
+        self.assertIn("자동 진단(제안)", result["display_message"])
+        self.assertEqual(
+            "C:\\Users\\Alice\\Private\\payroll.xlsx 처리 중 실패",
+            result["message"],
+        )
         incidents = self.manager.list_incidents()
         self.assertEqual(1, len(incidents))
         incident = incidents[0]
@@ -95,6 +105,7 @@ class Stage12DiagnosticFlowTests(unittest.TestCase):
             proposal = command_api.get_remediation_proposal(
                 incident["incident_id"]
             )
+            issues = command_api.get_developer_issues()
         self.assertTrue(diagnosed["success"])
         self.assertTrue(diagnosed["verified"])
         self.assertIn("create_powerpoint_summary", diagnosed["message"])
@@ -104,6 +115,9 @@ class Stage12DiagnosticFlowTests(unittest.TestCase):
         )
         self.assertEqual("proposal_only", proposal["proposal"]["status"])
         self.assertFalse(proposal["proposal"]["automatic_execution_allowed"])
+        self.assertTrue(issues["success"])
+        self.assertEqual(1, len(issues["issues"]))
+        self.assertEqual("implementation_bug", issues["issues"][0]["category"])
         self.assertEqual(1, len(self.manager.list_incidents()))
 
     def test_empty_diagnosis_does_not_create_a_failure_incident(self):
@@ -140,7 +154,62 @@ class Stage12DiagnosticFlowTests(unittest.TestCase):
         self.assertTrue(health["success"])
         self.assertEqual(1, health["health"]["incident_groups"])
         self.assertFalse(health["health"]["automatic_code_change"])
+        self.assertEqual(
+            {"implementation_bug": 1}, health["health"]["triage_categories"]
+        )
+        self.assertEqual({"developer": 1}, health["health"]["owners"])
+        self.assertEqual(1, health["health"]["developer_issue_count"])
         self.assertEqual("acknowledged", changed["incident"]["status"])
+
+    def test_classifier_failure_does_not_replace_the_original_command_result(self):
+        class BrokenClassifier:
+            def classify(self, _record):
+                raise RuntimeError("classifier unavailable")
+
+        manager = DiagnosticIncidentManager(
+            self.incident_path,
+            environment_provider=lambda: {},
+            classifier=BrokenClassifier(),
+        )
+        controller = ExecutionController(
+            self.root / "isolated-execution.json", incident_manager=manager
+        )
+        self.parser.execution_controller = controller
+        self.parser.action_executor.controller = controller
+        self.parser.macro_runner.controller = controller
+        failure = failure_result(
+            "원래 실행 오류",
+            action="edit_action",
+            error_type="execution_error",
+            data={"operation": "format", "app_type": "excel"},
+        )
+        with (
+            patch.object(command_api, "parser", self.parser),
+            patch.object(self.parser, "_parse_and_execute_core", return_value=failure),
+        ):
+            result = command_api.parse_command("테스트 명령")
+
+        self.assertEqual("원래 실행 오류", result["message"])
+        self.assertEqual("unknown", result["data"]["failure_triage"]["category"])
+        self.assertEqual(1, len(manager.list_incidents()))
+
+    def test_diagnostic_storage_failure_does_not_replace_command_result(self):
+        failure = failure_result(
+            "저장소와 무관한 원래 오류",
+            action="edit_action",
+            error_type="verification_error",
+            data={"operation": "format", "app_type": "excel"},
+        )
+        with (
+            patch.object(command_api, "parser", self.parser),
+            patch.object(self.parser, "_parse_and_execute_core", return_value=failure),
+            patch.object(self.manager, "_save_locked", side_effect=OSError("disk full")),
+        ):
+            result = command_api.parse_command("테스트 명령")
+
+        self.assertEqual("저장소와 무관한 원래 오류", result["message"])
+        self.assertNotIn("display_message", result)
+        self.assertFalse(result["success"])
 
 
 if __name__ == "__main__":

@@ -45,6 +45,31 @@ def _stream_callback(chunk):
         logger.debug("Could not forward stream chunk to Eel", exc_info=True)
 
 
+def _attach_failure_triage(result, finished_record):
+    """Add an observational diagnosis without changing the command message."""
+    if not isinstance(result, dict) or result.get("success"):
+        return result
+    finished = finished_record if isinstance(finished_record, dict) else {}
+    triage = finished.get("failure_triage")
+    if not isinstance(triage, dict):
+        return result
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    data = dict(data)
+    data["failure_triage"] = dict(triage)
+    result["data"] = data
+    message = str(triage.get("user_message") or "").strip()
+    result["triage_message"] = message
+    if finished.get("diagnostic_incident_id"):
+        result["diagnostic_incident_id"] = finished["diagnostic_incident_id"]
+    if finished.get("developer_issue_id"):
+        result["developer_issue_id"] = finished["developer_issue_id"]
+    original = str(result.get("message", result.get("response", "")) or "").strip()
+    result["display_message"] = (
+        f"{original}\n\n자동 진단(제안): {message}" if message else original
+    )
+    return result
+
+
 def _finish_or_pause(result, execution_id=None):
     parser = _get_parser()
     confirmation = (
@@ -73,7 +98,7 @@ def _finish_or_pause(result, execution_id=None):
         return result
 
     is_non_failure_confirmation = result.get("status") == "confirmation_required"
-    parser.execution_controller.finish(
+    finished = parser.execution_controller.finish(
         result["success"], result.get("status"),
         response=result.get("message", ""),
         error=(
@@ -90,7 +115,7 @@ def _finish_or_pause(result, execution_id=None):
         },
         expected_execution_id=execution_id,
     )
-    return result
+    return _attach_failure_triage(result, finished)
 
 
 def _resolve_confirmation_request(
@@ -118,7 +143,7 @@ def _resolve_confirmation_request(
         )
         return _finish_or_pause(result, execution_id)
     except ExecutionCancelled as error:
-        parser.execution_controller.finish(
+        finished = parser.execution_controller.finish(
             False, "cancelled", response="실행을 취소했습니다.", error=str(error),
             extra={
                 "execution_id": execution_id,
@@ -129,10 +154,11 @@ def _resolve_confirmation_request(
             },
             expected_execution_id=execution_id,
         )
-        return failure_result(
+        result = failure_result(
             "현재 실행을 취소했습니다.", action="confirmation",
             error_type="user_cancelled",
         )
+        return _attach_failure_triage(result, finished)
     except Exception as error:
         logger.exception(
             "Confirmation response handling failed",
@@ -143,7 +169,7 @@ def _resolve_confirmation_request(
                 "error_type": parser._failure_type_for_error(error),
             },
         )
-        parser.execution_controller.finish(
+        finished = parser.execution_controller.finish(
             False, "failed", error=str(error), extra={
                 "execution_id": execution_id,
                 "verified": False,
@@ -153,11 +179,12 @@ def _resolve_confirmation_request(
             },
             expected_execution_id=execution_id,
         )
-        return failure_result(
+        result = failure_result(
             "확인 응답 처리 중 오류가 발생했습니다. 로그를 확인해주세요.",
             action="confirmation",
             error_type=parser._failure_type_for_error(error),
         )
+        return _attach_failure_triage(result, finished)
 
 @eel.expose
 def parse_command(
@@ -213,7 +240,7 @@ def parse_command(
         return _finish_or_pause(result, execution_id)
     except ExecutionCancelled as error:
         _log_to_terminal("[Execution] 사용자가 현재 실행을 취소했습니다.")
-        parser.execution_controller.finish(
+        finished = parser.execution_controller.finish(
             False, "cancelled", response="실행을 취소했습니다.", error=str(error),
             extra={
                 "execution_id": execution_id,
@@ -224,10 +251,11 @@ def parse_command(
             },
             expected_execution_id=execution_id,
         )
-        return failure_result(
+        result = failure_result(
             "현재 실행을 취소했습니다.", action="command",
             error_type="user_cancelled",
         )
+        return _attach_failure_triage(result, finished)
     except Exception as e:
         logger.exception(
             "Command handling failed",
@@ -239,7 +267,7 @@ def parse_command(
             },
         )
         _log_to_terminal("[Error] 대화 처리에 실패했습니다. 로그를 확인해주세요.")
-        parser.execution_controller.finish(
+        finished = parser.execution_controller.finish(
             False, "failed", error=str(e), extra={
                 "execution_id": execution_id,
                 "verified": False,
@@ -249,10 +277,11 @@ def parse_command(
             },
             expected_execution_id=execution_id,
         )
-        return failure_result(
+        result = failure_result(
             "대화 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
             action="command", error_type=parser._failure_type_for_error(e),
         )
+        return _attach_failure_triage(result, finished)
 
 
 @eel.expose
@@ -320,6 +349,18 @@ def get_diagnostic_health_summary():
         }
     except (TypeError, ValueError, RuntimeError) as error:
         return {"success": False, "message": str(error), "health": None}
+
+
+@eel.expose
+def get_developer_issues(limit=50, status=None):
+    parser = _get_parser()
+    try:
+        return {
+            "success": True,
+            "issues": parser.get_developer_issues(limit, status=status),
+        }
+    except (TypeError, ValueError, RuntimeError) as error:
+        return {"success": False, "message": str(error), "issues": []}
 
 
 @eel.expose

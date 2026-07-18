@@ -7,6 +7,7 @@ from datetime import datetime
 from functools import wraps
 from engine.managers.app_scanner import (
     is_noise_app_candidate,
+    scan_matching_windows_apps,
     scan_windows_apps,
     scan_recent_windows_apps,
 )
@@ -23,6 +24,7 @@ from engine.learning_quality import (
     find_trigger_conflicts,
 )
 from engine.execution_result import normalize_error_type
+from engine.security.launch_policy import is_safe_launch_target
 from engine.skills.run_policy import (
     SkillRunPolicyService,
     change_run_policy,
@@ -272,10 +274,12 @@ class DictionaryManager:
             "PLAYPAUSE": {"description": "미디어를 재생하거나 일시 정지합니다.", "synonyms": ["재생", "일시정지", "멈춰", "계속"]},
             "VOL_UP": {"description": "시스템 볼륨을 높입니다.", "synonyms": ["소리 키워", "볼륨 키워", "볼륨 업", "볼륨 올려", "볼륨 높여", "소리 올려", "크게"]},
             "VOL_DOWN": {"description": "시스템 볼륨을 낮춥니다.", "synonyms": ["소리 줄여", "볼륨 줄여", "볼륨 낮춰", "볼륨 다운", "볼륨 내려", "소리 내려", "작게", "좀 줄여"]},
-            "MUTE": {"description": "시스템 소리를 음소거/해제합니다.", "synonyms": ["음소거", "조용히", "소리 꺼"]},
+            "VOL_SET": {"description": "시스템 볼륨을 지정한 퍼센트로 설정합니다.", "synonyms": ["볼륨 설정", "소리 설정"]},
+            "MUTE": {"description": "시스템 소리를 음소거하거나 해제합니다.", "synonyms": ["음소거 해제", "음소거 풀어", "소리 다시 켜", "소리 켜", "음소거", "조용히", "소리 꺼"]},
             "SHUTDOWN": {"description": "컴퓨터를 60초 후 종료합니다.", "synonyms": ["컴퓨터 꺼", "시스템 종료", "셧다운"]},
             "CANCEL_SHUTDOWN": {"description": "예약된 시스템 종료를 취소합니다.", "synonyms": ["취소해", "종료 취소"]},
             "TIME": {"description": "현재 시간을 알려줍니다.", "synonyms": ["몇 시", "시간 알려줘", "지금 시간", "시간이"]},
+            "DATE": {"description": "현재 날짜와 요일을 알려줍니다.", "synonyms": ["오늘 날짜", "현재 날짜", "지금 날짜", "오늘 며칠", "오늘 몇일", "무슨 요일"]},
             "WEATHER": {"description": "기본 브라우저로 날씨를 검색합니다.", "synonyms": ["날씨", "오늘 날씨"]}
         }
         
@@ -622,11 +626,11 @@ class DictionaryManager:
     @_manager_locked
     def prune_invalid_nouns(self, remove_noise=True, save=True):
         """Remove unusable scanned entries while preserving user favorites."""
-        removed = {"missing": [], "noise": [], "normalized": []}
+        removed = {"missing": [], "noise": [], "unsafe": [], "normalized": []}
         protected_nouns = set(self.favorites) | self.user_nouns
 
         for noun, raw_path in list(self.noun_dict.items()):
-            if noun in protected_nouns or not isinstance(raw_path, str):
+            if not isinstance(raw_path, str):
                 continue
             path = raw_path.strip().strip('"')
             if path.startswith(("http://", "https://")):
@@ -634,7 +638,13 @@ class DictionaryManager:
 
             expanded_path = os.path.expandvars(os.path.expanduser(path))
             reason = None
-            if os.path.isabs(expanded_path) and not os.path.exists(expanded_path):
+            if not is_safe_launch_target(expanded_path, noun):
+                # Security policy also applies to favorites and manually added
+                # nouns; otherwise a persisted console tool could bypass OPEN.
+                reason = "unsafe"
+            elif noun in protected_nouns:
+                continue
+            elif os.path.isabs(expanded_path) and not os.path.exists(expanded_path):
                 reason = "missing"
             elif remove_noise and is_noise_app_candidate(noun, expanded_path):
                 reason = "noise"
@@ -678,6 +688,15 @@ class DictionaryManager:
     @_manager_locked
     def scan_web_bookmarks(self):
         apps_found = scan_chrome_bookmarks(self.noun_dict)
+        if apps_found > 0:
+            self._touch_nouns()
+            self.save()
+        return apps_found
+
+    @_manager_locked
+    def discover_apps(self, candidates):
+        """Run one bounded, target-specific app rediscovery pass."""
+        apps_found = scan_matching_windows_apps(self.noun_dict, candidates)
         if apps_found > 0:
             self._touch_nouns()
             self.save()

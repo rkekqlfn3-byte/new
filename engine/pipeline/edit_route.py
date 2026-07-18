@@ -57,19 +57,45 @@ def execute_edit_route(
         return normalize_execution_result(value, action="edit")
     except Exception as error:
         diagnostic_context = getattr(error, "diagnostic_context", None)
+        diagnostic_context = (
+            dict(diagnostic_context)
+            if isinstance(diagnostic_context, dict)
+            else {}
+        )
+        recovery = diagnostic_context.get("automatic_recovery")
+        data = {"diagnostic_context": diagnostic_context}
+        if isinstance(recovery, dict):
+            data["automatic_recovery"] = dict(recovery)
+            data["retry_count"] = int(recovery.get("retry_count") or 0)
+            data["triage_hints"] = {
+                "intent_understood": True,
+                "target_resolved": bool(recovery.get("target_resolved")),
+                "recovery_target_changed": (
+                    recovery.get("outcome") == "target_changed"
+                ),
+                "environment_blocked": (
+                    recovery.get("outcome") == "unavailable"
+                ),
+            }
+        message = str(error)
+        if isinstance(recovery, dict):
+            if recovery.get("outcome") == "target_changed":
+                message += (
+                    " 문서 확인 전후의 대상이 달라 자동 편집을 멈췄습니다. "
+                    "현재 문서를 다시 연결해주세요."
+                )
+            elif recovery.get("outcome") == "unavailable":
+                message += (
+                    " 연결 문서를 앞으로 가져오지 못했습니다. 문서 창을 한 번 "
+                    "눌러 선택한 뒤 같은 요청을 다시 말해주세요."
+                )
         return failure_result(
-            str(error),
+            message,
             action="edit",
             target=request.edit_session_id,
             error_type=getattr(error, "error_type", "execution_error"),
             failed_step=getattr(error, "failed_step", None),
             retryable=getattr(error, "retryable", False),
             status=getattr(error, "status", "failed"),
-            data={
-                "diagnostic_context": (
-                    dict(diagnostic_context)
-                    if isinstance(diagnostic_context, dict)
-                    else {}
-                )
-            },
+            data=data,
         )

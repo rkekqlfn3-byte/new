@@ -2,6 +2,7 @@ import os
 
 from engine.edit_mode import ActionScope, ModePermissionError, assert_action_allowed
 from engine.execution_result import failure_result, success_result
+from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_target
 
 
 def execute_conversation_route(
@@ -21,6 +22,14 @@ def execute_conversation_route(
         if log_callback:
             log_callback("[Parser] 현재 날짜 질문을 로컬 시스템 시계로 처리합니다.")
         return parser.builtins.handle_date()
+    if parser._is_current_time_question(latest_user_text):
+        if log_callback:
+            log_callback("[Parser] 현재 시간 질문을 로컬 시스템 시계로 처리합니다.")
+        return parser.builtins.handle_time()
+    if parser._is_current_weather_question(latest_user_text):
+        if log_callback:
+            log_callback("[Parser] 오늘 날씨 질문을 로컬 날씨 검색으로 처리합니다.")
+        return parser.builtins.handle_weather(latest_user_text)
 
     if log_callback:
         history_length = len(user_input) if isinstance(user_input, list) else 1
@@ -85,9 +94,21 @@ def execute_conversation_route(
                 error_type="target_not_found",
             )
         try:
+            safe_path = validate_launch_target(path, target)
             if log_callback:
-                log_callback(f"[Execution] {path} 켜는 중...")
-            os.startfile(path.replace('"', ''))
+                log_callback(f"[Execution] {safe_path} 켜는 중...")
+            os.startfile(safe_path)
+            if not safe_path.casefold().startswith(("http://", "https://")):
+                parser.action_executor.focus_window_when_ready(target)
+        except UnsafeLaunchTarget as error:
+            return failure_result(
+                str(error),
+                action="open_app",
+                target=target,
+                error_type="validation_error",
+                retryable=False,
+                status="blocked",
+            )
         except Exception as error:
             if log_callback:
                 log_callback(f"[Error] 실행 실패: {error}")

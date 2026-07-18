@@ -216,6 +216,10 @@ class DynamicCodeParserIntegrationTests(unittest.TestCase):
             ],
         }
         with mock.patch("engine.parser.os.startfile") as startfile, mock.patch.object(
+            self.parser.action_executor,
+            "focus_window_when_ready",
+            return_value=101,
+        ) as focus, mock.patch.object(
             self.parser.macro_runner, "run", return_value=self.runner_result
         ) as run:
             waiting = self._run_ai_result(result)
@@ -230,6 +234,7 @@ class DynamicCodeParserIntegrationTests(unittest.TestCase):
             )
             self.assertTrue(completed["success"])
             startfile.assert_called_once_with("notepad.exe")
+            focus.assert_called_once_with("메모장")
             run.assert_called_once()
             self.assertEqual(1, len(self.parser.pending_macros))
 
@@ -357,18 +362,18 @@ class DynamicCodeParserIntegrationTests(unittest.TestCase):
         )
         learned = {
             "code": code,
-            "description": "오늘 날짜 메시지 박스",
+            "description": "테스트 알림 메시지 박스",
             "default_target": "",
             "state": "active",
             "verification_status": "user_confirmed",
-            "learning": {"argument_mode": "none", "intent": "SHOW_TODAY_DATE"},
+            "learning": {"argument_mode": "none", "intent": "SHOW_TEST_ALERT"},
         }
         self.parser.dict_mgr.learned_macros = {"시스템": {"날짜보기": learned}}
         self.parser.dict_mgr.macro_dict = {
             "날짜보기": {
                 "type": "learned",
                 "app": "시스템",
-                "synonyms": ["오늘 날짜 알려줘"],
+                "synonyms": ["테스트 알림창 보여줘"],
             }
         }
 
@@ -376,7 +381,7 @@ class DynamicCodeParserIntegrationTests(unittest.TestCase):
             self.parser.macro_runner, "run", return_value=self.runner_result
         ) as run:
             waiting = self.parser.execute_command_result(
-                "오늘 날짜 알려줘", session_id="message-box-session"
+                "테스트 알림창 보여줘", session_id="message-box-session"
             )
             self.assertEqual("confirmation_required", waiting["status"])
             self.assertIn(

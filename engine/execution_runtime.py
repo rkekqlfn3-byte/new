@@ -211,6 +211,9 @@ class ExecutionController:
                     incident = self.incident_manager.record_execution_failure(record)
                     if incident is not None:
                         record["diagnostic_incident_id"] = incident["incident_id"]
+                        record["failure_triage"] = incident.get("triage")
+                        if incident.get("developer_issue_id"):
+                            record["developer_issue_id"] = incident["developer_issue_id"]
                 # Diagnostics must never replace or alter the command result.
                 except Exception:
                     pass

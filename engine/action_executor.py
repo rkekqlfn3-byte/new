@@ -24,6 +24,7 @@ from engine.ui_automation import (
     WindowsUIAutomation,
 )
 from engine.execution_runtime import ExecutionCancelled
+from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_target
 from engine.app_actions.base import PreparedAction
 
 
@@ -324,25 +325,56 @@ class ActionExecutor:
 
         windows = []
         target_lower = str(noun).lower()
+        foreground = win32gui.GetForegroundWindow()
 
         def callback(hwnd, _):
             if not win32gui.IsWindowVisible(hwnd):
                 return
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             title = win32gui.GetWindowText(hwnd).lower()
-            if pid in matching_pids or (target_lower and target_lower in title):
-                windows.append(hwnd)
+            process_match = pid in matching_pids
+            title_match = bool(target_lower and target_lower in title)
+            if process_match or title_match:
+                windows.append((hwnd == foreground, title_match, process_match, hwnd))
 
         win32gui.EnumWindows(callback, None)
         if not windows:
             raise ActionTargetNotFoundError(
                 f"실행 중인 창을 찾지 못했습니다: {target}"
             )
-        return windows[0]
+        # EnumWindows is already ordered front-to-back. Stable max therefore
+        # keeps the frontmost item while preferring the actual foreground and
+        # a matching title over generic shared-process windows (notably
+        # explorer.exe's desktop/taskbar windows).
+        return max(windows, key=lambda item: item[:3])[3]
 
     def _open_app(self, target):
         _, path = self._resolve_registered_target(target)
-        os.startfile(str(path).strip('"'))
+        try:
+            safe_path = validate_launch_target(path, target)
+        except UnsafeLaunchTarget as error:
+            raise ActionPlanError(str(error)) from error
+        os.startfile(safe_path)
+
+    def focus_window_when_ready(self, target, timeout=None):
+        """Wait for a newly opened app window, then verify foreground focus."""
+        wait_seconds = (
+            max(0.1, float(timeout))
+            if timeout is not None
+            else max(1.5, float(self.verification_timeout))
+        )
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                return self._focus_window(target)
+            except ActionTargetNotFoundError:
+                if time.monotonic() >= deadline:
+                    raise
+                if self.controller:
+                    self.controller.check_cancelled()
+                    self.controller.wait(0.05)
+                else:
+                    time.sleep(0.05)
 
     def _focus_window(self, target):
         hwnd = self._find_window(target)
@@ -923,7 +955,13 @@ class ActionExecutor:
         planned_files = set()
         planned_dirs = set()
         for offset, step in enumerate(active_steps, start=start_step):
-            if step["action"] in app_target_actions():
+            if step["action"] == "open_app":
+                _, path = self._resolve_registered_target(step["target"])
+                try:
+                    validate_launch_target(path, step["target"])
+                except UnsafeLaunchTarget as error:
+                    raise ActionPlanError(str(error)) from error
+            elif step["action"] in app_target_actions():
                 self._resolve_registered_target(step["target"])
             elif step["action"] in {"hotkey", "type_text"} and step.get("target"):
                 self._resolve_registered_target(step["target"])

@@ -9,6 +9,7 @@ import win32con
 
 from engine.action_executor import (
     ActionExecutor, ActionPlanError, ActionPlanVerificationError,
+    ActionTargetNotFoundError,
 )
 from engine.builtins import BuiltinMacros
 from engine.llm_engine import LLMEngine
@@ -67,6 +68,20 @@ class ActionExecutorTests(unittest.TestCase):
         with mock.patch.object(self.executor, "_open_app") as open_app:
             with self.assertRaises(ActionPlanError):
                 self.executor.execute_plan(plan)
+        open_app.assert_not_called()
+
+    def test_console_open_target_is_blocked_during_plan_preflight(self):
+        executor = ActionExecutor({
+            "메모장": "notepad",
+            "echo": r"C:\Program Files\Git\usr\bin\echo.exe",
+        })
+        plan = [
+            _step("open_app", target="메모장"),
+            _step("open_app", target="echo"),
+        ]
+        with mock.patch.object(executor, "_open_app") as open_app:
+            with self.assertRaises(ActionPlanError):
+                executor.execute_plan(plan)
         open_app.assert_not_called()
 
     def test_common_actions_route_to_expected_boundaries(self):
@@ -170,6 +185,18 @@ class ActionExecutorTests(unittest.TestCase):
             mock.call(300, 100, False),
             mock.call(300, 200, False),
         ], attach.call_args_list)
+
+    def test_focus_window_when_ready_waits_for_new_window(self):
+        with mock.patch.object(
+            self.executor,
+            "_focus_window",
+            side_effect=[ActionTargetNotFoundError("not ready"), 10],
+        ) as focus, mock.patch("engine.action_executor.time.sleep") as sleep:
+            focused = self.executor.focus_window_when_ready("메모장", timeout=0.5)
+
+        self.assertEqual(10, focused)
+        self.assertEqual(2, focus.call_count)
+        sleep.assert_called_once_with(0.05)
 
     def test_focus_window_reports_verified_failure_after_all_fallbacks(self):
         with mock.patch.object(self.executor, "_find_window", return_value=10), \

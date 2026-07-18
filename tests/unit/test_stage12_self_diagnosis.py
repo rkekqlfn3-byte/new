@@ -6,6 +6,7 @@ from pathlib import Path
 from engine.diagnostics.self_diagnosis import (
     DiagnosticIncidentError,
     DiagnosticIncidentManager,
+    privacy_safe_execution_record,
 )
 from engine.execution_runtime import ExecutionController
 
@@ -262,6 +263,51 @@ class Stage12SelfDiagnosisTests(unittest.TestCase):
         controller.finish(False, error=secret, extra={"failed_step": secret})
         persisted = path.read_text(encoding="utf-8")
         self.assertNotIn(secret, persisted)
+
+    def test_recovery_events_keep_safety_proof_without_target_identity(self):
+        secret = r"C:\Users\Alice\Private\SecretApp.exe"
+        record = self.failure(
+            events=[{
+                "action": "automatic_recovery",
+                "status": "target_changed",
+                "details": {
+                    "route": "bounded_app_rediscovery",
+                    "phase": "pre_execution",
+                    "execution_started": False,
+                    "target_unchanged": False,
+                    "retry_count": 1,
+                    "retry_limit": 1,
+                    "outcome": "target_changed",
+                    "target_signature": "D" * 64,
+                    "app_path": secret,
+                },
+            }],
+            result={
+                "success": False,
+                "message": secret,
+                "action": "open_app",
+                "status": "failed",
+                "error_type": "target_not_found",
+                "data": {
+                    "automatic_recovery": {
+                        "target_signature": "D" * 64,
+                        "app_path": secret,
+                    }
+                },
+            },
+        )
+
+        safe = privacy_safe_execution_record(record)
+        serialized = json.dumps(safe, ensure_ascii=False)
+        details = safe["events"][0]["details"]
+        self.assertEqual("pre_execution", details["phase"])
+        self.assertFalse(details["execution_started"])
+        self.assertFalse(details["target_unchanged"])
+        self.assertEqual(1, details["retry_limit"])
+        self.assertEqual("target_changed", details["outcome"])
+        self.assertNotIn(secret, serialized)
+        self.assertNotIn("target_signature", serialized)
+        self.assertNotIn("app_path", serialized)
 
 
 if __name__ == "__main__":

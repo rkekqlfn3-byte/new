@@ -32,10 +32,15 @@ class LLMActionValidationTests(unittest.TestCase):
             "response": "실행합니다.",
             "actions": [{"action": "open_app", "target": "메모장"}],
         }
-        with patch("engine.parser.os.startfile") as startfile:
+        with patch("engine.parser.os.startfile") as startfile, patch.object(
+            self.parser.action_executor,
+            "focus_window_when_ready",
+            return_value=101,
+        ) as focus:
             response = self._run_with_result(result)
 
         startfile.assert_called_once_with("notepad.exe")
+        focus.assert_called_once_with("메모장")
         self.assertEqual("실행합니다.", response)
 
     def test_unknown_app_is_not_executed(self):

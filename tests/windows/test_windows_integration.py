@@ -1,7 +1,8 @@
 """Windows integration boundaries for built-in commands.
 
 Only the close test performs a real OS action, and it targets a uniquely named
-process created by the test itself. Media keys and shutdown commands are mocked.
+process created by the test itself. Media keys, Core Audio, and shutdown commands
+are mocked.
 """
 
 import os
@@ -16,6 +17,7 @@ from unittest import mock
 import psutil
 
 from engine.builtins import BuiltinMacros
+from engine.system_volume import adjust_system_volume, set_system_volume
 
 
 @unittest.skipUnless(os.name == "nt", "Windows-only integration tests")
@@ -59,19 +61,61 @@ class WindowsBuiltinIntegrationTests(unittest.TestCase):
     def test_media_commands_emit_expected_virtual_keys(self):
         fake_user32 = mock.Mock()
         fake_windll = mock.Mock(user32=fake_user32)
-        with mock.patch("engine.builtins.ctypes.windll", fake_windll):
+        with mock.patch("engine.builtins.ctypes.windll", fake_windll), \
+             mock.patch(
+                 "engine.builtins.adjust_system_volume",
+                 side_effect=[(40, 50), (50, 40)],
+             ) as adjust_volume, \
+             mock.patch(
+                 "engine.builtins.set_system_muted", return_value=True
+             ) as set_muted:
             self.builtins.handle_playpause()
-            self.builtins.handle_vol_up()
-            self.builtins.handle_vol_down()
-            self.builtins.handle_mute()
+            volume_up = self.builtins.handle_vol_up("소리 키워")
+            volume_down = self.builtins.handle_vol_down("소리 줄여")
+            muted = self.builtins.handle_mute("음소거")
 
-        expected = (
-            [mock.call(0xB3, 0, 0, 0)]
-            + [mock.call(0xAF, 0, 0, 0)] * 5
-            + [mock.call(0xAE, 0, 0, 0)] * 5
-            + [mock.call(0xAD, 0, 0, 0)]
+        self.assertEqual(
+            [mock.call(0xB3, 0, 0, 0)],
+            fake_user32.keybd_event.call_args_list,
         )
-        self.assertEqual(expected, fake_user32.keybd_event.call_args_list)
+        self.assertEqual([mock.call(10), mock.call(-10)], adjust_volume.call_args_list)
+        self.assertTrue(volume_up["verified"])
+        self.assertTrue(volume_down["verified"])
+        set_muted.assert_called_once_with(True)
+        self.assertTrue(muted["success"])
+        self.assertTrue(muted["verified"])
+
+    def test_core_audio_reuses_an_existing_com_apartment(self):
+        endpoint = mock.Mock()
+        endpoint.GetMasterVolumeLevelScalar.return_value = 0.3
+        changed_mode = OSError(-2147417850, "COM apartment already initialized")
+        with mock.patch(
+            "engine.system_volume.CoInitialize", side_effect=changed_mode
+        ), mock.patch(
+            "engine.system_volume.CoUninitialize"
+        ) as uninitialize, mock.patch(
+            "engine.system_volume._endpoint_volume", return_value=endpoint
+        ):
+            applied = set_system_volume(30)
+
+        self.assertEqual(30, applied)
+        endpoint.SetMasterVolumeLevelScalar.assert_called_once_with(0.3, None)
+        endpoint.SetMute.assert_called_once_with(False, None)
+        uninitialize.assert_not_called()
+
+    def test_core_audio_relative_adjustment_is_clamped_and_verified(self):
+        endpoint = mock.Mock()
+        endpoint.GetMasterVolumeLevelScalar.side_effect = [0.95, 1.0]
+        with mock.patch("engine.system_volume.CoInitialize"), mock.patch(
+            "engine.system_volume.CoUninitialize"
+        ), mock.patch(
+            "engine.system_volume._endpoint_volume", return_value=endpoint
+        ):
+            before, applied = adjust_system_volume(10)
+
+        self.assertEqual((95, 100), (before, applied))
+        endpoint.SetMasterVolumeLevelScalar.assert_called_once_with(1.0, None)
+        endpoint.SetMute.assert_called_once_with(False, None)
 
     def test_shutdown_and_cancel_use_expected_windows_commands(self):
         completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")

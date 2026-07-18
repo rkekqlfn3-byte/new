@@ -3,6 +3,7 @@ import re
 from engine.action_registry import app_target_actions
 from engine.document_reader import resolve_file_path
 from engine.learning_schema import normalize_learning_metadata
+from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_target
 
 
 class ResultValidator:
@@ -85,6 +86,11 @@ class ResultValidator:
                     issues.append(f"{prefix}: 등록된 앱 또는 웹사이트 target이 아닙니다.")
                     continue
                 noun, path = resolved
+                try:
+                    validate_launch_target(path, noun)
+                except UnsafeLaunchTarget as error:
+                    issues.append(f"{prefix}: {error}")
+                    continue
                 if enforce_app_candidates and noun.casefold() not in allowed_apps:
                     issues.append(f"{prefix}: AI 요청 후보에 없던 앱 또는 웹사이트입니다.")
                     continue

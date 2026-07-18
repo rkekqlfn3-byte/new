@@ -18,10 +18,17 @@ from typing import Any, Mapping
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
 from engine.version import runtime_info
+from engine.diagnostics.failure_triage import (
+    DeveloperIssueRegistry,
+    DeterministicFailureClassifier,
+    normalize_triage,
+    unknown_triage,
+)
 
 
-INCIDENT_SCHEMA_VERSION = 1
+INCIDENT_SCHEMA_VERSION = 2
 DEFAULT_INCIDENT_PATH = user_data_path("diagnostic_incidents.json")
+_DEFAULT_ISSUE_REGISTRY = object()
 INCIDENT_STATUSES = frozenset({"new", "acknowledged", "resolved", "dismissed"})
 IGNORED_EXECUTION_STATUSES = frozenset({
     "success", "cancelled", "confirmation_required", "busy"
@@ -38,7 +45,8 @@ SAFE_EVENT_DETAIL_KEYS = frozenset({
     "step", "route", "operation", "error_type", "failed_step",
     "verification_status", "fallback_level", "locator_strategy",
     "selected_route", "status", "retryable", "rollback_performed",
-    "rollback_success",
+    "rollback_success", "retry_count", "retry_limit", "phase",
+    "execution_started", "target_unchanged", "outcome",
 })
 
 CATEGORY_GUIDANCE = {
@@ -375,7 +383,7 @@ def privacy_safe_execution_record(record: Mapping[str, Any]) -> dict[str, Any]:
         "execution_id", "app_version", "git_commit", "build_kind",
         "started_at", "paused_at", "resumed_at", "finished_at", "duration_ms",
         "success", "verified", "retryable",
-        "diagnostic_incident_id",
+        "diagnostic_incident_id", "developer_issue_id",
     ):
         value = record.get(key)
         if value is not None:
@@ -411,6 +419,8 @@ def privacy_safe_execution_record(record: Mapping[str, Any]) -> dict[str, Any]:
         safe["response_signature"] = _hash(record.get("response"))
     if record.get("error"):
         safe["error_signature"] = _hash(record.get("error"))
+    if record.get("failure_triage") is not None:
+        safe["failure_triage"] = normalize_triage(record.get("failure_triage"))
     result = record.get("result") if isinstance(record.get("result"), Mapping) else None
     if result is not None:
         structure = _structural_result(record)
@@ -438,10 +448,18 @@ class DiagnosticIncidentManager:
         *,
         max_incidents=200,
         environment_provider=None,
+        classifier=None,
+        issue_registry=_DEFAULT_ISSUE_REGISTRY,
     ):
         self.path = str(path or DEFAULT_INCIDENT_PATH)
         self.max_incidents = max(10, min(int(max_incidents), 2_000))
         self.environment_provider = environment_provider or collect_environment_snapshot
+        self.classifier = classifier or DeterministicFailureClassifier()
+        self.issue_registry = (
+            DeveloperIssueRegistry(Path(self.path).with_name("developer_issues.json"))
+            if issue_registry is _DEFAULT_ISSUE_REGISTRY
+            else issue_registry
+        )
         self._lock = threading.RLock()
         loaded = safe_read_json(self.path, self._default_data())
         self._data = self._normalize(loaded)
@@ -473,6 +491,7 @@ class DiagnosticIncidentManager:
             except (TypeError, ValueError):
                 occurrence_count = 1
             normalized["occurrence_count"] = max(1, occurrence_count)
+            normalized["triage"] = normalize_triage(item.get("triage"))
             normalized["raw_content_stored"] = False
             normalized["automatic_code_change"] = False
             incidents.append(normalized)
@@ -506,6 +525,12 @@ class DiagnosticIncidentManager:
             return None
         structure = _structural_result(record)
         category = _category(record)
+        try:
+            triage = normalize_triage(self.classifier.classify(record).to_dict())
+        except Exception:
+            # Ownership diagnosis is observational and must never replace the
+            # original result or prevent legacy incident collection.
+            triage = unknown_triage()
         events = [
             safe for safe in (_safe_event(item) for item in list(record.get("events") or [])[-30:])
             if safe is not None
@@ -523,7 +548,24 @@ class DiagnosticIncidentManager:
                 existing["last_seen_at"] = now
                 existing["last_execution_hash"] = _hash(record.get("execution_id"))
                 existing["status"] = "new" if existing.get("status") == "resolved" else existing.get("status", "new")
+                existing["triage"] = triage
                 self._save_locked()
+                if self.issue_registry is not None:
+                    try:
+                        issue = self.issue_registry.record(
+                            triage,
+                            incident=existing,
+                            interpreted=structure,
+                            error_signature=_hash(
+                                record.get("error") or record.get("response")
+                            ),
+                            request_hash=_hash(record.get("label")),
+                        )
+                        if issue is not None:
+                            existing["developer_issue_id"] = issue["issue_id"]
+                            self._save_locked()
+                    except Exception:
+                        pass
                 return copy.deepcopy(existing)
             environment = _safe_environment(self.environment_provider())
             error_template = _identifier(
@@ -556,6 +598,11 @@ class DiagnosticIncidentManager:
                         item.get("details", {}).get("rollback_performed") is True
                         for item in events
                     ),
+                    "rollback_succeeded": next((
+                        item.get("details", {}).get("rollback_success")
+                        for item in reversed(events)
+                        if item.get("details", {}).get("rollback_performed") is True
+                    ), None),
                 },
                 "events": events,
                 # Arbitrary exception text may contain document content. Store
@@ -572,6 +619,7 @@ class DiagnosticIncidentManager:
                     "recommended_fix": guidance["fix"],
                     "confidence": guidance["confidence"],
                 },
+                "triage": triage,
                 "reproduction": {
                     "synthetic_fixture_required": True,
                     "mode": structure.get("mode"),
@@ -594,6 +642,20 @@ class DiagnosticIncidentManager:
             self._data["incidents"].append(incident)
             self._data["incidents"] = self._data["incidents"][-self.max_incidents:]
             self._save_locked()
+            if self.issue_registry is not None:
+                try:
+                    issue = self.issue_registry.record(
+                        triage,
+                        incident=incident,
+                        interpreted=structure,
+                        error_signature=incident["error_signature"],
+                        request_hash=incident["command"]["input_hash"],
+                    )
+                    if issue is not None:
+                        incident["developer_issue_id"] = issue["issue_id"]
+                        self._save_locked()
+                except Exception:
+                    pass
             return copy.deepcopy(incident)
 
     def list_incidents(self, limit=20, *, status=None) -> list[dict[str, Any]]:
@@ -646,6 +708,8 @@ class DiagnosticIncidentManager:
             "status": "proposal_only",
             "objective": incident["analysis"]["recommended_fix"],
             "cause_category": category,
+            "ownership_category": incident.get("triage", {}).get("category", "unknown"),
+            "owner": incident.get("triage", {}).get("owner", "unknown"),
             "required_regression_tests": list(incident["regression_tests"]),
             "execution_order": [
                 "사용자 승인",
@@ -679,6 +743,8 @@ class DiagnosticIncidentManager:
                 "app_type": incident["interpreted"].get("app_type"),
             },
             "why": copy.deepcopy(incident["analysis"]),
+            "triage": copy.deepcopy(incident.get("triage", unknown_triage())),
+            "developer_issue_id": incident.get("developer_issue_id"),
             "expected": copy.deepcopy(incident["expected"]),
             "actual": copy.deepcopy(incident["actual"]),
             "reproduction": copy.deepcopy(incident["reproduction"]),
@@ -698,11 +764,27 @@ class DiagnosticIncidentManager:
         categories = Counter(
             item.get("analysis", {}).get("category", "unknown") for item in incidents
         )
+        triage_categories = Counter(
+            item.get("triage", {}).get("category", "unknown") for item in incidents
+        )
+        owners = Counter(
+            item.get("triage", {}).get("owner", "unknown") for item in incidents
+        )
         return {
             "incident_groups": len(incidents),
             "total_occurrences": sum(int(item.get("occurrence_count") or 0) for item in incidents),
             "open_incidents": sum(item.get("status") in {"new", "acknowledged"} for item in incidents),
             "categories": dict(sorted(categories.items())),
+            "triage_categories": dict(sorted(triage_categories.items())),
+            "owners": dict(sorted(owners.items())),
+            "developer_issue_count": (
+                self.issue_registry.count() if self.issue_registry is not None else 0
+            ),
             "automatic_code_change": False,
             "running_binary_mutation": False,
         }
+
+    def list_developer_issues(self, limit=50, *, status=None):
+        if self.issue_registry is None:
+            return []
+        return self.issue_registry.list_issues(limit, status=status)

@@ -2,6 +2,7 @@ import os
 
 from engine.document_reader import extract_text
 from engine.execution_result import failure_result
+from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_target
 
 
 def execute_open_app(context, action):
@@ -10,8 +11,22 @@ def execute_open_app(context, action):
         return None
     path = action.get("_resolved_path")
     try:
-        context.log(f"[Execution] {path} 켜는 중...")
-        os.startfile(path.replace('"', ''))
+        safe_path = validate_launch_target(path, target)
+        context.log(f"[Execution] {safe_path} 켜는 중...")
+        os.startfile(safe_path)
+        if not safe_path.casefold().startswith(("http://", "https://")):
+            context.parser.action_executor.focus_window_when_ready(target)
+    except UnsafeLaunchTarget as error:
+        context.log(f"[Security] 앱 실행 차단: {error}")
+        context.add_response(f"\n\n{error}")
+        context.failures.append(failure_result(
+            str(error),
+            action="open_app",
+            target=target,
+            error_type="validation_error",
+            retryable=False,
+            status="blocked",
+        ))
     except Exception as error:
         context.log(f"[Error] 실행 실패: {error}")
         context.add_response(f"\n\n'{target}' 실행에 실패했습니다: {error}")

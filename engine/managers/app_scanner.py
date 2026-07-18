@@ -4,6 +4,8 @@ import re
 import winreg
 import time
 
+from engine.security.launch_policy import is_safe_launch_target
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +63,131 @@ def _normalized_app_name(value):
     return re.sub(r"[^0-9a-z가-힣]", "", str(value).lower())
 
 
+def matches_requested_app_candidate(name, path, candidates):
+    """Return whether one discovered app is a bounded target match.
+
+    Discovery uses exact normalized names and the built-in common aliases.
+    The normal parser may apply typo tolerance after registration, but the
+    discovery pass itself must not register an unrelated program.
+    """
+    requested = {
+        _normalized_app_name(item)
+        for item in (candidates or ())
+        if _normalized_app_name(item)
+    }
+    if not requested:
+        return False
+    stem = os.path.splitext(os.path.basename(str(path or "").strip('"')))[0]
+    mapped_stem = COMMON_APP_MAP.get(stem.casefold(), stem)
+    discovered = {
+        _normalized_app_name(name),
+        _normalized_app_name(stem),
+        _normalized_app_name(mapped_stem),
+    }
+    return bool(requested.intersection(item for item in discovered if item))
+
+
+def scan_matching_windows_apps(noun_dict, candidates):
+    """Discover only explicitly requested apps without a deep disk scan.
+
+    Registry App Paths and Start Menu/Desktop shortcuts are bounded indexes.
+    Program Files recursion is intentionally excluded so a missed target
+    cannot make an ordinary command stall for a long time. Every added target
+    still passes the central launch policy.
+    """
+    requested = {
+        _normalized_app_name(item)
+        for item in (candidates or ())
+        if _normalized_app_name(item)
+    }
+    if not requested:
+        return 0
+
+    apps_found = 0
+
+    def add_candidate(name, path):
+        nonlocal apps_found
+        clean_path = str(path or "").strip().strip('"')
+        clean_name = str(name or "").strip().casefold()
+        if not clean_path or not clean_name:
+            return
+        stem = os.path.splitext(os.path.basename(clean_path))[0].casefold()
+        clean_name = COMMON_APP_MAP.get(stem, clean_name)
+        if (
+            clean_name in noun_dict
+            or not matches_requested_app_candidate(clean_name, clean_path, requested)
+            or is_noise_app_candidate(clean_name, clean_path)
+            or not is_safe_launch_target(clean_path, clean_name)
+        ):
+            return
+        noun_dict[clean_name] = clean_path
+        apps_found += 1
+
+    reg_paths = (
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"),
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\App Paths"),
+    )
+    for hkey, subkey in reg_paths:
+        key = None
+        try:
+            key = winreg.OpenKey(hkey, subkey)
+            for index in range(winreg.QueryInfoKey(key)[0]):
+                try:
+                    app_name = winreg.EnumKey(key, index)
+                    if not matches_requested_app_candidate(app_name, app_name, requested):
+                        continue
+                    app_key = winreg.OpenKey(key, app_name)
+                    try:
+                        app_path, _ = winreg.QueryValueEx(app_key, "")
+                    finally:
+                        try:
+                            winreg.CloseKey(app_key)
+                        except OSError:
+                            pass
+                    add_candidate(app_name, app_path)
+                except OSError:
+                    continue
+        except OSError:
+            continue
+        finally:
+            if key is not None:
+                try:
+                    winreg.CloseKey(key)
+                except OSError:
+                    pass
+
+    user_profile = os.environ.get("USERPROFILE", "")
+    program_data = os.environ.get("PROGRAMDATA", "")
+    shortcut_dirs = (
+        os.path.join(program_data, r"Microsoft\Windows\Start Menu\Programs"),
+        os.path.join(user_profile, r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs"),
+        os.path.join(user_profile, "Desktop"),
+        os.path.join(user_profile, "OneDrive", "Desktop"),
+    )
+    for shortcut_dir in shortcut_dirs:
+        if not os.path.isdir(shortcut_dir):
+            continue
+        try:
+            for root, _dirs, files in os.walk(shortcut_dir):
+                for file_name in files:
+                    if not file_name.casefold().endswith(".lnk"):
+                        continue
+                    display_name = file_name[:-4].replace(" 바로 가기", "").strip()
+                    full_path = os.path.join(root, file_name)
+                    if matches_requested_app_candidate(display_name, full_path, requested):
+                        add_candidate(display_name, full_path)
+        except OSError as error:
+            logger.debug("Bounded shortcut discovery failed for %s: %s", shortcut_dir, error)
+
+    return apps_found
+
+
 def is_likely_primary_executable(path, program_root):
     """Keep representative executables and reject arbitrary bundled helpers."""
-    if is_noise_app_candidate(os.path.basename(path), path):
+    if (
+        is_noise_app_candidate(os.path.basename(path), path)
+        or not is_safe_launch_target(path, os.path.basename(path))
+    ):
         return False
 
     stem = os.path.splitext(os.path.basename(path))[0].lower()
@@ -112,6 +236,7 @@ def scan_windows_apps(noun_dict):
                             clean_name not in noun_dict
                             and app_path
                             and not is_noise_app_candidate(clean_name, app_path)
+                            and is_safe_launch_target(app_path, clean_name)
                         ):
                             noun_dict[clean_name] = app_path
                             apps_found += 1
@@ -174,6 +299,7 @@ def scan_windows_apps(noun_dict):
                         if (
                             clean_name not in noun_dict
                             and not is_noise_app_candidate(clean_name, full_path)
+                            and is_safe_launch_target(full_path, clean_name)
                         ):
                             noun_dict[clean_name] = full_path
                             apps_found += 1
@@ -211,6 +337,7 @@ def scan_recent_windows_apps(noun_dict, hours=24):
                             if (
                                 clean_name not in noun_dict
                                 and not is_noise_app_candidate(clean_name, full_path)
+                                and is_safe_launch_target(full_path, clean_name)
                             ):
                                 noun_dict[clean_name] = full_path
                                 apps_found += 1

@@ -13,24 +13,30 @@ import win32process
 import win32con
 from engine.hotkeys import press_hotkey
 from engine.execution_result import failure_result, normalize_execution_result, success_result
+from engine.local_commands.local_command_analyzer import (
+    extract_volume_adjustment,
+    extract_volume_percent,
+)
+from engine.security.launch_policy import (
+    BLOCKED_EXECUTABLE_STEMS,
+    BLOCKED_LAUNCH_EXTENSIONS,
+    UnsafeLaunchTarget,
+    validate_launch_target,
+)
+from engine.system_volume import (
+    SystemVolumeError,
+    adjust_system_volume,
+    set_system_muted,
+    set_system_volume,
+)
 
 
 logger = logging.getLogger(__name__)
 
 
 class BuiltinMacros:
-    _BLOCKED_COMMAND_EXECUTABLES = frozenset({
-        "bash", "bcdedit", "cscript", "diskpart", "forfiles", "format",
-        "mshta", "msiexec", "net", "netsh", "node", "nodejs",
-        "powershell", "pwsh", "py",
-        "python", "pythonw", "reg", "regsvr32", "rundll32", "sc",
-        "schtasks", "shutdown", "taskkill", "vssadmin", "wbadmin", "wmic",
-        "wscript", "wsl", "cmd", "sh",
-    })
-    _BLOCKED_SCRIPT_EXTENSIONS = frozenset({
-        ".bat", ".cmd", ".hta", ".js", ".jse", ".msi", ".ps1", ".vbs",
-        ".vbe", ".wsf", ".wsh",
-    })
+    _BLOCKED_COMMAND_EXECUTABLES = BLOCKED_EXECUTABLE_STEMS
+    _BLOCKED_SCRIPT_EXTENSIONS = BLOCKED_LAUNCH_EXTENSIONS
     _SHELL_METACHARACTERS = re.compile(r"[&|<>^\r\n]")
 
     def __init__(self, dict_mgr, parser):
@@ -148,12 +154,24 @@ class BuiltinMacros:
     def handle_open(self, user_input, tokens, app_name, app_path, log_callback):
         if app_path:
             try:
-                clean_path = app_path.replace('"', '')
+                clean_path = validate_launch_target(app_path, app_name)
                 if log_callback: log_callback(f"[Execution] {clean_path} 실행 중...")
                 os.startfile(clean_path)
+                focused = False
+                if not clean_path.casefold().startswith(("http://", "https://")):
+                    self.parser.action_executor.focus_window_when_ready(app_name)
+                    focused = True
                 return success_result(
-                    f"'{app_name}'을(를) 실행했습니다.",
-                    action="open_app", target=app_name, verified=False,
+                    f"'{app_name}'을(를) 실행하고 맨 앞으로 가져왔습니다."
+                    if focused else f"'{app_name}'을(를) 실행했습니다.",
+                    action="open_app", target=app_name, verified=focused,
+                )
+            except UnsafeLaunchTarget as e:
+                return failure_result(
+                    str(e),
+                    action="open_app", target=app_name,
+                    error_type="validation_error", retryable=False,
+                    status="blocked",
                 )
             except Exception as e:
                 return failure_result(
@@ -313,17 +331,100 @@ class BuiltinMacros:
         ctypes.windll.user32.keybd_event(0xB3, 0, 0, 0)
         return success_result("미디어 재생/일시정지를 실행했습니다.", action="play_pause", verified=False)
 
-    def handle_vol_up(self, *args):
-        for _ in range(5): ctypes.windll.user32.keybd_event(0xAF, 0, 0, 0)
-        return success_result("소리를 키웠습니다.", action="volume_up", verified=False)
+    def _handle_volume_adjustment(self, user_input, direction):
+        parsed = extract_volume_adjustment(user_input)
+        amount = parsed[1] if parsed and parsed[0] == direction else 10
+        action = "volume_up" if direction == "up" else "volume_down"
+        if not 1 <= amount <= 100:
+            return failure_result(
+                "볼륨은 한 번에 1부터 100까지만 올리거나 내릴 수 있습니다.",
+                action=action,
+                target=amount,
+                error_type="validation_error",
+                status="blocked",
+            )
+        delta = amount if direction == "up" else -amount
+        try:
+            before, applied = adjust_system_volume(delta)
+        except (OSError, ValueError, SystemVolumeError) as error:
+            return failure_result(
+                str(error),
+                action=action,
+                target=amount,
+                error_type="environment_error",
+                retryable=False,
+            )
 
-    def handle_vol_down(self, *args):
-        for _ in range(5): ctypes.windll.user32.keybd_event(0xAE, 0, 0, 0)
-        return success_result("소리를 줄였습니다.", action="volume_down", verified=False)
+        if before == applied:
+            message = (
+                "시스템 볼륨이 이미 최대입니다."
+                if direction == "up" else "시스템 볼륨이 이미 최소입니다."
+            )
+        else:
+            verb = "올렸습니다" if direction == "up" else "내렸습니다"
+            message = f"시스템 볼륨을 {before}%에서 {applied}%로 {verb}."
+        return success_result(
+            message,
+            action=action,
+            target=applied,
+            verified=True,
+            data={"before": before, "requested_delta": delta, "applied": applied},
+        )
 
-    def handle_mute(self, *args):
-        ctypes.windll.user32.keybd_event(0xAD, 0, 0, 0)
-        return success_result("음소거 설정을 변경했습니다.", action="mute", verified=False)
+    def handle_vol_up(self, user_input="", *args):
+        return self._handle_volume_adjustment(user_input, "up")
+
+    def handle_vol_down(self, user_input="", *args):
+        return self._handle_volume_adjustment(user_input, "down")
+
+    def handle_vol_set(self, user_input, *args):
+        percent = extract_volume_percent(user_input)
+        if percent is None:
+            return failure_result(
+                "설정할 볼륨을 0~100 사이의 숫자로 말씀해 주세요.",
+                action="volume_set", error_type="validation_error",
+            )
+        if not 0 <= percent <= 100:
+            return failure_result(
+                "볼륨은 0부터 100 사이로만 설정할 수 있습니다.",
+                action="volume_set", target=percent,
+                error_type="validation_error", status="blocked",
+            )
+        try:
+            applied = set_system_volume(percent)
+        except (OSError, ValueError, SystemVolumeError) as error:
+            return failure_result(
+                str(error), action="volume_set", target=percent,
+                error_type="environment_error", retryable=False,
+            )
+        return success_result(
+            f"시스템 볼륨을 {applied}%로 설정했습니다.",
+            action="volume_set", target=applied, verified=True,
+        )
+
+    def handle_mute(self, user_input, *args):
+        compact = re.sub(r"\s+", "", str(user_input or "").casefold())
+        unmute = any(marker in compact for marker in (
+            "음소거해제", "음소거풀", "소리켜", "소리다시켜", "소리복구",
+        ))
+        muted = not unmute
+        try:
+            applied = set_system_muted(muted)
+        except (OSError, SystemVolumeError) as error:
+            return failure_result(
+                str(error), action="unmute" if unmute else "mute",
+                error_type="environment_error", retryable=False,
+            )
+        if applied != muted:
+            return failure_result(
+                "Windows 음소거 상태가 요청한 값으로 바뀌지 않았습니다.",
+                action="unmute" if unmute else "mute",
+                error_type="verification_error", retryable=False,
+            )
+        return success_result(
+            "음소거를 해제했습니다." if unmute else "음소거했습니다.",
+            action="unmute" if unmute else "mute", verified=True,
+        )
 
     @staticmethod
     def _run_shutdown_command(arguments, *, action, success_message):

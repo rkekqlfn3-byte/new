@@ -94,11 +94,20 @@ class CommandAnalysisTests(unittest.TestCase):
     def test_system_macro_classification(self):
         cases = [
             ("소리 키워", "VOL_UP"),
+            ("볼륨 10만큼 올려줘", "VOL_UP"),
+            ("볼륨 10만큼 내려줘", "VOL_DOWN"),
+            ("소리를 조금만 올려줘", "VOL_UP"),
+            ("소리를 살짝 내려줘", "VOL_DOWN"),
+            ("볼륨을 30%로 설정해줘", "VOL_SET"),
+            ("소리 50으로 맞춰줘", "VOL_SET"),
+            ("소리를 30%로 올려줘", "VOL_SET"),
             ("음소거 해줘", "MUTE"),
+            ("음소거 해제해줘", "MUTE"),
             ("재생해", "PLAYPAUSE"),
             ("컴퓨터 꺼", "SHUTDOWN"),
             ("취소해", "CANCEL_SHUTDOWN"),
             ("지금 몇 시야?", "TIME"),
+            ("오늘 날짜 알려줘", "DATE"),
             ("오늘 날씨 어때?", "WEATHER"),
         ]
         for text, macro in cases:

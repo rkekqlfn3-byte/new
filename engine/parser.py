@@ -123,10 +123,12 @@ class CommandParser:
             "PLAYPAUSE": self.builtins.handle_playpause,
             "VOL_UP": self.builtins.handle_vol_up,
             "VOL_DOWN": self.builtins.handle_vol_down,
+            "VOL_SET": self.builtins.handle_vol_set,
             "MUTE": self.builtins.handle_mute,
             "SHUTDOWN": self.builtins.handle_shutdown,
             "CANCEL_SHUTDOWN": self.builtins.handle_cancel_shutdown,
             "TIME": self.builtins.handle_time,
+            "DATE": self.builtins.handle_date,
             "WEATHER": self.builtins.handle_weather
         }
 
@@ -148,12 +150,50 @@ class CommandParser:
         compact = re.sub(r"\s+", "", str(text or "").casefold())
         if not compact or any(word in compact for word in ("어제", "내일", "과거", "미래")):
             return False
-        has_current_marker = any(word in compact for word in ("오늘", "현재날짜", "지금날짜"))
+        has_current_marker = any(
+            word in compact for word in ("오늘", "현재날짜", "지금날짜", "지금")
+        )
         has_date_subject = any(
             word in compact
             for word in ("날짜", "며칠", "몇일", "몇월몇일", "무슨요일", "오늘이언제")
         )
         return has_current_marker and has_date_subject and len(compact) <= 40
+
+    @staticmethod
+    def _is_current_time_question(text):
+        """Recognize requests for the PC's current time, not elapsed duration."""
+        compact = re.sub(r"\s+", "", str(text or "").casefold())
+        if not compact or any(
+            marker in compact
+            for marker in ("내일몇시", "어제몇시", "몇시간", "시간걸", "소요시간")
+        ):
+            return False
+        return any(
+            marker in compact
+            for marker in (
+                "지금몇시", "현재몇시", "몇시야", "몇시예요", "몇시인가",
+                "지금시간", "현재시간", "시간알려줘", "시간을알려줘",
+            )
+        ) and len(compact) <= 40
+
+    @staticmethod
+    def _is_current_weather_question(text):
+        """Recognize narrow current-weather requests that use the local route."""
+        compact = re.sub(r"\s+", "", str(text or "").casefold())
+        if "날씨" not in compact or len(compact) > 60:
+            return False
+        if any(
+            marker in compact
+            for marker in ("날씨란", "날씨의뜻", "과거날씨", "검색", "찾아")
+        ):
+            return False
+        return any(
+            marker in compact
+            for marker in (
+                "오늘날씨", "지금날씨", "현재날씨", "날씨알려", "날씨어때",
+                "날씨보여", "날씨확인",
+            )
+        )
         
     def normalize_text(self, text):
         return self.local_command_analyzer.normalize_text(text)
@@ -207,6 +247,11 @@ class CommandParser:
     def get_diagnostic_health_summary(self):
         return self._diagnostic_manager().health_summary()
 
+    def get_developer_issues(self, limit=50, status=None):
+        return self._diagnostic_manager().list_developer_issues(
+            limit, status=status
+        )
+
     def set_diagnostic_incident_status(self, incident_id, status):
         return self._diagnostic_manager().set_status(incident_id, status)
 
@@ -224,11 +269,15 @@ class CommandParser:
         where = report["where"]
         failed_step = where.get("failed_step") or where.get("operation") or "미확인"
         analysis = report["why"]
+        triage = report.get("triage", {})
         tests = ", ".join(report["remediation"]["required_regression_tests"])
         return success_result(
             "최근 실패 진단\n"
             f"- 실패 지점: {failed_step}\n"
             f"- 원인 분류: {analysis['headline']}\n"
+            f"- 책임 분류: {triage.get('category', 'unknown')} "
+            f"(담당: {triage.get('owner', 'unknown')})\n"
+            f"- 다음 조치: {triage.get('next_action', 'collect_more_evidence')}\n"
             f"- 수정 제안: {analysis['recommended_fix']}\n"
             f"- 필요한 검증: {tests}\n"
             "코드 수정과 EXE 빌드는 자동 실행하지 않으며 별도 승인이 필요합니다.",
