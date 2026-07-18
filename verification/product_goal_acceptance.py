@@ -33,7 +33,10 @@ PROBE_SPECS = {
         "probe": "prototype1_stage5_owned_fixture_editing",
         "required_targets": ("excel", "hwp"),
         "required_target_checks": {
-            "hwp": ("learned_font_default_readback_verified",),
+            "hwp": (
+                "learned_font_default_readback_verified",
+                "direct_hwp_formatting_observation_verified",
+            ),
         },
     },
     "native_word_powerpoint": {

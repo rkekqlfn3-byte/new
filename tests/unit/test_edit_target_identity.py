@@ -191,19 +191,53 @@ class FormattingSnapshotTests(unittest.TestCase):
         self.assertIsNone(snapshot["font_size"])
         self.assertIsNone(snapshot["alignment"])
 
-    def test_cursor_hwp_and_excel_have_no_formatting_snapshot(self):
+    def test_cursor_and_excel_have_no_formatting_snapshot(self):
         self.assertIsNone(formatting_snapshot("word", {
             "selection_kind": "cursor",
             "target": {"bold": 0, "font_size": 11.0},
-        }))
-        self.assertIsNone(formatting_snapshot("hwp", {
-            "selection_kind": "text",
-            "target": {"coordinates": [0, 1, 2, 3, 4, 5]},
         }))
         self.assertIsNone(formatting_snapshot("excel", {
             "selection_kind": "range",
             "target": {"address": "A1"},
         }))
+
+    def test_hwp_snapshot_normalizes_native_units_and_alignment(self):
+        snapshot = formatting_snapshot("hwp", {
+            "selection_kind": "text",
+            "target": {
+                "coordinates": [0, 1, 2, 0, 1, 5],
+                "bold": 1,
+                "font_size_hu": 1250,
+                "paragraph_alignment": 3,
+            },
+        })
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "bold": True,
+                "font_size": 12.5,
+                "alignment": "center",
+            },
+            snapshot,
+        )
+        mixed = formatting_snapshot("hwp", {
+            "selection_kind": "text",
+            "target": {
+                "coordinates": [0, 1, 2, 0, 1, 5],
+                "bold": 99,
+                "font_size_hu": 0,
+                "paragraph_alignment": 99,
+            },
+        })
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "bold": None,
+                "font_size": None,
+                "alignment": None,
+            },
+            mixed,
+        )
 
     def test_exactly_one_clean_facet_change_maps_to_a_preference(self):
         before = formatting_snapshot("word", self._word())

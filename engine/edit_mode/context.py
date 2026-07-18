@@ -631,6 +631,27 @@ class NativeDocumentContextReader:
                         if has_selection
                         else ""
                     )
+                    target = {
+                        "coordinates": coordinates,
+                        "position": position,
+                    }
+                    if has_selection:
+                        try:
+                            character = hwp.HParameterSet.HCharShape
+                            hwp.HAction.GetDefault("CharShape", character.HSet)
+                            paragraph = hwp.HParameterSet.HParaShape
+                            hwp.HAction.GetDefault(
+                                "ParagraphShape", paragraph.HSet
+                            )
+                            target.update({
+                                "bold": _integer(character.Bold),
+                                "font_size_hu": _integer(character.Height),
+                                "paragraph_alignment": _integer(
+                                    paragraph.AlignType
+                                ),
+                            })
+                        except Exception:
+                            pass
                     reference_values = coordinates if has_selection else position
                     prefix = "selected" if has_selection else "cursor"
                     reference = prefix + ":" + ":".join(
@@ -644,10 +665,7 @@ class NativeDocumentContextReader:
                         "active_container": None,
                         "selection_reference": reference,
                         "selection_kind": "text" if has_selection else "cursor",
-                        "target": {
-                            "coordinates": coordinates,
-                            "position": position,
-                        },
+                        "target": target,
                         "selected_text": selected_text,
                         "cursor_reference": ":".join(str(value) for value in position),
                         "read_only": edit_mode == 0,

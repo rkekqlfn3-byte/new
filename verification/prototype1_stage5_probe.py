@@ -93,6 +93,17 @@ class _OwnedHwpProvider:
             if has_selection
             else ""
         )
+        target = {"coordinates": coordinates, "position": position}
+        if has_selection:
+            character = self.hwp.HParameterSet.HCharShape
+            self.hwp.HAction.GetDefault("CharShape", character.HSet)
+            paragraph = self.hwp.HParameterSet.HParaShape
+            self.hwp.HAction.GetDefault("ParagraphShape", paragraph.HSet)
+            target.update({
+                "bold": int(character.Bold),
+                "font_size_hu": int(character.Height),
+                "paragraph_alignment": int(paragraph.AlignType),
+            })
         reference_values = coordinates if has_selection else position
         document_path = self.file_path or str(document.FullName)
         return {
@@ -105,7 +116,7 @@ class _OwnedHwpProvider:
                 + ":".join(str(value) for value in reference_values)
             ),
             "selection_kind": "text" if has_selection else "cursor",
-            "target": {"coordinates": coordinates, "position": position},
+            "target": target,
             "selected_text": selected_text,
             "cursor_reference": ":".join(str(value) for value in position),
             "read_only": int(document.EditMode) == 0,
@@ -360,6 +371,40 @@ def _probe_hwp() -> dict:
         text = str(hwp.GetTextFile("UNICODE", "") or "")
         verified = replacement in text and original not in text
 
+        stage = "observe_direct_hwp_formatting_correction"
+        hwp.HAction.Run("SelectAll")
+        reselected = controller.status()
+        reselect_deferred = bool(
+            reselected.get("session", {}).get("last_action")
+        ) and not reselected.get("direct_edit_feedback")
+        character = hwp.HParameterSet.HCharShape
+        hwp.HAction.GetDefault("CharShape", character.HSet)
+        changed_bold = 0 if int(character.Bold) else 1
+        character.Bold = changed_bold
+        hwp.HAction.Execute("CharShape", character.HSet)
+        observed = controller.status()
+        feedback = dict(observed.get("direct_edit_feedback") or {})
+        expected_emphasis = "bold" if changed_bold else "regular"
+        matching_candidates = [
+            item
+            for item in learning_manager.list_candidates(
+                include_observing=True
+            )
+            if item.get("preference") == "emphasis_style"
+            and item.get("proposed_value") == expected_emphasis
+        ]
+        direct_formatting_verified = (
+            reselect_deferred
+            and feedback.get("recorded") is True
+            and feedback.get("source") == "verified_direct_edit"
+            and feedback.get("observation_kind") == "formatting"
+            and feedback.get("preference") == "emphasis_style"
+            and feedback.get("value") == expected_emphasis
+            and feedback.get("raw_content_stored") is False
+            and len(matching_candidates) == 1
+            and int(matching_candidates[0].get("evidence_count") or 0) == 1
+        )
+
         stage = "approved_learned_font_default"
         hwp.HAction.Run("SelectAll")
         before_height = int(adapter._char_state(hwp)["font_size_hu"])
@@ -377,11 +422,20 @@ def _probe_hwp() -> dict:
         )
         _trace("hwp.status")
         return {
-            "status": "passed" if verified and formatting_verified else "failed",
+            "status": (
+                "passed"
+                if verified
+                and direct_formatting_verified
+                and formatting_verified
+                else "failed"
+            ),
             "owned_fixture_only": True,
             "user_process_protected": True,
             "preview_approval_verified": True,
             "selection_replace_readback_verified": verified and result["verified"],
+            "direct_hwp_formatting_observation_verified": (
+                direct_formatting_verified
+            ),
             "learned_font_default_readback_verified": formatting_verified,
             "session_returned_ready": (
                 controller.status()["session"]["state"] == "ready"

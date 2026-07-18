@@ -296,6 +296,15 @@ class HwpAdapterTests(unittest.TestCase):
         self.assertFalse(prepared.destructive)
         self.assertEqual("앞 중간뒤", hwp.text)
         self.assertTrue(result["verified"])
+        self.assertEqual(
+            {
+                "bold": 0,
+                "font_size_hu": 1000,
+                "text_color": 0,
+                "alignment": 0,
+            },
+            result["after"]["format"],
+        )
 
     def test_verified_insert_can_restore_original_document_snapshot(self):
         hwp = FakeHwp("원래 문장")

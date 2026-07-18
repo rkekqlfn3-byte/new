@@ -1,3 +1,4 @@
+import hashlib
 import unittest
 from types import SimpleNamespace
 
@@ -188,6 +189,80 @@ class Stage7EditingTests(unittest.TestCase):
             first["post_selection_anchor"],
         )
         self.assertEqual("replace_selection", undo["operation"])
+
+    def test_hwp_replacement_keeps_verified_start_text_and_format_after_cursor_collapse(self):
+        replacement = "한글 교체 결과 문장입니다."
+        native = native_action(
+            app="hwp",
+            operation="insert_text",
+            document_id="C:/fixture/stage7.hwp",
+            workbook_name="stage7.hwp",
+            params={
+                "text": replacement,
+                "original_text": "기존 한글 문장입니다.",
+                "selection_coordinates": [0, 1, 10, 0, 1, 30],
+            },
+            current_state={
+                "has_selection": True,
+                "selected_length": 20,
+                "selected_digest": "D" * 64,
+            },
+        )
+        prepared = edit_action(native)
+        result = SimpleNamespace(observations={
+            "verified": True,
+            "changed": True,
+            "after": {
+                "format": {
+                    "bold": 0,
+                    "font_size_hu": 1100,
+                    "alignment": 1,
+                },
+            },
+        })
+        record, _ = build_commit_records(
+            EditRequest(
+                text='선택 문장을 "한글 교체 결과 문장입니다."으로 바꿔줘',
+                edit_session_id="stage7-session",
+                document_fingerprint=FP_B,
+                request_id="stage7-request-hwp",
+            ),
+            prepared,
+            result,
+            {
+                "app_type": "hwp",
+                "context_fingerprint": FP_B,
+                "document_fingerprint": FP_B,
+                "selection_reference": "cursor:0:1:24",
+                "selection_kind": "cursor",
+                "selected_text_digest": hashlib.sha256(b"").hexdigest().upper(),
+                "selected_text_length": 0,
+                "target": {"position": [0, 1, 24]},
+            },
+        )
+
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "kind": "hwp_text",
+                "start": [0, 1, 10],
+            },
+            record["post_selection_anchor"],
+        )
+        self.assertEqual(len(replacement), record["post_selected_text_length"])
+        self.assertEqual(
+            hashlib.sha256(replacement.encode("utf-8")).hexdigest().upper(),
+            record["post_selected_text_digest"],
+        )
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+            record["post_selection_formatting"],
+        )
 
 
 if __name__ == "__main__":

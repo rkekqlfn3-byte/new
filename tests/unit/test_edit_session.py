@@ -1039,6 +1039,65 @@ class DirectEditPreferenceEvidenceTests(unittest.TestCase):
         )
         self.assertEqual([], self.learning.list_candidates(include_observing=True))
 
+    def test_hwp_reselection_is_deferred_then_single_format_change_is_observed(self):
+        fingerprint = self.session["document_fingerprint"]
+        anchor_context = {
+            "app_type": "hwp",
+            "selection_kind": "text",
+            "target": {"coordinates": [0, 1, 10, 0, 1, 110]},
+        }
+        self._remember_verified_edit(
+            selection_reference="cursor:0:1:110",
+            post_document_fingerprint=fingerprint,
+            post_selection_anchor=direct_text_selection_anchor(
+                "hwp", anchor_context
+            ),
+            post_selection_formatting={
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+            completed_at=datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            ),
+        )
+        unchanged = self._changed_context(
+            app_type="hwp",
+            document_fingerprint=fingerprint,
+            selection_reference="selected:0:1:10:0:1:110",
+            selection_kind="text",
+            selected_text_digest="B" * 64,
+            selected_text_length=100,
+            target={
+                "coordinates": [0, 1, 10, 0, 1, 110],
+                "bold": 0,
+                "font_size_hu": 1100,
+                "paragraph_alignment": 1,
+            },
+        )
+        current = self.controller._guard_continuation(
+            self.sessions.current(), unchanged
+        )
+        self.assertIsNotNone(current["last_action"])
+        self.assertEqual(
+            [], self.learning.list_candidates(include_observing=True)
+        )
+
+        formatted = dict(unchanged)
+        formatted["context_fingerprint"] = "E" * 64
+        formatted["target"] = {**unchanged["target"], "bold": 1}
+        self.controller._guard_continuation(
+            self.sessions.current(), formatted
+        )
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("emphasis_style", candidate["preference"])
+        self.assertEqual("bold", candidate["proposed_value"])
+        self.assertEqual(
+            "formatting",
+            self.controller.direct_edit_feedback()["observation_kind"],
+        )
+
     def test_three_tone_observations_suggest_the_matching_activation_phrase(self):
         for index in range(3):
             self._remember_verified_edit(

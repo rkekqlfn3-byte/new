@@ -18,6 +18,7 @@ def _integer(value):
 # different integers for the same visual result.
 _WORD_ALIGNMENTS = {0: "left", 1: "center", 2: "right", 3: "justify"}
 _POWERPOINT_ALIGNMENTS = {1: "left", 2: "center", 3: "right", 4: "justify"}
+_HWP_ALIGNMENTS = {0: "justify", 1: "left", 2: "right", 3: "center"}
 
 
 def _clean_bold(value) -> bool | None:
@@ -42,6 +43,13 @@ def _clean_font_size(value) -> float | None:
     if not 1.0 <= number <= 500.0:
         return None
     return round(number, 1)
+
+
+def _clean_hwp_font_size(value) -> float | None:
+    units = _integer(value)
+    if units is None or not 100 <= units <= 40_900:
+        return None
+    return round(units / 100.0, 1)
 
 
 def direct_text_selection_anchor(app_type: str, context: Mapping) -> dict | None:
@@ -132,7 +140,7 @@ def formatting_snapshot(app_type: str, context: Mapping) -> dict | None:
     """Return normalized text formatting for one Word/PowerPoint text target.
 
     The snapshot holds only structured scalars (bold flag, point size,
-    alignment label).  HWP context does not expose formatting, and mixed or
+    alignment label).  HWP native units are normalized to points.  Mixed or
     undefined native sentinels normalize to ``None`` so a later comparison
     never treats them as a real change.
     """
@@ -147,6 +155,15 @@ def formatting_snapshot(app_type: str, context: Mapping) -> dict | None:
         if kind == "shapes" and _integer(target.get("shape_count")) != 1:
             return None
         alignments = _POWERPOINT_ALIGNMENTS
+    elif normalized == "hwp" and kind == "text":
+        return {
+            "schema_version": 1,
+            "bold": _clean_bold(target.get("bold")),
+            "font_size": _clean_hwp_font_size(target.get("font_size_hu")),
+            "alignment": _HWP_ALIGNMENTS.get(
+                _integer(target.get("paragraph_alignment"))
+            ),
+        }
     else:
         return None
     return {

@@ -1003,6 +1003,10 @@ class EditModeController:
             != str(session.get("document_fingerprint") or "").strip().upper()
         ):
             return False
+        return EditModeController._recent_direct_action(last_action)
+
+    @staticmethod
+    def _recent_direct_action(last_action: dict, seconds: int = 300) -> bool:
         try:
             completed_at = datetime.fromisoformat(
                 str(last_action.get("completed_at") or "")
@@ -1013,7 +1017,42 @@ class EditModeController:
             age = (now - completed_at.astimezone()).total_seconds()
         except (TypeError, ValueError):
             return False
-        return 0 <= age <= 300
+        return 0 <= age <= max(1, int(seconds))
+
+    def _defer_unchanged_direct_target(
+        self,
+        session: dict,
+        last_action: dict,
+        context: dict,
+    ) -> bool:
+        """Let a user reselect the verified text before changing its format."""
+        if (
+            str(last_action.get("operation") or "")
+            not in TEXT_REPLACE_OPERATIONS
+            or not self._recent_direct_action(last_action)
+            or not self._same_direct_edit_target(
+                session, last_action, context
+            )
+        ):
+            return False
+        previous_digest = str(
+            last_action.get("post_selected_text_digest") or ""
+        ).strip().upper()
+        current_digest = str(
+            context.get("selected_text_digest") or ""
+        ).strip().upper()
+        if not previous_digest or previous_digest != current_digest:
+            return False
+        previous_formatting = last_action.get("post_selection_formatting")
+        current_formatting = formatting_snapshot(
+            str(session.get("app_type") or ""),
+            context,
+        )
+        return (
+            isinstance(previous_formatting, dict)
+            and isinstance(current_formatting, dict)
+            and previous_formatting == current_formatting
+        )
 
     def _guard_continuation(self, session: dict, context: dict) -> dict:
         state = self.session_manager.continuation_state(session["session_id"])
@@ -1030,6 +1069,10 @@ class EditModeController:
             )
             if feedback is not None:
                 self._last_direct_edit_feedback = feedback
+            elif self._defer_unchanged_direct_target(
+                session, last_action, context
+            ):
+                return session
             elif self._defer_powerpoint_collapsed_cursor(
                 session, last_action, context
             ):

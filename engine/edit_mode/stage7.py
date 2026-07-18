@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -21,6 +22,7 @@ from engine.edit_mode.target_identity import (
     direct_text_selection_anchor,
     formatting_snapshot,
 )
+from engine.edit_mode.text_tone import classify_text_tone
 
 
 UNDO_PHRASES = (
@@ -391,6 +393,59 @@ def build_commit_records(
         == str(prepared.context_fingerprint or "").upper()
     )
     sequence_count = int(previous.get("sequence_count") or 0) + 1 if same_chain else 1
+    post_anchor = direct_text_selection_anchor(
+        prepared.app_type,
+        post_context,
+    )
+    post_digest = post_context.get("selected_text_digest")
+    post_length = int(post_context.get("selected_text_length") or 0)
+    post_tone = str(post_context.get("selected_text_tone") or "unknown")
+    post_formatting = formatting_snapshot(
+        prepared.app_type,
+        post_context,
+    )
+    if (
+        native
+        and prepared.app_type == "hwp"
+        and native.operation == "insert_text"
+        and bool(native.current_state.get("has_selection"))
+    ):
+        coordinates = native.params.get("selection_coordinates") or []
+        after_text = str(stage7.get("after_text") or "")
+        if (
+            isinstance(coordinates, (list, tuple))
+            and len(coordinates) >= 6
+            and after_text
+        ):
+            synthetic_target = {"coordinates": list(coordinates[:6])}
+            after_result = result.observations.get("after") or {}
+            after_format = (
+                after_result.get("format")
+                if isinstance(after_result, Mapping)
+                else None
+            )
+            if isinstance(after_format, Mapping):
+                synthetic_target.update({
+                    "bold": after_format.get("bold"),
+                    "font_size_hu": after_format.get("font_size_hu"),
+                    "paragraph_alignment": after_format.get("alignment"),
+                })
+            synthetic_context = {
+                "app_type": "hwp",
+                "selection_kind": "text",
+                "target": synthetic_target,
+            }
+            post_anchor = direct_text_selection_anchor(
+                "hwp", synthetic_context
+            )
+            post_digest = hashlib.sha256(
+                after_text.encode("utf-8")
+            ).hexdigest().upper()
+            post_length = len(after_text)
+            post_tone = classify_text_tone(after_text)
+            post_formatting = formatting_snapshot(
+                "hwp", synthetic_context
+            )
     last_action = {
         "action_id": prepared.action_id,
         "request_id": request.request_id,
@@ -405,21 +460,11 @@ def build_commit_records(
         "target": preview.get("target") or prepared.target.get("native_target"),
         "selection_reference": post_context.get("selection_reference"),
         "post_document_fingerprint": post_context.get("document_fingerprint"),
-        "post_selection_anchor": direct_text_selection_anchor(
-            prepared.app_type,
-            post_context,
-        ),
-        "post_selected_text_digest": post_context.get("selected_text_digest"),
-        "post_selected_text_length": int(
-            post_context.get("selected_text_length") or 0
-        ),
-        "post_selected_text_tone": str(
-            post_context.get("selected_text_tone") or "unknown"
-        ),
-        "post_selection_formatting": formatting_snapshot(
-            prepared.app_type,
-            post_context,
-        ),
+        "post_selection_anchor": post_anchor,
+        "post_selected_text_digest": post_digest,
+        "post_selected_text_length": post_length,
+        "post_selected_text_tone": post_tone,
+        "post_selection_formatting": post_formatting,
         "pre_context_fingerprint": prepared.context_fingerprint,
         "post_context_fingerprint": post_context.get("context_fingerprint"),
         "sequence_count": min(sequence_count, 1000),

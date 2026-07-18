@@ -707,6 +707,10 @@ class HwpAdapter:
             parameter_set.SetItem("Text", current.params["text"])
             action.Execute(parameter_set)
             _, after_base, after_text, _ = self._context(hwp)
+            post_format = {
+                **self._char_state(hwp),
+                "alignment": self._paragraph_state(hwp)["alignment"],
+            }
             if (
                 after_base["text_digest"] == before_base["text_digest"]
                 or after_text.count(current.params["text"])
@@ -730,6 +734,7 @@ class HwpAdapter:
                 "position": after_base["position"],
                 "inserted_length": len(current.params["text"]),
                 "document_digest": after_base["text_digest"],
+                "format": post_format,
             },
             True,
         )
