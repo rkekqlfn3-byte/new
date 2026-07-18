@@ -48,7 +48,10 @@ UI Automation 컨트롤을 못 찾은 경우에도 아직 클릭·입력이 시�
 제외하며 자유 문장과 문서 원문은 저장하지 않습니다. 직접 수정 증거 역시 같은 값
 3회와 사용자 승인이 있어야 기본값으로 활성화되며, 증거가 모인 뒤의
 `앞으로도 간결하게 해줘` 같은 확인 문장은 현재 파일에 대기 중인 후보의 활성화
-승인으로 연결됩니다.
+승인으로 연결됩니다. PowerPoint는 JARVIS가 단일 Shape 전체 텍스트를 편집한
+경우 같은 SlideID·ShapeID의 단일 Shape 재선택도 안전한 동일 대상으로 봅니다.
+빈 텍스트 커서가 같은 Shape에 있으면 본문을 더 읽지 않고 최대 5분만 기다리며,
+여러 Shape 또는 다른 Shape로 이동하면 관찰하지 않습니다.
 
 예를 들어 `PPT는 항상 7장으로 만들어줘`를 세 번 확인하고 활성화하면 다음
 보고서 워크플로의 기본 PPT가 7장이 됩니다. `5장짜리 PPT`라고 직접 요청하면
@@ -220,8 +223,8 @@ handle만 갱신하고 동일 문서 fingerprint를 재확인한 뒤 계속합�
 .venv\Scripts\python.exe -m verification.product_goal_acceptance --automated-only
 ```
 
-2026-07-18 한글 일반 편집 서식 기본값 보강 기준으로 전체 자동 테스트
-821개 중 818개가 통과했고(unit 294·integration 321·windows 203), 실제 외부
+2026-07-18 PowerPoint 단일 Shape 직접 교정 관찰 보강 기준으로 전체 자동 테스트
+828개 중 825개가 통과했고(unit 301·integration 321·windows 203), 실제 외부
 AI 자격 증명과 호출 승인이 필요한 라이브 테스트 3개만 건너뛰었으며 실패는
 0개입니다. 8단계는 Excel·한글·Word·PowerPoint 각각
 100/100회와 적용·검증·Undo를 통과했습니다. 9단계 소유 `.xlsm`은 프로젝트

@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -778,6 +779,190 @@ class DirectEditPreferenceEvidenceTests(unittest.TestCase):
             "selection_reference": "10:110",
         })
         return word_file
+
+    def _connect_powerpoint_session(self):
+        powerpoint_file = self.root / "서식관찰.pptx"
+        powerpoint_file.write_bytes(b"fixture")
+        self.sessions.disconnect(self.session["session_id"])
+        self.session = self.sessions.connect({
+            "app_type": "powerpoint",
+            "file_path": str(powerpoint_file),
+            "document_name": powerpoint_file.name,
+            "window_handle": 35,
+            "selection_reference": "제목 1",
+        })
+        return powerpoint_file
+
+    def _remember_powerpoint_shape_edit(self, completed_at=None):
+        self._connect_powerpoint_session()
+        fingerprint = self.session["document_fingerprint"]
+        post_context = {
+            "app_type": "powerpoint",
+            "selection_kind": "shapes",
+            "target": {
+                "slide_id": 256,
+                "shape_id": 7,
+                "shape_count": 1,
+            },
+        }
+        self._remember_verified_edit(
+            app_type="powerpoint",
+            operation="replace_shape_text",
+            selection_reference="제목 1",
+            post_document_fingerprint=fingerprint,
+            post_selection_anchor=direct_text_selection_anchor(
+                "powerpoint", post_context
+            ),
+            post_selection_formatting={
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 28.0,
+                "alignment": "left",
+            },
+            completed_at=(
+                completed_at
+                or datetime.now().astimezone().isoformat(timespec="seconds")
+            ),
+        )
+        return fingerprint
+
+    @staticmethod
+    def _powerpoint_shape_context(fingerprint, **changes):
+        context = {
+            "app_type": "powerpoint",
+            "context_fingerprint": "C" * 64,
+            "document_fingerprint": fingerprint,
+            "selection_reference": "제목 1",
+            "selection_kind": "shapes",
+            "selected_text_digest": "B" * 64,
+            "selected_text_length": 100,
+            "target": {
+                "slide_id": 256,
+                "shape_id": 7,
+                "shape_count": 1,
+                "bold": -1,
+                "font_size": 28.0,
+                "paragraph_alignment": 1,
+            },
+        }
+        context.update(changes)
+        return context
+
+    def test_powerpoint_single_shape_formatting_correction_is_observed(self):
+        fingerprint = self._remember_powerpoint_shape_edit()
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._powerpoint_shape_context(fingerprint),
+        )
+
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("emphasis_style", candidate["preference"])
+        self.assertEqual("bold", candidate["proposed_value"])
+        feedback = self.controller.direct_edit_feedback()
+        self.assertEqual("formatting", feedback["observation_kind"])
+        self.assertFalse(feedback["raw_content_stored"])
+
+    def test_powerpoint_single_shape_shortening_is_observed(self):
+        fingerprint = self._remember_powerpoint_shape_edit()
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._powerpoint_shape_context(
+                fingerprint,
+                selected_text_digest="D" * 64,
+                selected_text_length=60,
+                target={
+                    "slide_id": 256,
+                    "shape_id": 7,
+                    "shape_count": 1,
+                    "bold": 0,
+                    "font_size": 28.0,
+                    "paragraph_alignment": 1,
+                },
+            ),
+        )
+
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("report_tone", candidate["preference"])
+        self.assertEqual("concise", candidate["proposed_value"])
+        self.assertEqual(
+            "shortened",
+            self.controller.direct_edit_feedback()["observation_kind"],
+        )
+
+    def test_powerpoint_collapsed_cursor_defers_until_same_shape_is_selected(self):
+        fingerprint = self._remember_powerpoint_shape_edit()
+        cursor_context = self._powerpoint_shape_context(
+            fingerprint,
+            context_fingerprint="D" * 64,
+            selection_kind="text",
+            selected_text_digest="E" * 64,
+            selected_text_length=0,
+            target={
+                "slide_id": 256,
+                "shape_id": 7,
+                "shape_count": 1,
+                "text_start": 1,
+                "text_end": 1,
+            },
+        )
+        current = self.controller._guard_continuation(
+            self.sessions.current(), cursor_context
+        )
+        self.assertIsNotNone(current["last_action"])
+        self.assertEqual(
+            [], self.learning.list_candidates(include_observing=True)
+        )
+
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._powerpoint_shape_context(fingerprint),
+        )
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("bold", candidate["proposed_value"])
+
+    def test_powerpoint_collapsed_cursor_after_five_minutes_is_not_deferred(self):
+        fingerprint = self._remember_powerpoint_shape_edit(
+            completed_at="2026-07-18T00:00:00+09:00"
+        )
+        current = self.controller._guard_continuation(
+            self.sessions.current(),
+            self._powerpoint_shape_context(
+                fingerprint,
+                context_fingerprint="D" * 64,
+                selection_kind="text",
+                selected_text_digest="E" * 64,
+                selected_text_length=0,
+                target={
+                    "slide_id": 256,
+                    "shape_id": 7,
+                    "shape_count": 1,
+                    "text_start": 1,
+                    "text_end": 1,
+                },
+            ),
+        )
+        self.assertIsNone(current["last_action"])
+        self.assertEqual(
+            [], self.learning.list_candidates(include_observing=True)
+        )
+
+    def test_powerpoint_other_or_multiple_shapes_are_not_observed(self):
+        cases = (
+            {"shape_id": 8, "shape_count": 1},
+            {"shape_id": 7, "shape_count": 2},
+        )
+        for index, shape_target in enumerate(cases):
+            with self.subTest(target=shape_target):
+                fingerprint = self._remember_powerpoint_shape_edit()
+                context = self._powerpoint_shape_context(fingerprint)
+                context["target"].update(shape_target)
+                context["selection_reference"] = f"제목 {index + 2}"
+                self.controller._guard_continuation(
+                    self.sessions.current(), context
+                )
+                self.assertEqual(
+                    [], self.learning.list_candidates(include_observing=True)
+                )
 
     def test_single_formatting_change_with_same_text_records_style_evidence(self):
         self._connect_word_session()

@@ -253,7 +253,7 @@ class NativeContextExtractionTests(unittest.TestCase):
         shape = SimpleNamespace(Id=7, Name="제목 1")
         selection = SimpleNamespace(
             Type=3,
-            ShapeRange=SimpleNamespace(Item=lambda index: shape),
+            ShapeRange=SimpleNamespace(Count=1, Item=lambda index: shape),
             TextRange=text_range,
         )
         window = SimpleNamespace(
@@ -272,6 +272,7 @@ class NativeContextExtractionTests(unittest.TestCase):
         self.assertEqual("슬라이드 3", context["active_container"])
         self.assertIn("제목 1", context["selection_reference"])
         self.assertEqual(7, context["target"]["shape_id"])
+        self.assertEqual(1, context["target"]["shape_count"])
         self.assertEqual("제목", context["selected_text"])
 
 

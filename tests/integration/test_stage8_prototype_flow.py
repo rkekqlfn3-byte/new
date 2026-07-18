@@ -131,6 +131,7 @@ class SwitchingContextManager:
                 "slide_number": 2,
                 "slide_id": 200,
                 "shape_id": 7,
+                "shape_count": 1,
                 "shape_name": "제목 2",
                 "placeholder_type": 1,
                 "left": 50.0,

@@ -21,6 +21,7 @@ from engine.app_actions.word_adapter import WordAdapter
 from engine.edit_mode import EditContextManager, EditModeController, EditSessionManager
 from engine.edit_mode.context import NativeDocumentContextReader
 from engine.edit_mode.native_bridge import NativeDocumentBridge
+from engine.learning import UserPreferenceLearningManager
 from engine.parser import CommandParser
 from verification.prototype1_stage3_probe import (
     APP_SPECS,
@@ -66,7 +67,13 @@ class _OwnedOfficeProvider:
         return method(self.application, self.document)
 
 
-def _session_parser(app_type, path, context_manager, native_adapter):
+def _session_parser(
+    app_type,
+    path,
+    context_manager,
+    native_adapter,
+    user_learning_manager=None,
+):
     sessions = EditSessionManager()
     session = sessions.connect({
         "app_type": app_type,
@@ -80,6 +87,7 @@ def _session_parser(app_type, path, context_manager, native_adapter):
         context_manager=context_manager,
         native_action_registry=_Registry(app_type, native_adapter),
         layout_manager=_NoLayout(),
+        user_learning_manager=user_learning_manager,
     )
     return session, controller, CommandParser(edit_mode_controller=controller)
 
@@ -237,6 +245,7 @@ def _probe_powerpoint():
         return {"status": "unavailable"}
 
     application = presentation = provider = controller = parser = None
+    learning_manager = None
     first = second = shape = None
     temp_dir = tempfile.mkdtemp(prefix="jarvis-stage6-powerpoint-")
     path = Path(temp_dir) / f"stage6-{uuid.uuid4().hex}.pptx"
@@ -263,11 +272,15 @@ def _probe_powerpoint():
         provider = _OwnedOfficeProvider("powerpoint", application, presentation)
         manager = EditContextManager(providers=(provider,))
         adapter = PowerPointAdapter(application_getter=lambda: application)
+        learning_manager = UserPreferenceLearningManager(
+            Path(temp_dir) / "powerpoint-direct-edit-preferences.json"
+        )
         session, controller, parser = _session_parser(
             "powerpoint",
             path,
             manager,
             adapter,
+            user_learning_manager=learning_manager,
         )
 
         stage = "approved_replace"
@@ -279,6 +292,26 @@ def _probe_powerpoint():
             "stage6-ppt-replace",
         )
         text_verified = str(shape.TextFrame.TextRange.Text) == replacement
+
+        stage = "observe_direct_shape_formatting_correction"
+        previous_bold = int(shape.TextFrame.TextRange.Font.Bold)
+        changed_bold = 0 if previous_bold else -1
+        shape.TextFrame.TextRange.Font.Bold = changed_bold
+        shape.Select()
+        observed_status = controller.status()
+        feedback = dict(observed_status.get("direct_edit_feedback") or {})
+        expected_value = "bold" if changed_bold else "regular"
+        direct_observation_verified = (
+            feedback.get("recorded") is True
+            and feedback.get("source") == "verified_direct_edit"
+            and feedback.get("observation_kind") == "formatting"
+            and feedback.get("preference") == "emphasis_style"
+            and feedback.get("value") == expected_value
+            and feedback.get("raw_content_stored") is False
+            and len(
+                learning_manager.list_candidates(include_observing=True)
+            ) == 1
+        )
 
         stage = "approved_move"
         shape.Select()
@@ -307,6 +340,7 @@ def _probe_powerpoint():
         )
         verified = all((
             text_verified,
+            direct_observation_verified,
             move_verified,
             style_verified,
             replaced["verified"],
@@ -319,6 +353,9 @@ def _probe_powerpoint():
             "user_process_protected": True,
             "preview_approval_verified": True,
             "shape_text_readback_verified": text_verified,
+            "collapsed_shape_direct_observation_verified": (
+                direct_observation_verified
+            ),
             "shape_move_readback_verified": move_verified,
             "previous_style_readback_verified": style_verified,
             "session_returned_ready": controller.status()["session"]["state"] == "ready",
@@ -332,7 +369,8 @@ def _probe_powerpoint():
             "user_process_protected": True,
         }
     finally:
-        parser = controller = provider = shape = second = first = None
+        parser = controller = provider = learning_manager = None
+        shape = second = first = None
         if presentation is not None:
             try:
                 presentation.Close()

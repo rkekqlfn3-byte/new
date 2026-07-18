@@ -520,10 +520,12 @@ class NativeDocumentContextReader:
         if selection_type in {2, 3}:
             try:
                 shape_range = selection.ShapeRange
+                shape_count = _integer(getattr(shape_range, "Count", 0))
                 shape = _item(shape_range, 1)
                 shape_id = _integer(getattr(shape, "Id", 0))
                 shape_name = _string(getattr(shape, "Name", ""))
                 target.update({
+                    "shape_count": shape_count,
                     "shape_id": shape_id,
                     "shape_name": shape_name,
                     "left": float(_com_value(getattr(shape, "Left", 0))),

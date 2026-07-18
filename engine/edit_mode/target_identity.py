@@ -79,18 +79,27 @@ def direct_text_selection_anchor(app_type: str, context: Mapping) -> dict | None
             })
         return anchor
 
-    if normalized == "powerpoint" and kind == "text":
+    if normalized == "powerpoint" and kind in {"text", "shapes"}:
         slide_id = _integer(target.get("slide_id"))
         shape_id = _integer(target.get("shape_id"))
-        text_start = _integer(target.get("text_start"))
         if (
             slide_id is None
             or slide_id <= 0
             or shape_id is None
             or shape_id <= 0
-            or text_start is None
-            or text_start < 0
         ):
+            return None
+        if kind == "shapes":
+            if _integer(target.get("shape_count")) != 1:
+                return None
+            return {
+                "schema_version": 1,
+                "kind": "powerpoint_shape_text",
+                "slide_id": slide_id,
+                "shape_id": shape_id,
+            }
+        text_start = _integer(target.get("text_start"))
+        if text_start is None or text_start < 0:
             return None
         return {
             "schema_version": 1,
@@ -134,7 +143,9 @@ def formatting_snapshot(app_type: str, context: Mapping) -> dict | None:
         return None
     if normalized == "word" and kind in {"text", "table_cell"}:
         alignments = _WORD_ALIGNMENTS
-    elif normalized == "powerpoint" and kind == "text":
+    elif normalized == "powerpoint" and kind in {"text", "shapes"}:
+        if kind == "shapes" and _integer(target.get("shape_count")) != 1:
+            return None
         alignments = _POWERPOINT_ALIGNMENTS
     else:
         return None

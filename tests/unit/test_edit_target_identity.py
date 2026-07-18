@@ -70,6 +70,33 @@ class DirectTextSelectionAnchorTests(unittest.TestCase):
         self.assertEqual(before, shorter)
         self.assertNotEqual(before, other_shape)
 
+    def test_powerpoint_single_shape_anchor_ignores_text_selection_offsets(self):
+        shape = direct_text_selection_anchor("powerpoint", {
+            "selection_kind": "shapes",
+            "target": {
+                "slide_id": 256,
+                "shape_id": 7,
+                "shape_count": 1,
+            },
+        })
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "kind": "powerpoint_shape_text",
+                "slide_id": 256,
+                "shape_id": 7,
+            },
+            shape,
+        )
+        self.assertIsNone(direct_text_selection_anchor("powerpoint", {
+            "selection_kind": "shapes",
+            "target": {
+                "slide_id": 256,
+                "shape_id": 7,
+                "shape_count": 2,
+            },
+        }))
+
     def test_hwp_anchor_normalizes_selection_direction_and_ignores_end(self):
         before = direct_text_selection_anchor("hwp", {
             "selection_kind": "text",
@@ -125,6 +152,35 @@ class FormattingSnapshotTests(unittest.TestCase):
         })
         self.assertEqual("right", word["alignment"])
         self.assertEqual("center", powerpoint["alignment"])
+
+    def test_powerpoint_single_shape_snapshot_uses_existing_whole_shape_context(self):
+        snapshot = formatting_snapshot("powerpoint", {
+            "selection_kind": "shapes",
+            "target": {
+                "shape_count": 1,
+                "bold": -1,
+                "font_size": 24.0,
+                "paragraph_alignment": 2,
+            },
+        })
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "bold": True,
+                "font_size": 24.0,
+                "alignment": "center",
+            },
+            snapshot,
+        )
+        self.assertIsNone(formatting_snapshot("powerpoint", {
+            "selection_kind": "shapes",
+            "target": {
+                "shape_count": 2,
+                "bold": -1,
+                "font_size": 24.0,
+                "paragraph_alignment": 2,
+            },
+        }))
 
     def test_mixed_or_undefined_native_sentinels_normalize_to_none(self):
         snapshot = formatting_snapshot(

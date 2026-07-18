@@ -68,7 +68,9 @@ Shape가 없거나 둘 이상이면 임의로 고르지 않고 차단한다. Sha
 - `tests/windows/test_word_powerpoint_actions.py`: 가짜 COM 객체로 텍스트·서식·
   정렬·이동·크기·스타일 복사와 승인 사이 문맥 변경 차단 검증
 - `verification/prototype1_stage6_probe.py`: 사용자 Office 프로세스가 없을 때만
-  격리 프로세스에서 JARVIS 소유 임시 Word/PPTX를 생성·편집·재읽기·정리
+  격리 프로세스에서 JARVIS 소유 임시 Word/PPTX를 생성·편집·재읽기·정리.
+  PowerPoint 제목 교체 뒤 같은 단일 Shape의 직접 굵기 교정도 파일 범위 학습
+  증거로 정확히 한 번 기록되는지 확인
 
 2026-07-16 실제 소유 문서 probe에서 Word 선택 문장 교체·글자 크기·
 저장과 PowerPoint 제목 교체·Shape 이동·앞 슬라이드 스타일 복사가 모두
@@ -76,6 +78,11 @@ Shape가 없거나 둘 이상이면 임의로 고르지 않고 차단한다. Sha
 문서 경로나 내용을 기록하지 않았고 종료 후 생성된 Office 프로세스가
 남지 않았다. 자동 회귀는 525개 중 522개 통과, 외부 AI 3개 skip,
 실패 0개였다.
+
+2026-07-18 보강 probe에서는 PowerPoint 제목 교체 후 같은 단일 Shape의 굵기를
+직접 바꿔 구조화된 서식 선호 증거가 원문 없이 한 번 기록되는 것까지 통과했다.
+최신 전체 자동 회귀는 828개 중 825개 통과(unit 301·integration 321·
+windows 203), 외부 AI 라이브 3개 skip, 실패 0개다.
 
 ## 6단계 완료 기준
 

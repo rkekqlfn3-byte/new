@@ -39,6 +39,12 @@ PROBE_SPECS = {
     "native_word_powerpoint": {
         "file": "prototype1_stage6_report.json",
         "probe": "prototype1_stage6_owned_fixture_word_powerpoint_editing",
+        "required_targets": ("word", "powerpoint"),
+        "required_target_checks": {
+            "powerpoint": (
+                "collapsed_shape_direct_observation_verified",
+            ),
+        },
     },
     "four_app_stability": {
         "file": "prototype1_stage8_report.json",

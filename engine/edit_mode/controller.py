@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import os
 import uuid
 from pathlib import Path
@@ -927,15 +928,8 @@ class EditModeController:
         if context_app and context_app != app_type:
             return False
 
-        expected_reference = str(
-            last_action.get("selection_reference") or ""
-        ).strip()
-        actual_reference = str(
-            context.get("selection_reference") or ""
-        ).strip()
-        if expected_reference and actual_reference == expected_reference:
-            return True
-
+        expected_anchor = last_action.get("post_selection_anchor")
+        has_anchor = isinstance(expected_anchor, dict) and bool(expected_anchor)
         expected_fingerprint = str(
             last_action.get("post_document_fingerprint") or ""
         ).strip().upper()
@@ -945,18 +939,81 @@ class EditModeController:
         session_fingerprint = str(
             session.get("document_fingerprint") or ""
         ).strip().upper()
+        if has_anchor:
+            if (
+                not expected_fingerprint
+                or expected_fingerprint != actual_fingerprint
+                or expected_fingerprint != session_fingerprint
+            ):
+                return False
+            actual_anchor = direct_text_selection_anchor(app_type, context)
+            return actual_anchor is not None and expected_anchor == actual_anchor
+
+        expected_reference = str(
+            last_action.get("selection_reference") or ""
+        ).strip()
+        actual_reference = str(
+            context.get("selection_reference") or ""
+        ).strip()
+        return bool(expected_reference and actual_reference == expected_reference)
+
+    @staticmethod
+    def _defer_powerpoint_collapsed_cursor(
+        session: dict,
+        last_action: dict,
+        context: dict,
+    ) -> bool:
+        """Keep one recent whole-Shape observation while its text cursor is active.
+
+        A collapsed cursor exposes no selected text.  Reading the whole Shape in
+        that state would cross the selection privacy boundary, so polling waits
+        only for the same single Shape to become structurally selected again.
+        """
         if (
-            not expected_fingerprint
-            or expected_fingerprint != actual_fingerprint
-            or expected_fingerprint != session_fingerprint
+            str(session.get("app_type") or "").casefold() != "powerpoint"
+            or str(last_action.get("app_type") or "").casefold() != "powerpoint"
+            or str(context.get("app_type") or "").casefold() != "powerpoint"
+            or str(context.get("selection_kind") or "").casefold() != "text"
+            or int(context.get("selected_text_length") or 0) != 0
         ):
             return False
-
-        expected_anchor = last_action.get("post_selection_anchor")
-        if not isinstance(expected_anchor, dict) or not expected_anchor:
+        anchor = last_action.get("post_selection_anchor")
+        if (
+            not isinstance(anchor, dict)
+            or anchor.get("kind") != "powerpoint_shape_text"
+        ):
             return False
-        actual_anchor = direct_text_selection_anchor(app_type, context)
-        return actual_anchor is not None and expected_anchor == actual_anchor
+        target = context.get("target") or {}
+        if not isinstance(target, dict):
+            return False
+        if (
+            int(target.get("shape_count") or 0) != 1
+            or int(target.get("slide_id") or 0) != int(anchor.get("slide_id") or 0)
+            or int(target.get("shape_id") or 0) != int(anchor.get("shape_id") or 0)
+        ):
+            return False
+        expected_fingerprint = str(
+            last_action.get("post_document_fingerprint") or ""
+        ).strip().upper()
+        if (
+            not expected_fingerprint
+            or expected_fingerprint
+            != str(context.get("document_fingerprint") or "").strip().upper()
+            or expected_fingerprint
+            != str(session.get("document_fingerprint") or "").strip().upper()
+        ):
+            return False
+        try:
+            completed_at = datetime.fromisoformat(
+                str(last_action.get("completed_at") or "")
+            )
+            now = datetime.now().astimezone()
+            if completed_at.tzinfo is None:
+                completed_at = completed_at.astimezone()
+            age = (now - completed_at.astimezone()).total_seconds()
+        except (TypeError, ValueError):
+            return False
+        return 0 <= age <= 300
 
     def _guard_continuation(self, session: dict, context: dict) -> dict:
         state = self.session_manager.continuation_state(session["session_id"])
@@ -973,6 +1030,10 @@ class EditModeController:
             )
             if feedback is not None:
                 self._last_direct_edit_feedback = feedback
+            elif self._defer_powerpoint_collapsed_cursor(
+                session, last_action, context
+            ):
+                return session
             return self.session_manager.clear_continuation(session["session_id"])
         return session
 
