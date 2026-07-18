@@ -172,7 +172,16 @@ def _verify_powerpoint(path):
         gc.collect()
 
 
-def _owned_probe(report_format="word"):
+def _publish_progress(progress, stage):
+    if progress is None:
+        return
+    try:
+        progress.put_nowait(str(stage))
+    except queue.Full:
+        pass
+
+
+def _owned_probe(report_format="word", progress=None):
     import pythoncom
 
     baseline = _process_ids()
@@ -184,6 +193,7 @@ def _owned_probe(report_format="word"):
     temp_dir = Path(tempfile.mkdtemp(prefix="jarvis-stage10-workflow-"))
     source = temp_dir / f"stage10-{uuid.uuid4().hex}.xlsx"
     stage = "create_owned_excel_source"
+    _publish_progress(progress, stage)
     pythoncom.CoInitialize()
     try:
         _create_source(source)
@@ -192,6 +202,7 @@ def _owned_probe(report_format="word"):
         source_before = file_fingerprint(source)
 
         stage = "prepare_approval_state"
+        _publish_progress(progress, stage)
         executor = WorkflowExecutor(temp_dir / "workflow-state")
         expected_formatting = {
             "emphasis_style": "bold",
@@ -208,35 +219,58 @@ def _owned_probe(report_format="word"):
             not Path(path).exists() for path in state["output_paths"].values()
         )
 
-        stage = "execute_three_steps"
+        stage = "execute_requested_steps"
+        _publish_progress(progress, stage)
         result = executor.start(state)
-        report_path = Path(result["output_paths"]["report"])
+        report_kinds = (
+            ("word", "hwp")
+            if report_format == "both"
+            else (report_format,)
+        )
+        output_paths = dict(result["output_paths"])
+        report_paths = {
+            kind: Path(
+                output_paths[f"report_{kind}"]
+                if report_format == "both"
+                else output_paths["report"]
+            )
+            for kind in report_kinds
+        }
         presentation_path = Path(result["output_paths"]["presentation"])
 
         stage = "reopen_and_verify_outputs"
-        word_verified = (
-            _verify_word(report_path, expected_formatting)
-            if report_format == "word" else None
-        )
+        _publish_progress(progress, stage)
+        word_verified = True
+        if "word" in report_kinds:
+            word_verified = _verify_word(
+                report_paths["word"], expected_formatting
+            )
         powerpoint_verified = _verify_powerpoint(presentation_path)
         stored = executor.load(state["workflow_id"])
-        report_verification = (
-            stored.get("verification_results", {}).get("create_word_report", {})
-        )
-        report_verified = (
-            word_verified
-            if report_format == "word"
-            else (
-                report_path.suffix.casefold() == ".hwp"
-                and report_path.is_file()
-                and report_verification.get("format") == "hwp"
-                and report_verification.get("content_readback") is True
-                and report_verification.get("title_present") is True
-                and int(report_verification.get("text_length") or 0) > 0
-                and report_verification.get("applied_formatting")
+        verification_results = stored.get("verification_results", {})
+        hwp_verified = True
+        if "hwp" in report_kinds:
+            hwp_path = report_paths["hwp"]
+            hwp_verification = verification_results.get(
+                "create_hwp_report", {}
+            )
+            hwp_verified = (
+                hwp_path.suffix.casefold() == ".hwp"
+                and hwp_path.is_file()
+                and hwp_verification.get("format") == "hwp"
+                and hwp_verification.get("content_readback") is True
+                and hwp_verification.get("title_present") is True
+                and int(hwp_verification.get("text_length") or 0) > 0
+                and hwp_verification.get("applied_formatting")
                 == expected_formatting
             )
-        )
+        report_verified = bool(word_verified and hwp_verified)
+        expected_steps = ["analyze_excel"]
+        if "word" in report_kinds:
+            expected_steps.append("create_word_report")
+        if "hwp" in report_kinds:
+            expected_steps.append("create_hwp_report")
+        expected_steps.append("create_powerpoint_summary")
         analyzed_tables = (stored.get("work_product") or {}).get("tables", [])
         analyzed_sheet_names = {table.get("name") for table in analyzed_tables}
         analyzed_sheet_count = (
@@ -250,22 +284,22 @@ def _owned_probe(report_format="word"):
             "two_tables_created": len(analyzed_tables) == 2,
             "both_fixture_sheet_names_present": analyzed_sheet_names == {"매출", "비용"},
             "verification_sheet_count_is_two": analyzed_sheet_count == 2,
-            "all_three_steps_succeeded": stored.get("successful_steps") == [
-                "analyze_excel",
-                "create_word_report",
-                "create_powerpoint_summary",
-            ],
+            "all_requested_steps_succeeded": (
+                stored.get("successful_steps") == expected_steps
+            ),
             "requested_report_format_preserved": (
                 stored.get("report_format") == report_format
             ),
             "report_content_verified": bool(report_verified),
             "powerpoint_exactly_five_slides": powerpoint_verified,
-            "two_artifacts_created": len(result.get("created_files") or []) == 2,
+            "expected_artifacts_created": (
+                len(result.get("created_files") or []) == len(report_kinds) + 1
+            ),
             "source_unchanged": file_fingerprint(source) == source_before,
             "persistent_state_completed": stored.get("status") == "completed",
             "step_verifications_recorded": len(
                 stored.get("verification_results") or {}
-            ) == 3,
+            ) == len(expected_steps),
         }
         return {
             "status": "passed" if all(checks.values()) else "failed",
@@ -289,14 +323,23 @@ def _owned_probe(report_format="word"):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _worker(output, report_format):
-    output.put(_owned_probe(report_format))
+def _worker(output, progress, report_format):
+    output.put(_owned_probe(report_format, progress))
+
+
+def _latest_progress(progress):
+    latest = None
+    while True:
+        try:
+            latest = progress.get_nowait()
+        except queue.Empty:
+            return latest
 
 
 def run_probe(timeout=240, report_format="word"):
     report_format = str(report_format or "word").casefold()
-    if report_format not in {"word", "hwp"}:
-        raise ValueError("report_format must be word or hwp")
+    if report_format not in {"word", "hwp", "both"}:
+        raise ValueError("report_format must be word, hwp, or both")
     baseline = _process_ids()
     if baseline:
         result = {
@@ -306,7 +349,10 @@ def run_probe(timeout=240, report_format="word"):
     else:
         context = multiprocessing.get_context("spawn")
         output = context.Queue(maxsize=1)
-        process = context.Process(target=_worker, args=(output, report_format))
+        progress = context.Queue(maxsize=16)
+        process = context.Process(
+            target=_worker, args=(output, progress, report_format)
+        )
         process.start()
         process.join(timeout)
         if process.is_alive():
@@ -315,7 +361,7 @@ def run_probe(timeout=240, report_format="word"):
             _stop_created_processes(baseline)
             result = {
                 "status": "failed",
-                "stage": "owned_fixture_timeout",
+                "stage": _latest_progress(progress) or "owned_fixture_timeout",
                 "error_type": "TimeoutError",
                 "message": "Stage 10 소유 문서 검증이 제한 시간 안에 끝나지 않았습니다.",
                 "user_process_protected": True,
@@ -351,7 +397,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPORT_PATH)
     parser.add_argument("--timeout", type=int, default=240)
-    parser.add_argument("--report-format", choices=("word", "hwp"), default="word")
+    parser.add_argument(
+        "--report-format", choices=("word", "hwp", "both"), default="word"
+    )
     args = parser.parse_args(argv)
     report = run_probe(args.timeout, args.report_format)
     args.output.parent.mkdir(parents=True, exist_ok=True)

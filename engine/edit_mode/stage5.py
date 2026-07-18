@@ -742,12 +742,23 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
         observations = result.observations
         outputs = dict(observations.get("output_paths") or {})
         report_format = str(observations.get("report_format") or "word")
-        report_label = "한글" if report_format == "hwp" else "Word"
+        report_label = {
+            "word": "Word",
+            "hwp": "한글",
+            "both": "Word·한글",
+        }.get(report_format, "Word")
+        if report_format == "both":
+            report_paths = (
+                f"Word: {outputs.get('report_word', '')}\n"
+                f"한글: {outputs.get('report_hwp', '')}"
+            )
+        else:
+            report_paths = f"{report_label}: {outputs.get('report', '')}"
         return (
             f"Excel 원본을 변경하지 않고 분석을 완료해 {report_label} 보고서와 "
             f"{observations.get('slide_count', 5)}장짜리 PowerPoint를 만들고 "
             "파일 지문까지 검증했습니다.\n"
-            f"{report_label}: {outputs.get('report', '')}\n"
+            f"{report_paths}\n"
             f"PowerPoint: {outputs.get('presentation', '')}\n"
             f"워크플로 ID: {observations.get('workflow_id', '')}"
         )

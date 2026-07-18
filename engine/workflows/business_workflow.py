@@ -20,10 +20,11 @@ from engine.runtime_paths import USER_DATA_DIR
 from engine.storage.json_store import atomic_write_json, safe_read_json
 
 
-WORKFLOW_SCHEMA_VERSION = 2
+WORKFLOW_SCHEMA_VERSION = 3
 STEP_NAMES = (
     "analyze_excel",
     "create_word_report",
+    "create_hwp_report",
     "create_powerpoint_summary",
 )
 MAX_WORKSHEETS = 20
@@ -40,6 +41,7 @@ SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xlsb", ".xls"})
 REPORT_FORMATS = {
     "word": {"label": "Word", "suffix": ".docx"},
     "hwp": {"label": "한글", "suffix": ".hwp"},
+    "both": {"label": "Word·한글", "suffix": None},
 }
 WORKFLOW_PREFERENCE_KEYS = frozenset({
     "summary_lines", "report_tone", "title_style", "number_format",
@@ -193,11 +195,56 @@ def _reserve_output(directory: Path, stem: str, suffix: str, token: str) -> Path
 
 def _report_format(value) -> str:
     normalized = str(value or "word").strip().casefold()
-    aliases = {"docx": "word", "워드": "word", "한글": "hwp", "hwpx": "hwp"}
+    aliases = {
+        "docx": "word",
+        "워드": "word",
+        "한글": "hwp",
+        "hwpx": "hwp",
+        "word+hwp": "both",
+        "word_hwp": "both",
+        "word·한글": "both",
+        "워드+한글": "both",
+    }
     normalized = aliases.get(normalized, normalized)
     if normalized not in REPORT_FORMATS:
-        raise WorkflowError("보고서 형식은 Word 또는 한글 중 하나여야 합니다.")
+        raise WorkflowError("보고서 형식은 Word, 한글 또는 두 형식이어야 합니다.")
     return normalized
+
+
+def _report_kinds(report_format) -> tuple[str, ...]:
+    normalized = _report_format(report_format)
+    return ("word", "hwp") if normalized == "both" else (normalized,)
+
+
+def _step_order(report_format) -> tuple[str, ...]:
+    steps = ["analyze_excel"]
+    if "word" in _report_kinds(report_format):
+        steps.append("create_word_report")
+    if "hwp" in _report_kinds(report_format):
+        steps.append("create_hwp_report")
+    steps.append("create_powerpoint_summary")
+    return tuple(steps)
+
+
+def _expected_output_suffixes(report_format) -> dict[str, str]:
+    normalized = _report_format(report_format)
+    if normalized == "both":
+        return {
+            "report_word": ".docx",
+            "report_hwp": ".hwp",
+            "presentation": ".pptx",
+        }
+    return {
+        "report": REPORT_FORMATS[normalized]["suffix"],
+        "presentation": ".pptx",
+    }
+
+
+def _report_output_key(report_format, kind: str) -> str:
+    normalized = _report_format(report_format)
+    if kind not in _report_kinds(normalized):
+        raise WorkflowError("워크플로에 요청되지 않은 보고서 단계입니다.")
+    return f"report_{kind}" if normalized == "both" else "report"
 
 
 def _format_number(value, style="plain") -> str:
@@ -961,13 +1008,39 @@ class WorkflowExecutor:
         if not isinstance(state, dict):
             raise WorkflowError("저장된 워크플로를 찾을 수 없습니다.")
         schema_version = int(state.get("schema_version") or 0)
-        if schema_version not in {1, WORKFLOW_SCHEMA_VERSION}:
+        if schema_version not in {1, 2, WORKFLOW_SCHEMA_VERSION}:
             raise WorkflowError("지원하지 않는 워크플로 저장 형식입니다.")
-        if schema_version == 1:
+        if schema_version in {1, 2}:
             state = copy.deepcopy(state)
+            report_format = _report_format(state.get("report_format") or "word")
+            if report_format == "hwp":
+                steps = dict(state.get("steps") or {})
+                legacy = steps.pop("create_word_report", None)
+                if legacy is not None:
+                    steps["create_hwp_report"] = legacy
+                state["steps"] = steps
+                for key in ("successful_steps",):
+                    state[key] = [
+                        "create_hwp_report" if item == "create_word_report" else item
+                        for item in list(state.get(key) or [])
+                    ]
+                for key in ("current_step", "failed_step"):
+                    if state.get(key) == "create_word_report":
+                        state[key] = "create_hwp_report"
+                verification = dict(state.get("verification_results") or {})
+                if "create_word_report" in verification:
+                    verification["create_hwp_report"] = verification.pop(
+                        "create_word_report"
+                    )
+                state["verification_results"] = verification
             state["schema_version"] = WORKFLOW_SCHEMA_VERSION
-            state["migrated_from_schema"] = 1
+            state["migrated_from_schema"] = schema_version
+            state["report_format"] = report_format
+            state["step_order"] = list(_step_order(report_format))
         state.setdefault("report_format", "word")
+        state.setdefault(
+            "step_order", list(_step_order(state.get("report_format") or "word"))
+        )
         return state
 
     def prepare(
@@ -998,18 +1071,29 @@ class WorkflowExecutor:
         workflow_id = uuid.uuid4().hex
         token = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + workflow_id
         source_stem = _safe_stem(source.stem)
-        report_path = _reserve_output(
-            destination,
-            f"{source_stem}_JARVIS_보고서",
-            REPORT_FORMATS[report_format]["suffix"],
-            token,
-        )
+        output_paths = {}
+        for report_kind in _report_kinds(report_format):
+            output_key = _report_output_key(report_format, report_kind)
+            label = "Word" if report_kind == "word" else "한글"
+            stem = (
+                f"{source_stem}_JARVIS_보고서"
+                if report_format != "both"
+                else f"{source_stem}_JARVIS_{label}_보고서"
+            )
+            output_paths[output_key] = str(_reserve_output(
+                destination,
+                stem,
+                REPORT_FORMATS[report_kind]["suffix"],
+                token,
+            ))
         presentation_path = _reserve_output(
             destination,
             f"{source_stem}_JARVIS_{slide_count}장_요약",
             ".pptx",
             token,
         )
+        output_paths["presentation"] = str(presentation_path)
+        step_order = _step_order(report_format)
         now = _timestamp()
         if title is None:
             style = str(learned.get("title_style") or "default")
@@ -1026,11 +1110,9 @@ class WorkflowExecutor:
             "source_path": str(source),
             "source_fingerprint": file_fingerprint(source),
             "output_dir": str(destination),
-            "output_paths": {
-                "report": str(report_path),
-                "presentation": str(presentation_path),
-            },
+            "output_paths": output_paths,
             "report_format": report_format,
+            "step_order": list(step_order),
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
             "applied_preferences": learned,
@@ -1049,7 +1131,7 @@ class WorkflowExecutor:
                     "started_at": None,
                     "completed_at": None,
                 }
-                for name in STEP_NAMES
+                for name in step_order
             },
             "created_at": now,
             "updated_at": now,
@@ -1070,8 +1152,6 @@ class WorkflowExecutor:
             raise WorkflowError("이미 시작된 워크플로 계획은 다시 실행할 수 없습니다.")
         if state.get("status") != "approval_required":
             raise WorkflowError("승인 대기 상태의 새 워크플로만 시작할 수 있습니다.")
-        if set(state.get("steps") or {}) != set(STEP_NAMES):
-            raise WorkflowError("워크플로 단계 구성이 올바르지 않습니다.")
         if state.get("created_files") or state.get("work_product") is not None:
             raise WorkflowError("실행 전 워크플로 계획에 산출물 상태가 포함돼 있습니다.")
         try:
@@ -1096,11 +1176,15 @@ class WorkflowExecutor:
 
         report_format = _report_format(state.get("report_format") or "word")
         state["report_format"] = report_format
+        expected_steps = _step_order(report_format)
+        if (
+            tuple(state.get("step_order") or ()) != expected_steps
+            or set(state.get("steps") or {}) != set(expected_steps)
+        ):
+            raise WorkflowError("워크플로 단계 구성이 올바르지 않습니다.")
+        state["step_order"] = list(expected_steps)
         outputs = dict(state.get("output_paths") or {})
-        expected = {
-            "report": REPORT_FORMATS[report_format]["suffix"],
-            "presentation": ".pptx",
-        }
+        expected = _expected_output_suffixes(report_format)
         if set(outputs) != set(expected):
             raise WorkflowError("워크플로 산출물 계획이 불완전합니다.")
         normalized_outputs = {}
@@ -1193,12 +1277,21 @@ class WorkflowExecutor:
         path = value.get("path")
         return bool(path) and _fingerprint_matches(path, value.get("fingerprint"))
 
+    @staticmethod
+    def _state_step_order(state: Mapping[str, Any]) -> tuple[str, ...]:
+        report_format = _report_format(state.get("report_format") or "word")
+        expected = _step_order(report_format)
+        actual = tuple(state.get("step_order") or ())
+        if actual != expected or set(state.get("steps") or {}) != set(expected):
+            raise WorkflowError("저장된 워크플로 단계 구성이 올바르지 않습니다.")
+        return expected
+
     def _reconcile(self, state: dict) -> None:
         if not _fingerprint_matches(state["source_path"], state["source_fingerprint"]):
             raise WorkflowError("준비 이후 Excel 원본 파일이 바뀌어 워크플로를 계속할 수 없습니다.")
         invalid_seen = False
         successful = []
-        for name in STEP_NAMES:
+        for name in self._state_step_order(state):
             step = state["steps"][name]
             valid = step.get("status") == "succeeded"
             if name == "analyze_excel":
@@ -1231,7 +1324,13 @@ class WorkflowExecutor:
             "report_format": _report_format(state.get("report_format") or "word"),
         }
         if name == "create_word_report":
-            context["output_path"] = state["output_paths"]["report"]
+            context["output_path"] = state["output_paths"][
+                _report_output_key(context["report_format"], "word")
+            ]
+        elif name == "create_hwp_report":
+            context["output_path"] = state["output_paths"][
+                _report_output_key(context["report_format"], "hwp")
+            ]
         elif name == "create_powerpoint_summary":
             context["output_path"] = state["output_paths"]["presentation"]
         return context
@@ -1242,12 +1341,9 @@ class WorkflowExecutor:
             return WorkProductData.from_value(self.analyzer.run(context)).to_dict()
         product = WorkProductData.from_value(state.get("work_product") or {}).to_dict()
         if name == "create_word_report":
-            writer = (
-                self.hwp_writer
-                if context["report_format"] == "hwp"
-                else self.word_writer
-            )
-            return dict(writer.run(context, product))
+            return dict(self.word_writer.run(context, product))
+        if name == "create_hwp_report":
+            return dict(self.hwp_writer.run(context, product))
         return dict(self.powerpoint_writer.run(context, product))
 
     def run(self, workflow_id: str) -> dict[str, Any]:
@@ -1256,13 +1352,14 @@ class WorkflowExecutor:
             raise WorkflowError("승인되지 않은 워크플로 상태는 실행할 수 없습니다.")
         if state.get("status") == "completed":
             self._reconcile(state)
-            if len(state["successful_steps"]) == len(STEP_NAMES):
+            if len(state["successful_steps"]) == len(self._state_step_order(state)):
                 return self._result(state, changed=False)
         self._reconcile(state)
+        step_order = self._state_step_order(state)
         state["status"] = "running"
         state["failed_step"] = None
         self._save(state)
-        for name in STEP_NAMES:
+        for name in step_order:
             step = state["steps"][name]
             if name in state["successful_steps"]:
                 continue
@@ -1328,6 +1425,9 @@ class WorkflowExecutor:
             "output_paths": dict(state.get("output_paths") or {}),
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
+            "report_formats": list(
+                _report_kinds(state.get("report_format") or "word")
+            ),
             "applied_preferences": dict(state.get("applied_preferences") or {}),
             "work_product_summary": {
                 "title": str((state.get("work_product") or {}).get("title") or ""),

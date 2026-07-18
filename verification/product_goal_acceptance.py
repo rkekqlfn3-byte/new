@@ -54,6 +54,11 @@ PROBE_SPECS = {
         "probe": "prototype11_stage10_document_workflow",
         "report_format": "hwp",
     },
+    "workflow_both": {
+        "file": "prototype11_stage10_both_report.json",
+        "probe": "prototype11_stage10_document_workflow",
+        "report_format": "both",
+    },
     "user_learning": {
         "file": "prototype11_stage11_report.json",
         "probe": "prototype11_stage11_user_preference_learning",
@@ -77,7 +82,9 @@ GOAL_AXES = {
         ),
     },
     "successful_work_reuse": {"probes": ("user_learning",)},
-    "cross_app_workflow": {"probes": ("workflow_word", "workflow_hwp")},
+    "cross_app_workflow": {
+        "probes": ("workflow_word", "workflow_hwp", "workflow_both")
+    },
     "user_preference_learning": {"probes": ("user_learning",)},
     "failure_classification": {"probes": ("failure_diagnosis",)},
     "novice_accessibility": {"probes": ()},
@@ -100,6 +107,14 @@ PROBE_COMMANDS = (
         (
             "--report-format", "hwp", "--output",
             str(Path(__file__).with_name("prototype11_stage10_hwp_report.json")),
+        ),
+        True,
+    ),
+    (
+        "prototype11_stage10_probe",
+        (
+            "--report-format", "both", "--output",
+            str(Path(__file__).with_name("prototype11_stage10_both_report.json")),
         ),
         True,
     ),

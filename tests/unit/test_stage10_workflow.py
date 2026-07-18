@@ -12,7 +12,7 @@ from engine.workflows import (
     WorkflowExecutionError,
     WorkflowExecutor,
 )
-from engine.edit_mode.stage10 import Stage10EditError, StructuredWorkflowIntentAnalyzer
+from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 
 
 def product(source):
@@ -407,7 +407,7 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertTrue(application.cleared)
         self.assertTrue(application.quit_called)
 
-    def test_workflow_intent_selects_explicit_hwp_and_rejects_two_report_formats(self):
+    def test_workflow_intent_selects_hwp_word_default_and_both_formats(self):
         analyzer = StructuredWorkflowIntentAnalyzer()
         intent = analyzer.analyze(
             "이 엑셀 분석해서 한글 보고서와 6장짜리 PPT 만들어줘",
@@ -422,11 +422,148 @@ class Stage10WorkflowTests(unittest.TestCase):
             {"app_type": "excel"},
         )
         self.assertEqual("word", generic.params["report_format"])
-        with self.assertRaisesRegex(Stage10EditError, "하나만 선택"):
-            analyzer.analyze(
-                "이 엑셀 분석해서 Word와 한글 보고서랑 PPT 만들어줘",
-                {"app_type": "excel"},
-            )
+        both = analyzer.analyze(
+            "이 엑셀 분석해서 Word와 한글 보고서랑 PPT 만들어줘",
+            {"app_type": "excel"},
+        )
+        self.assertEqual("both", both.params["report_format"])
+        self.assertIn("Word·한글 보고서", both.description)
+
+    def test_both_report_plan_runs_each_report_as_a_separate_verified_step(self):
+        analyzer = FakeAnalyzer()
+        word = FakeWriter("word")
+        hwp = FakeWriter("hwp")
+        powerpoint = FakeWriter("ppt", slides=5)
+        executor = WorkflowExecutor(
+            self.root / "both-state",
+            analyzer=analyzer,
+            word_writer=word,
+            hwp_writer=hwp,
+            powerpoint_writer=powerpoint,
+        )
+        state = executor.prepare(self.source, report_format="both")
+
+        self.assertEqual(
+            [
+                "analyze_excel",
+                "create_word_report",
+                "create_hwp_report",
+                "create_powerpoint_summary",
+            ],
+            state["step_order"],
+        )
+        self.assertEqual(
+            {"report_word", "report_hwp", "presentation"},
+            set(state["output_paths"]),
+        )
+        self.assertEqual(
+            ".docx", Path(state["output_paths"]["report_word"]).suffix
+        )
+        self.assertEqual(
+            ".hwp", Path(state["output_paths"]["report_hwp"]).suffix
+        )
+
+        result = executor.start(state)
+
+        self.assertTrue(result["verified"])
+        self.assertEqual(["word", "hwp"], result["report_formats"])
+        self.assertEqual(4, len(result["successful_steps"]))
+        self.assertEqual(3, len(result["created_files"]))
+        self.assertEqual(1, analyzer.calls)
+        self.assertEqual(1, word.calls)
+        self.assertEqual(1, hwp.calls)
+        self.assertEqual(1, powerpoint.calls)
+
+    def test_both_report_resume_keeps_verified_word_when_hwp_failed(self):
+        analyzer = FakeAnalyzer()
+        word = FakeWriter("word")
+        hwp = FakeWriter("hwp", fail_times=1)
+        powerpoint = FakeWriter("ppt", slides=5)
+        executor = WorkflowExecutor(
+            self.root / "both-resume-state",
+            analyzer=analyzer,
+            word_writer=word,
+            hwp_writer=hwp,
+            powerpoint_writer=powerpoint,
+        )
+        state = executor.prepare(self.source, report_format="both")
+
+        with self.assertRaises(WorkflowExecutionError) as captured:
+            executor.start(state)
+
+        self.assertEqual("create_hwp_report", captured.exception.failed_step)
+        failed = executor.load(state["workflow_id"])
+        word_path = Path(failed["output_paths"]["report_word"])
+        self.assertTrue(word_path.is_file())
+        word_bytes = word_path.read_bytes()
+        self.assertFalse(Path(failed["output_paths"]["report_hwp"]).exists())
+        self.assertEqual(0, powerpoint.calls)
+
+        completed = executor.run(state["workflow_id"])
+
+        self.assertTrue(completed["verified"])
+        self.assertEqual(word_bytes, word_path.read_bytes())
+        self.assertEqual(1, analyzer.calls)
+        self.assertEqual(1, word.calls)
+        self.assertEqual(2, hwp.calls)
+        self.assertEqual(1, powerpoint.calls)
+        self.assertEqual(3, len(completed["created_files"]))
+
+    def test_schema_two_hwp_step_migrates_to_explicit_hwp_step(self):
+        state = self.executor.prepare(self.source, report_format="hwp")
+        state["schema_version"] = 2
+        state.pop("step_order")
+        state["steps"]["create_word_report"] = state["steps"].pop(
+            "create_hwp_report"
+        )
+        state["steps"]["create_word_report"]["status"] = "failed"
+        state["current_step"] = "create_word_report"
+        state["failed_step"] = "create_word_report"
+        state["verification_results"]["create_word_report"] = {"format": "hwp"}
+        self.executor._save(state)
+
+        migrated = self.executor.load(state["workflow_id"])
+
+        self.assertEqual(3, migrated["schema_version"])
+        self.assertEqual(2, migrated["migrated_from_schema"])
+        self.assertEqual(
+            [
+                "analyze_excel",
+                "create_hwp_report",
+                "create_powerpoint_summary",
+            ],
+            migrated["step_order"],
+        )
+        self.assertIn("create_hwp_report", migrated["steps"])
+        self.assertNotIn("create_word_report", migrated["steps"])
+        self.assertEqual("create_hwp_report", migrated["current_step"])
+        self.assertEqual("create_hwp_report", migrated["failed_step"])
+        self.assertEqual(
+            {"format": "hwp"},
+            migrated["verification_results"]["create_hwp_report"],
+        )
+
+    def test_both_approval_rejects_reordered_steps_and_hwp_collision(self):
+        reordered = self.executor.prepare(self.source, report_format="both")
+        reordered["step_order"][1:3] = reversed(reordered["step_order"][1:3])
+
+        with self.assertRaisesRegex(Exception, "단계 구성이 올바르지"):
+            self.executor.start(reordered)
+
+        collision_plan = self.executor.prepare(self.source, report_format="both")
+        collision = Path(collision_plan["output_paths"]["report_hwp"])
+        collision.write_bytes(b"user-created-after-preview")
+
+        with self.assertRaisesRegex(Exception, "같은 이름의 파일"):
+            self.executor.start(collision_plan)
+
+        self.assertEqual(b"user-created-after-preview", collision.read_bytes())
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
+        self.assertFalse(
+            self.executor._path(collision_plan["workflow_id"]).exists()
+        )
 
     def test_failure_resumes_only_failed_step_without_duplicate_artifacts(self):
         state = self.executor.prepare(self.source)
@@ -518,7 +655,7 @@ class Stage10WorkflowTests(unittest.TestCase):
         state = self.executor.prepare(self.source, report_format="word")
         state["report_format"] = "hwp"
 
-        with self.assertRaisesRegex(Exception, "산출물 경로가 바뀌거나"):
+        with self.assertRaisesRegex(Exception, "단계 구성이 올바르지"):
             self.executor.start(state)
 
         self.assertEqual(0, self.analyzer.calls)

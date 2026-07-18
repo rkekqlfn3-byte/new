@@ -63,12 +63,14 @@ class StructuredWorkflowIntentAnalyzer:
             word_explicit = any(term in command for term in ("word", "워드"))
             hwp_explicit = any(term in command for term in ("한글", "hwp", "hwpx"))
             if word_explicit and hwp_explicit:
-                raise Stage10EditError(
-                    "보고서는 Word와 한글 중 하나만 선택해주세요. 두 형식 동시 생성은 "
-                    "아직 지원하지 않습니다."
-                )
-            report_format = "hwp" if hwp_explicit else "word"
-            report_label = "한글" if report_format == "hwp" else "Word"
+                report_format = "both"
+            else:
+                report_format = "hwp" if hwp_explicit else "word"
+            report_label = {
+                "word": "Word",
+                "hwp": "한글",
+                "both": "Word·한글",
+            }[report_format]
             slide_count = None
             for pattern in (
                 r"(?:ppt|파워포인트|프레젠테이션|슬라이드).*?(\d{1,2})\s*장",
@@ -111,6 +113,19 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     @staticmethod
     def _path(value) -> str:
         return os.path.normcase(os.path.abspath(str(value or "")))
+
+    @staticmethod
+    def _report_preview_lines(
+        report_format: str,
+        outputs: Mapping[str, Any],
+    ) -> list[str]:
+        if report_format == "both":
+            return [
+                f"Word: {outputs.get('report_word', '')}",
+                f"한글: {outputs.get('report_hwp', '')}",
+            ]
+        label = "한글" if report_format == "hwp" else "Word"
+        return [f"{label}: {outputs.get('report', '')}"]
 
     def resolved_workflow_preferences(self, source_path: str) -> dict[str, Any]:
         return {}
@@ -212,11 +227,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             + (f" · 실패 단계 {failed_step}" if failed_step else "")
         )
         report_format = str(state.get("report_format") or "word")
-        report_label = "한글" if report_format == "hwp" else "Word"
-        after = (
-            f"{report_label}: {outputs.get('report', '')}\n"
-            f"PowerPoint({state.get('slide_count', 5)}장): {outputs.get('presentation', '')}"
+        after_lines = self._report_preview_lines(report_format, outputs)
+        after_lines.append(
+            f"PowerPoint({state.get('slide_count', 5)}장): "
+            f"{outputs.get('presentation', '')}"
         )
+        after = "\n".join(after_lines)
         applied_preferences, preference_summary = self._preference_preview(
             state.get("applied_preferences") or {}
         )
@@ -227,7 +243,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "before": before,
             "after": after,
             "target": state.get("source_path"),
-            "estimated_changes": 2,
+            "estimated_changes": len(outputs),
             "noop": False,
             "applied_preferences": applied_preferences,
         }
@@ -269,7 +285,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             context_fingerprint=str(context["context_fingerprint"]),
             metadata={
                 "preview": preview,
-                "estimated_changes": 2,
+                "estimated_changes": len(outputs),
                 "workflow": True,
                 "workflow_id": state["workflow_id"],
                 "resume": intent.operation == "resume_business_workflow",
@@ -305,11 +321,17 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     ) -> bool:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().verify(prepared_action, result)
+        report_format = str(
+            result.get("report_format")
+            or prepared_action.arguments.get("report_format")
+            or "word"
+        )
+        expected_artifacts = 3 if report_format == "both" else 2
         return bool(
             result.get("success")
             and result.get("verified")
             and result.get("status") == "completed"
-            and len(result.get("created_files") or []) == 2
+            and len(result.get("created_files") or []) == expected_artifacts
         )
 
     def rollback(self, prepared_action: EditPreparedAction) -> bool:

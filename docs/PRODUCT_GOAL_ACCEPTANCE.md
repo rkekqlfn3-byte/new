@@ -9,7 +9,8 @@
 ## 자동 증거 실행
 
 기존의 최근 소유 문서 probe 결과를 사용해 전체 자동 회귀와 8개 Goal 축을
-판정한다.
+판정한다. 앱 간 업무 축은 Word, 한글, 두 보고서 동시 생성의 세 실제 probe가
+모두 있어야 통과한다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

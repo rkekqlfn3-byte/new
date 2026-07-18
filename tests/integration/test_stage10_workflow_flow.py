@@ -228,7 +228,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         retry = self.command("실패한 워크플로 이어서", "stage10-resume")
         self.assertEqual("confirmation_required", retry["status"])
         completed = self.approve(retry)
-        self.assertTrue(completed["success"])
+        self.assertTrue(completed["success"], completed)
         self.assertTrue(completed["verified"])
         self.assertEqual("resume_business_workflow", completed["data"]["operation"])
         observations = completed["data"]["observations"]
@@ -259,6 +259,32 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(1, self.hwp.calls)
         self.assertEqual(1, self.ppt.calls)
         self.assertIn("한글 보고서", completed["message"])
+
+    def test_word_and_hwp_reports_are_previewed_and_completed_together(self):
+        self.ppt.fail_times = 0
+        preview = self.command(
+            "이 엑셀을 분석해서 Word와 한글 보고서, 5장짜리 PPT 만들어줘.",
+            "stage10-both-create",
+        )
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("Word·한글 보고서", preview["message"])
+        self.assertIn("Word:", preview["message"])
+        self.assertIn("한글:", preview["message"])
+        completed = self.approve(preview)
+
+        self.assertTrue(completed["success"], completed)
+        observations = completed["data"]["observations"]
+        self.assertEqual("both", observations["report_format"])
+        self.assertEqual(
+            {"report_word", "report_hwp", "presentation"},
+            set(observations["output_paths"]),
+        )
+        self.assertEqual(3, len(observations["created_files"]))
+        self.assertEqual(1, self.word.calls)
+        self.assertEqual(1, self.hwp.calls)
+        self.assertEqual(1, self.ppt.calls)
+        self.assertIn("Word·한글 보고서", completed["message"])
 
 
 if __name__ == "__main__":
