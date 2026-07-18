@@ -191,11 +191,12 @@ COM-free JSON으로만 유지되며 취소·만료 시 파일을 남기지 않�
   기본 60초 안에 끝나지 않으면 작업자와 확인된 단일 소유 HWP 프로세스만
   정리하고 부분 파일을 제거한다. 시간 초과는 `timeout`·재시도 가능으로
   보존하며 성공한 앞 단계는 지우지 않는다.
-- 실행 전에는 `HKCU\Software\HNC\HwpAutomation\Modules`의 공식 Automation
-  보안 모듈 이름과 실제 등록 파일을 읽기 전용으로 확인한다. 없으면 HWP
-  프로세스를 만들지 않고 `environment_error`로 차단한다. 유효한 이름은
-  `RegisterModule("FilePathCheckDLL", 이름)`에 그대로 전달하며 활성화
-  실패도 파일 쓰기 전에 차단한다.
+- 미리보기 계획 전과 승인 직후 실행 시작 전에는
+  `HKCU\Software\HNC\HwpAutomation\Modules`의 공식 Automation 보안 모듈
+  이름과 실제 등록 파일을 읽기 전용으로 확인한다. 없으면 승인 카드·Excel
+  분석·workflow JSON·HWP 프로세스를 만들지 않고 `environment_error`로
+  차단한다. 유효한 이름은 `RegisterModule("FilePathCheckDLL", 이름)`에
+  그대로 전달하며 활성화 실패도 파일 쓰기 전에 차단한다.
 - 승인된 굵기·글자 크기·문단 정렬 기본값은 미리보기에 표시하고, 새 보고서
   전체에 적용한 뒤 COM 값으로 재검증한다. 승인 전 payload의 형식·경로·선호가
   바뀌면 실행하지 않는다.
@@ -205,6 +206,8 @@ COM-free JSON으로만 유지되며 취소·만료 시 파일을 남기지 않�
 자동 테스트는 다음 경계를 확인한다.
 
 - 승인 전 산출물과 workflow JSON 0개
+- HWP 환경 부재 시 미리보기 확인 카드·Excel 분석·workflow JSON 0개
+- HWP 미리보기 뒤 환경이 바뀌면 승인 직후 첫 분석 단계 전에 재차 차단
 - 미리보기 취소 뒤 무상태와 재개 대상 부재
 - 공통 데이터 JSON·크기 제한
 - PPT 단계 1회 실패 후 분석/보고서 중복 실행 없음
@@ -251,13 +254,15 @@ probe로 재현했다. 60.14초에 `environment_timeout_handled`로 복귀했고
 확인했다. 추가 조사에서 공식 Automation 보안 모듈 등록이 비어 있음을 확인해
 사전 검사를 추가했다. 현재는 HWP를 시작하지 않고 0초대에
 `security_module_unavailable_blocked`로 복귀하며, 부분 파일과 생성 프로세스가
-없다. 한글 보안 설정은 자동 변경하지 않았다.
+없다. 추가 Stage 10 실제 probe도 `prepare_approval_state`에서
+`HwpSecurityModuleUnavailable`·`environment_error`로 복귀해 승인·분석 전에
+차단됨을 확인했다. 한글 보안 설정은 자동 변경하지 않았다.
 
 Stage 11 소유 fixture에서는 첫 Word·7장 PowerPoint의 검증 구조만 승인한 뒤
 두 번째 새 Word·7장 산출물을 실제 Office로 생성·재열기 검증했다. Excel 원본과
 첫 산출물 지문은 그대로였고 스킬 저장소에 경로나 내용이 없음을 확인했다.
 
-같은 날 최신 전체 자동 회귀는 871개 중 868개 통과(unit 334·integration 331·
+같은 날 최신 전체 자동 회귀는 878개 중 875개 통과(unit 340·integration 332·
 windows 203), 외부 AI 자격 증명이 필요한 3개 skip, 실패 0개였다.
 
 ## 현재 범위

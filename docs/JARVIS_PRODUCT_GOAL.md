@@ -429,6 +429,12 @@ probe는 60.14초에 `environment_timeout_handled`로 복귀하고 부분 파일
 `security_module_unavailable_blocked`로 0초대에 복귀했고 부분 파일과 생성
 HWP 프로세스가 없음을 증명했다.
 
+HWP 환경 검사는 보고서 미리보기 계획을 만들기 전과 사용자가 계획을 승인한
+직후에 각각 수행한다. 모듈이 없으면 확인 카드·Excel 분석·영구 workflow 상태를
+만들지 않는다. 준비와 실행 사이에 환경이 바뀐 경우에도 첫 분석 전에
+`environment_error`·`blocked`·재시도 가능 상태를 그대로 반환한다. 공통 편집
+실행 경계는 이 하위 실패 분류와 진단 문맥을 `execution_error`로 덮지 않는다.
+
 ## 개발 우선순위
 
 1. 현재 Excel 전체 `이거`, `지난번처럼` 승인형 고정 워크플로, 검증 산출물의

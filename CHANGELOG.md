@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-18 — HWP 승인 전 환경 검사와 실패 유형 보존
+
+- 한글 또는 Word·한글 동시 보고서 요청은 미리보기 계획을 만들기 전에 공식
+  Automation 보안 모듈을 확인한다. 모듈이 없으면 승인 카드, Excel 분석,
+  workflow JSON과 Office/HWP 프로세스를 만들지 않고 즉시 차단한다.
+- 사용자가 이미 본 미리보기를 승인할 때도 같은 환경 검사를 다시 수행해,
+  준비와 실행 사이에 모듈 상태가 바뀌어도 첫 분석 단계 전에 중단한다.
+- 편집 준비·실행 경계가 하위 예외의 `environment_error`, `timeout`, 상태,
+  재시도 가능 여부와 진단 문맥을 일반 `execution_error`로 덮지 않도록
+  구조화된 실패 분류를 보존한다.
+- 등록 파일은 있지만 격리 HWP 작업자의 `RegisterModule` 활성화가 실패한
+  경우에도 부모 워크플로가 `environment_error`·재시도 가능을 그대로 복원한다.
+- 실제 현재 PC의 HWP workflow probe는 `prepare_approval_state`에서
+  `HwpSecurityModuleUnavailable`·`environment_error`로 빠르게 복귀했고,
+  통합 명령 경로도 확인 카드·분석·상태 파일 없이 같은 분류를 반환했다.
+- 전체 자동 회귀는 878개 중 875개 통과(unit 340·integration 332·windows 203),
+  외부 AI 라이브 3개 skip, 실패 0개다.
+
 ## 2026-07-18 — HWP 산출물 인계 자동 계약 보강
 
 - 한글 전용 워크플로의 검증 산출물을 `방금 만든 한글 보고서를 편집 문서로

@@ -145,6 +145,33 @@ class EditModeContractTests(unittest.TestCase):
         self.assertEqual(0, adapter.executed)
         self.assertEqual(EditSessionState.STALE_CONTEXT, machine.state)
 
+    def test_prepare_wrapper_preserves_structured_failure_classification(self):
+        class EnvironmentUnavailable(RuntimeError):
+            error_type = "environment_error"
+            status = "blocked"
+            retryable = True
+
+        adapter = FakeEditAdapter()
+
+        def unavailable(_request, _context):
+            raise EnvironmentUnavailable("환경 준비가 필요합니다.")
+
+        adapter.prepare = unavailable
+        machine = ready_machine()
+        coordinator = EditExecutionCoordinator(adapter, machine)
+
+        with self.assertRaises(EditExecutionError) as raised:
+            coordinator.prepare(self.request())
+
+        self.assertEqual("environment_error", raised.exception.error_type)
+        self.assertEqual("blocked", raised.exception.status)
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(
+            "environment_error",
+            raised.exception.diagnostic_context["cause_error_type"],
+        )
+        self.assertEqual(EditSessionState.FAILED, machine.state)
+
     def test_failed_verification_rolls_back(self):
         adapter = FakeEditAdapter(verify=False)
         machine = ready_machine()

@@ -1,6 +1,7 @@
 import unittest
 from unittest import mock
 
+from engine.workflows import HwpSecurityModuleUnavailable
 from verification import prototype11_stage10_probe as probe
 
 
@@ -45,6 +46,21 @@ class Prototype11Stage10ProbeSafetyTests(unittest.TestCase):
 
         self.assertTrue(report["success"])
         self.assertEqual("both", report["report_format"])
+
+    def test_structured_environment_block_is_preserved_in_probe_evidence(self):
+        error = HwpSecurityModuleUnavailable(
+            "한글 보안 모듈을 설치·등록해주세요."
+        )
+
+        result = probe._structured_failure("prepare_approval_state", error)
+
+        self.assertEqual("blocked", result["status"])
+        self.assertEqual("environment_error", result["error_type"])
+        self.assertEqual(
+            "HwpSecurityModuleUnavailable", result["exception_type"]
+        )
+        self.assertTrue(result["retryable"])
+        self.assertIn("설치·등록", result["message"])
 
 
 if __name__ == "__main__":

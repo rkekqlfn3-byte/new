@@ -15,7 +15,8 @@
 또한 한글 선택 문장 교체 후 같은 범위의 직접 단일 서식 교정이 원문 없이 학습
 증거로 기록되는 검사도 필수다.
 현재 HWP 파일 저장이 정상 완료되거나, 공식 Automation 보안 모듈이 없으면
-HWP 실행 전에 구조화된 `environment_error`로 차단하고, 등록 뒤 저장 COM이
+미리보기 확인·분석·영구 상태·HWP 실행 전에 구조화된 `environment_error`로
+차단하며 승인 시 환경을 재검사하고, 등록 뒤 저장 COM이
 멈춘 환경에서는 60초 안에 `timeout`으로 복귀해 부분 파일과 소유 프로세스를
 정리하는 watchdog probe도 안전 실행·실패 분류 축의 필수 증거다.
 Stage 6도 Word와 PowerPoint 대상이 모두 있어야 하며, Word 결과에는 접힌

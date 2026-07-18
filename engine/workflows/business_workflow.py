@@ -945,6 +945,29 @@ class HwpReportWriter:
             raise WorkflowError("한글 보고서 출력 경로는 .hwp 형식이어야 합니다.")
         return output_path
 
+    def preflight(self) -> dict[str, Any]:
+        """Verify that the HWP save environment is ready before approval."""
+        if (
+            self._worker_mode
+            or self._application_factory is not None
+            or self._com_runtime is not None
+        ):
+            return {
+                "status": "injected",
+                "security_module_name": self._security_module_name,
+            }
+        security_module_name = self._security_module_resolver()
+        if not security_module_name:
+            raise HwpSecurityModuleUnavailable(
+                "한글 Automation 파일 보안 모듈이 등록되어 있지 않아 보고서를 "
+                "저장할 수 없습니다. 한글 공식 보안 모듈을 사용자가 설치·등록한 "
+                "뒤 다시 미리보기를 요청해주세요."
+            )
+        return {
+            "status": "ready",
+            "security_module_name": str(security_module_name),
+        }
+
     def run(
         self,
         context: Mapping[str, Any],
@@ -952,24 +975,19 @@ class HwpReportWriter:
     ) -> dict[str, Any]:
         output_path = self._validated_output_path(context)
         product = WorkProductData.from_value(work_product).to_dict()
+        preflight = self.preflight()
         if (
             self._worker_mode
             or self._application_factory is not None
             or self._com_runtime is not None
         ):
             return self._run_inline(context, product)
-        security_module_name = self._security_module_resolver()
-        if not security_module_name:
-            raise HwpSecurityModuleUnavailable(
-                "한글 Automation 파일 보안 모듈이 등록되어 있지 않아 보고서를 "
-                "저장하지 않았습니다. 한글 공식 보안 모듈을 사용자가 설치·등록한 "
-                "뒤 '실패한 워크플로 이어서'로 다시 시도해주세요."
-            )
+        security_module_name = str(preflight["security_module_name"])
         return self._run_isolated(
             context,
             product,
             output_path,
-            str(security_module_name),
+            security_module_name,
         )
 
     def _run_isolated(
@@ -1033,8 +1051,11 @@ class HwpReportWriter:
                 payload.get("message")
                 or "한글 보고서 생성 프로세스가 실패했습니다."
             )
-            if payload.get("error_type") == "timeout":
+            error_type = str(payload.get("error_type") or "")
+            if error_type == "timeout":
                 raise HwpWorkflowTimeout(message)
+            if error_type == "environment_error":
+                raise HwpSecurityModuleUnavailable(message)
             raise WorkflowError(message)
         finally:
             for values in (result_queue, ownership_queue):
@@ -1394,6 +1415,13 @@ class WorkflowExecutor:
         self.hwp_writer = hwp_writer or HwpReportWriter()
         self.powerpoint_writer = powerpoint_writer or PowerPointSummaryWriter()
 
+    def _preflight_report_environment(self, report_format: str) -> None:
+        if "hwp" not in _report_kinds(report_format):
+            return
+        preflight = getattr(self.hwp_writer, "preflight", None)
+        if callable(preflight):
+            preflight()
+
     def _path(self, workflow_id: str) -> Path:
         if not re.fullmatch(r"[a-f0-9]{32}", str(workflow_id or "")):
             raise WorkflowError("워크플로 ID가 올바르지 않습니다.")
@@ -1466,6 +1494,7 @@ class WorkflowExecutor:
         if not 3 <= slide_count <= 20:
             raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
         report_format = _report_format(report_format)
+        self._preflight_report_environment(report_format)
         destination = Path(_absolute_path(output_dir or source.parent))
         if not destination.is_dir():
             raise WorkflowError("산출물 폴더를 찾을 수 없습니다.")
@@ -1584,6 +1613,7 @@ class WorkflowExecutor:
         ):
             raise WorkflowError("워크플로 단계 구성이 올바르지 않습니다.")
         state["step_order"] = list(expected_steps)
+        self._preflight_report_environment(report_format)
         outputs = dict(state.get("output_paths") or {})
         expected = _expected_output_suffixes(report_format)
         if set(outputs) != set(expected):

@@ -220,6 +220,24 @@ def _publish_progress(progress, stage):
         pass
 
 
+def _structured_failure(stage, error):
+    unavailable = isinstance(error, (ImportError, ModuleNotFoundError))
+    status = "unavailable" if unavailable else str(
+        getattr(error, "status", "") or "failed"
+    )
+    return {
+        "status": status,
+        "stage": stage,
+        "error_type": str(
+            getattr(error, "error_type", type(error).__name__)
+        ),
+        "exception_type": type(error).__name__,
+        "message": str(error),
+        "retryable": bool(getattr(error, "retryable", False)),
+        "user_process_protected": True,
+    }
+
+
 def _owned_probe(report_format="word", progress=None):
     import pythoncom
 
@@ -360,16 +378,7 @@ def _owned_probe(report_format="word", progress=None):
             "checks": checks,
         }
     except Exception as error:
-        return {
-            "status": "unavailable" if isinstance(error, (ImportError, ModuleNotFoundError)) else "failed",
-            "stage": stage,
-            "error_type": str(
-                getattr(error, "error_type", type(error).__name__)
-            ),
-            "exception_type": type(error).__name__,
-            "message": str(error),
-            "user_process_protected": True,
-        }
+        return _structured_failure(stage, error)
     finally:
         gc.collect()
         pythoncom.CoUninitialize()

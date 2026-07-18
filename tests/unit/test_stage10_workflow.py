@@ -83,6 +83,22 @@ class FakeWriter:
         }
 
 
+class PreflightWriter(FakeWriter):
+    def __init__(self, label, *, fail_on_call=None):
+        super().__init__(label)
+        self.preflight_calls = 0
+        self.fail_on_call = fail_on_call
+
+    def preflight(self):
+        self.preflight_calls += 1
+        if self.preflight_calls == self.fail_on_call:
+            raise HwpSecurityModuleUnavailable("한글 보안 모듈 준비가 필요합니다.")
+        return {
+            "status": "ready",
+            "security_module_name": "TestSecurityModule",
+        }
+
+
 class FakeComRuntime:
     def CoInitialize(self):
         return None
@@ -361,6 +377,70 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertFalse(Path(state["output_paths"]["report"]).exists())
         self.assertFalse(Path(state["output_paths"]["presentation"]).exists())
 
+    def test_hwp_plans_block_before_approval_when_environment_is_missing(self):
+        for report_format in ("hwp", "both"):
+            with self.subTest(report_format=report_format):
+                analyzer = FakeAnalyzer()
+                hwp = PreflightWriter("hwp", fail_on_call=1)
+                store = self.root / f"{report_format}-preflight-state"
+                executor = WorkflowExecutor(
+                    store,
+                    analyzer=analyzer,
+                    word_writer=FakeWriter("word"),
+                    hwp_writer=hwp,
+                    powerpoint_writer=FakeWriter("ppt", slides=5),
+                )
+
+                with self.assertRaisesRegex(
+                    HwpSecurityModuleUnavailable,
+                    "보안 모듈 준비",
+                ) as raised:
+                    executor.prepare(self.source, report_format=report_format)
+
+                self.assertEqual(
+                    "environment_error", raised.exception.error_type
+                )
+                self.assertEqual(1, hwp.preflight_calls)
+                self.assertEqual(0, analyzer.calls)
+                self.assertFalse(store.exists())
+
+    def test_word_prepare_does_not_require_hwp_environment(self):
+        hwp = PreflightWriter("hwp", fail_on_call=1)
+        executor = WorkflowExecutor(
+            self.root / "word-preflight-state",
+            analyzer=FakeAnalyzer(),
+            word_writer=FakeWriter("word"),
+            hwp_writer=hwp,
+            powerpoint_writer=FakeWriter("ppt", slides=5),
+        )
+
+        state = executor.prepare(self.source, report_format="word")
+
+        self.assertEqual("approval_required", state["status"])
+        self.assertEqual(0, hwp.preflight_calls)
+
+    def test_hwp_approval_rechecks_environment_before_analysis_or_state_save(self):
+        analyzer = FakeAnalyzer()
+        hwp = PreflightWriter("hwp", fail_on_call=2)
+        executor = WorkflowExecutor(
+            self.root / "hwp-recheck-state",
+            analyzer=analyzer,
+            word_writer=FakeWriter("word"),
+            hwp_writer=hwp,
+            powerpoint_writer=FakeWriter("ppt", slides=5),
+        )
+        state = executor.prepare(self.source, report_format="hwp")
+
+        with self.assertRaisesRegex(
+            HwpSecurityModuleUnavailable,
+            "보안 모듈 준비",
+        ):
+            executor.start(state)
+
+        self.assertEqual(2, hwp.preflight_calls)
+        self.assertEqual(0, analyzer.calls)
+        self.assertFalse(executor._path(state["workflow_id"]).exists())
+
     def test_hwp_report_plan_uses_hwp_writer_without_calling_word(self):
         analyzer = FakeAnalyzer()
         word = FakeWriter("word")
@@ -499,6 +579,53 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual("environment_error", raised.exception.error_type)
         self.assertTrue(raised.exception.retryable)
         self.assertFalse(process_context_called)
+
+    def test_hwp_worker_security_activation_failure_keeps_environment_type(self):
+        class FakeProcess:
+            def __init__(self, args):
+                self.args = args
+
+            def start(self):
+                self.args[4].put_nowait({
+                    "success": False,
+                    "error_type": "environment_error",
+                    "message": "등록된 보안 모듈을 활성화하지 못했습니다.",
+                })
+
+            def join(self, _timeout=None):
+                return None
+
+            def is_alive(self):
+                return False
+
+        class FakeProcessContext:
+            def Queue(self, maxsize=0):
+                return queue.Queue(maxsize=maxsize)
+
+            def Process(self, target, args):
+                return FakeProcess(args)
+
+        writer = HwpReportWriter(
+            process_context_factory=FakeProcessContext,
+            process_ids=lambda: set(),
+            security_module_resolver=lambda: "RegisteredButRejected",
+        )
+
+        with self.assertRaisesRegex(
+            HwpSecurityModuleUnavailable,
+            "활성화하지 못했습니다",
+        ) as raised:
+            writer.run(
+                {
+                    "output_path": str(self.root / "활성화실패.hwp"),
+                    "preferences": {},
+                },
+                product(self.source),
+            )
+
+        self.assertEqual("environment_error", raised.exception.error_type)
+        self.assertEqual("blocked", raised.exception.status)
+        self.assertTrue(raised.exception.retryable)
 
     def test_hwp_timeout_keeps_resume_state_and_timeout_diagnosis(self):
         class TimeoutWriter:

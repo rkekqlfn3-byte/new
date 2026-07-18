@@ -5,7 +5,7 @@ from pathlib import Path
 
 from engine.edit_mode import EditModeController, EditSessionManager
 from engine.parser import CommandParser
-from engine.workflows import WorkflowExecutor
+from engine.workflows import HwpSecurityModuleUnavailable, WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
 from engine.learning import (
     BusinessWorkflowSkillManager,
@@ -160,6 +160,18 @@ class Writer:
             "fingerprint": file_fingerprint(path),
             "verification": verification,
         }
+
+
+class BlockingHwpWriter(Writer):
+    def __init__(self):
+        super().__init__()
+        self.preflight_calls = 0
+
+    def preflight(self):
+        self.preflight_calls += 1
+        raise HwpSecurityModuleUnavailable(
+            "한글 공식 보안 모듈을 설치·등록한 뒤 다시 요청해주세요."
+        )
 
 
 class Stage10WorkflowFlowTests(unittest.TestCase):
@@ -333,6 +345,24 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             connected["session_id"],
             self.controller.status()["session"]["session_id"],
         )
+        self.assertEqual("ready", self.controller.status()["session"]["state"])
+
+    def test_missing_hwp_environment_blocks_before_confirmation_or_analysis(self):
+        blocking_hwp = BlockingHwpWriter()
+        self.executor.hwp_writer = blocking_hwp
+
+        blocked = self.command(
+            "이 엑셀을 분석해서 한글 보고서와 5장짜리 PPT 만들어줘.",
+            "stage10-hwp-preflight-block",
+        )
+
+        self.assertFalse(blocked["success"])
+        self.assertEqual("environment_error", blocked["error_type"])
+        self.assertNotEqual("confirmation_required", blocked["status"])
+        self.assertIn("설치·등록", blocked["message"])
+        self.assertEqual(1, blocking_hwp.preflight_calls)
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual([], list(self.executor.store_dir.glob("*.json")))
         self.assertEqual("ready", self.controller.status()["session"]["state"])
 
     def test_word_and_hwp_reports_are_previewed_and_completed_together(self):

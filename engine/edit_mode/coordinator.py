@@ -40,13 +40,22 @@ def _fingerprint(value) -> str:
 def _execution_error(message, error):
     """Keep machine-readable failure context while hiding it from prose parsing."""
     wrapped = EditExecutionError(f"{message}: {error}")
+    error_type = str(getattr(error, "error_type", "") or "").strip()
+    if error_type:
+        wrapped.error_type = error_type
+    status = str(getattr(error, "status", "") or "").strip()
+    if status:
+        wrapped.status = status
     failed_step = getattr(error, "failed_step", getattr(error, "step", None))
     if failed_step not in (None, ""):
         wrapped.failed_step = failed_step
     wrapped.retryable = bool(getattr(error, "retryable", False))
     context = getattr(error, "diagnostic_context", None)
-    if isinstance(context, Mapping):
-        wrapped.diagnostic_context = dict(context)
+    diagnostic_context = dict(context) if isinstance(context, Mapping) else {}
+    if error_type:
+        diagnostic_context.setdefault("cause_error_type", error_type)
+    if diagnostic_context:
+        wrapped.diagnostic_context = diagnostic_context
     return wrapped
 
 
