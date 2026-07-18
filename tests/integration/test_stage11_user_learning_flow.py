@@ -122,6 +122,18 @@ class Stage11UserLearningFlowTests(unittest.TestCase):
             ))
         return results
 
+    def activate_app_preference(self, preference, value, app_id="word"):
+        candidate = None
+        for index in range(1, 4):
+            candidate = self.learning.record_evidence(
+                preference,
+                value,
+                scope_kind="app",
+                scope_id=app_id,
+                evidence_id=f"active-{preference}-{index}",
+            )
+        return self.learning.activate(candidate["candidate_id"])
+
     def test_three_observations_then_approval_apply_default_to_next_workflow(self):
         first, second, third = self.learn_ppt_count()
         self.assertTrue(first["success"])
@@ -165,6 +177,40 @@ class Stage11UserLearningFlowTests(unittest.TestCase):
         self.assertTrue(completed["success"])
         self.assertEqual(5, completed["data"]["observations"]["slide_count"])
         self.assertEqual(5, self.ppt.contexts[-1]["slide_count"])
+        self.assertNotIn(
+            "ppt_slide_count",
+            completed["data"]["observations"]["applied_preferences"],
+        )
+
+    def test_confirmed_word_formatting_defaults_are_visible_and_forwarded(self):
+        self.activate_app_preference("emphasis_style", "bold")
+        self.activate_app_preference("font_scale", "larger")
+        self.activate_app_preference("paragraph_align", "center")
+
+        preview = self.command(
+            "이 엑셀을 분석해서 보고서와 PPT 만들어줘.",
+            "workflow-word-formatting-defaults",
+        )
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("적용할 학습 기본값", preview["message"])
+        self.assertIn("글자 강조=굵게", preview["message"])
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage11-chat"
+        )
+        prepared = pending["payload"]["prepared_action"]
+        applied = prepared["metadata"]["applied_user_preferences"]
+        self.assertEqual("bold", applied["emphasis_style"])
+        self.assertEqual("larger", applied["font_scale"])
+        self.assertEqual("center", applied["paragraph_align"])
+
+        completed = self.resolve(preview)
+
+        self.assertTrue(completed["success"])
+        preferences = self.word.contexts[-1]["preferences"]
+        self.assertEqual("bold", preferences["emphasis_style"])
+        self.assertEqual("larger", preferences["font_scale"])
+        self.assertEqual("center", preferences["paragraph_align"])
 
     def test_cancelled_candidate_does_not_activate(self):
         _, _, third = self.learn_ppt_count(prefix="cancel")

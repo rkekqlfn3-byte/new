@@ -89,7 +89,7 @@ def _create_source(path):
         gc.collect()
 
 
-def _verify_word(path):
+def _verify_word(path, expected_formatting=None):
     import win32com.client
 
     application = document = None
@@ -101,7 +101,24 @@ def _verify_word(path):
             str(path), ReadOnly=True, AddToRecentFiles=False
         )
         text = str(document.Content.Text or "")
-        return int(document.Paragraphs.Count) > 0 and "핵심 지표" in text
+        verified = int(document.Paragraphs.Count) > 0 and "핵심 지표" in text
+        expected = dict(expected_formatting or {})
+        if "emphasis_style" in expected:
+            actual_bold = bool(int(document.Content.Font.Bold))
+            verified = verified and actual_bold == (
+                expected["emphasis_style"] == "bold"
+            )
+        if "font_scale" in expected:
+            expected_size = 14.0 if expected["font_scale"] == "larger" else 10.0
+            verified = verified and abs(
+                float(document.Content.Font.Size) - expected_size
+            ) <= 0.01
+        if "paragraph_align" in expected:
+            alignments = {"left": 0, "center": 1, "right": 2, "justify": 3}
+            verified = verified and int(
+                document.Content.ParagraphFormat.Alignment
+            ) == alignments[expected["paragraph_align"]]
+        return verified
     finally:
         if document is not None:
             try:

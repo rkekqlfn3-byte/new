@@ -758,6 +758,9 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             "preferred_output_dir": "excel",
             "confirmation_actions": "excel",
             "workflow_order": "excel",
+            "emphasis_style": "word",
+            "font_scale": "word",
+            "paragraph_align": "word",
         }
         for name, app_id in app_for_preference.items():
             resolved = self.user_learning_manager.resolve(

@@ -150,6 +150,12 @@ def _validate_value(name: str, value):
     raise UserPreferenceLearningError(f"{name} 검증 규칙을 찾을 수 없습니다.")
 
 
+def validate_preference_value(preference, value):
+    """Return one canonical allowed value for downstream preference consumers."""
+    name = _validate_preference_name(preference)
+    return _validate_value(name, value)
+
+
 def _validate_scope(kind, scope_id) -> tuple[str, str]:
     clean_kind = str(kind or "").strip().casefold()
     if clean_kind not in SCOPE_KINDS:

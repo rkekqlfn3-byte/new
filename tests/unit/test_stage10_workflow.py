@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from engine.workflows import (
     PowerPointSummaryWriter,
@@ -226,6 +227,61 @@ class Stage10WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(7, len(slides))
         self.assertEqual("결론 및 다음 단계", slides[-1][0])
+
+    def test_approved_word_formatting_defaults_are_applied_and_read_back(self):
+        content = SimpleNamespace(
+            Font=SimpleNamespace(Bold=0, Size=11.0),
+            ParagraphFormat=SimpleNamespace(Alignment=0),
+        )
+
+        applied = WordReportWriter._apply_formatting_preferences(content, {
+            "emphasis_style": "bold",
+            "font_scale": "larger",
+            "paragraph_align": "center",
+        })
+
+        self.assertEqual(-1, content.Font.Bold)
+        self.assertEqual(14.0, content.Font.Size)
+        self.assertEqual(1, content.ParagraphFormat.Alignment)
+        self.assertEqual({
+            "emphasis_style": "bold",
+            "font_scale": "larger",
+            "paragraph_align": "center",
+        }, applied)
+
+    def test_invalid_word_formatting_default_is_blocked(self):
+        content = SimpleNamespace(
+            Font=SimpleNamespace(Bold=0, Size=11.0),
+            ParagraphFormat=SimpleNamespace(Alignment=0),
+        )
+
+        with self.assertRaisesRegex(Exception, "정렬 기본값"):
+            WordReportWriter._apply_formatting_preferences(
+                content, {"paragraph_align": "diagonal"}
+            )
+
+    def test_workflow_plan_accepts_only_bounded_word_formatting_defaults(self):
+        state = self.executor.prepare(self.source, preferences={
+            "emphasis_style": "regular",
+            "font_scale": "smaller",
+            "paragraph_align": "justify",
+        })
+
+        self.assertEqual(
+            "smaller", state["applied_preferences"]["font_scale"]
+        )
+
+    def test_approval_rejects_tampered_formatting_default_before_any_step(self):
+        state = self.executor.prepare(
+            self.source, preferences={"paragraph_align": "center"}
+        )
+        state["applied_preferences"]["paragraph_align"] = "diagonal"
+
+        with self.assertRaisesRegex(Exception, "학습 기본값이 바뀌어"):
+            self.executor.start(state)
+
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertFalse(self.executor._path(state["workflow_id"]).exists())
 
 
 if __name__ == "__main__":

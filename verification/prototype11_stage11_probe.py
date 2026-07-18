@@ -91,6 +91,25 @@ def _owned_probe():
         preference_persisted = bool(
             resolved and resolved.get("value") == 7 and resolved.get("user_confirmed")
         )
+        word_preferences = {}
+        for preference, value in (
+            ("emphasis_style", "bold"),
+            ("font_scale", "larger"),
+            ("paragraph_align", "center"),
+        ):
+            formatting_candidate = None
+            for index in range(1, 4):
+                formatting_candidate = reloaded.record_evidence(
+                    preference,
+                    value,
+                    scope_kind="app",
+                    scope_id="word",
+                    evidence_id=f"stage11-probe-{preference}-{index}",
+                )
+            reloaded.activate(formatting_candidate["candidate_id"])
+            word_preferences[preference] = reloaded.resolve(
+                preference, app_id="word"
+            )["value"]
 
         stage = "create_owned_excel_source"
         _create_source(source)
@@ -103,6 +122,7 @@ def _owned_probe():
             "ppt_slide_count": resolved["value"],
             "summary_lines": 5,
             "number_format": "thousands",
+            **word_preferences,
             "_learning_metadata": {
                 "ppt_slide_count": {
                     "scope": resolved["resolved_scope"],
@@ -122,7 +142,7 @@ def _owned_probe():
         presentation_path = Path(result["output_paths"]["presentation"])
 
         stage = "reopen_outputs"
-        word_verified = _verify_word(report_path)
+        word_verified = _verify_word(report_path, word_preferences)
         slide_count = _powerpoint_slide_count(presentation_path)
         stored = executor.load(state["workflow_id"])
         checks = {
@@ -130,10 +150,15 @@ def _owned_probe():
             "inactive_before_user_approval": inactive_before_approval,
             "approved_preference_persisted": preference_persisted,
             "approved_scope_recorded": resolved.get("resolved_scope") == "app",
-            "word_report_reopened": word_verified,
+            "word_report_reopened_with_approved_formatting": word_verified,
             "preferred_seven_slides_created": slide_count == 7,
             "applied_preference_audited": (
                 stored.get("applied_preferences", {}).get("ppt_slide_count") == 7
+            ),
+            "word_formatting_readback_recorded": (
+                stored.get("verification_results", {})
+                .get("create_word_report", {})
+                .get("applied_formatting") == word_preferences
             ),
             "source_unchanged": file_fingerprint(source) == source_before,
             "workflow_completed": stored.get("status") == "completed",

@@ -15,6 +15,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from engine.learning import validate_preference_value
 from engine.runtime_paths import USER_DATA_DIR
 from engine.storage.json_store import atomic_write_json, safe_read_json
 
@@ -36,7 +37,8 @@ SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xlsb", ".xls"})
 WORKFLOW_PREFERENCE_KEYS = frozenset({
     "summary_lines", "report_tone", "title_style", "number_format",
     "table_style", "ppt_slide_count", "preferred_output_dir",
-    "confirmation_actions", "workflow_order", "_learning_metadata",
+    "confirmation_actions", "workflow_order", "emphasis_style",
+    "font_scale", "paragraph_align", "_learning_metadata",
 })
 
 
@@ -209,7 +211,16 @@ def _validated_workflow_preferences(value) -> dict[str, Any]:
     unknown = set(value) - WORKFLOW_PREFERENCE_KEYS
     if unknown:
         raise WorkflowError("허용되지 않은 워크플로 기본값이 있습니다.")
-    result = _json_value(dict(value))
+    raw = dict(value)
+    metadata = raw.pop("_learning_metadata", None)
+    result = {
+        name: validate_preference_value(name, preference_value)
+        for name, preference_value in raw.items()
+    }
+    if metadata is not None:
+        if not isinstance(metadata, Mapping):
+            raise WorkflowError("학습 기본값 출처 정보가 올바르지 않습니다.")
+        result["_learning_metadata"] = _json_value(dict(metadata))
     encoded = json.dumps(result, ensure_ascii=False).encode("utf-8")
     if len(encoded) > 100_000:
         raise WorkflowError("워크플로 기본값 정보가 너무 큽니다.")
@@ -478,6 +489,57 @@ class WordReportWriter:
         lines.extend(f"- {Path(item).name}" for item in product.source_files)
         return "\r\n".join(lines)[:200_000]
 
+    @staticmethod
+    def _formatting_plan(preferences=None) -> dict[str, Any]:
+        """Translate approved semantic defaults to bounded Word values."""
+        preferences = dict(preferences or {})
+        plan = {}
+        emphasis = preferences.get("emphasis_style")
+        if emphasis is not None:
+            if emphasis not in {"bold", "regular"}:
+                raise WorkflowError("보고서 굵기 기본값이 올바르지 않습니다.")
+            plan["emphasis_style"] = emphasis
+            plan["bold"] = emphasis == "bold"
+        scale = preferences.get("font_scale")
+        if scale is not None:
+            if scale not in {"larger", "smaller"}:
+                raise WorkflowError("보고서 글자 크기 기본값이 올바르지 않습니다.")
+            plan["font_scale"] = scale
+            plan["font_size"] = 14.0 if scale == "larger" else 10.0
+        alignment = preferences.get("paragraph_align")
+        if alignment is not None:
+            alignments = {"left": 0, "center": 1, "right": 2, "justify": 3}
+            if alignment not in alignments:
+                raise WorkflowError("보고서 문단 정렬 기본값이 올바르지 않습니다.")
+            plan["paragraph_align"] = alignment
+            plan["paragraph_alignment"] = alignments[alignment]
+        return plan
+
+    @classmethod
+    def _apply_formatting_preferences(cls, content, preferences=None) -> dict[str, Any]:
+        """Apply and read back only approved whole-report formatting defaults."""
+        plan = cls._formatting_plan(preferences)
+        if "bold" in plan:
+            content.Font.Bold = -1 if plan["bold"] else 0
+            actual = int(content.Font.Bold)
+            if bool(actual) != bool(plan["bold"]):
+                raise WorkflowError("Word 보고서 굵기 기본값 검증에 실패했습니다.")
+        if "font_size" in plan:
+            content.Font.Size = float(plan["font_size"])
+            if abs(float(content.Font.Size) - float(plan["font_size"])) > 0.01:
+                raise WorkflowError("Word 보고서 글자 크기 기본값 검증에 실패했습니다.")
+        if "paragraph_alignment" in plan:
+            content.ParagraphFormat.Alignment = int(plan["paragraph_alignment"])
+            if int(content.ParagraphFormat.Alignment) != int(
+                plan["paragraph_alignment"]
+            ):
+                raise WorkflowError("Word 보고서 문단 정렬 기본값 검증에 실패했습니다.")
+        return {
+            key: plan[key]
+            for key in ("emphasis_style", "font_scale", "paragraph_align")
+            if key in plan
+        }
+
     def run(self, context: Mapping[str, Any], work_product: Mapping[str, Any]) -> dict[str, Any]:
         from engine.app_actions.com_lifecycle import OfficeApplicationLease, com_apartment
 
@@ -498,6 +560,10 @@ class WordReportWriter:
                 document.Content.Text = self._report_text(
                     product, context.get("preferences")
                 )
+                applied_formatting = self._apply_formatting_preferences(
+                    document.Content,
+                    context.get("preferences"),
+                )
                 document.SaveAs2(str(output_path), FileFormat=16, AddToRecentFiles=False)
                 created = output_path.is_file()
                 if not created or int(document.Paragraphs.Count) < 1:
@@ -509,6 +575,7 @@ class WordReportWriter:
                         "exists": True,
                         "format": "docx",
                         "paragraph_count": int(document.Paragraphs.Count),
+                        "applied_formatting": applied_formatting,
                     },
                 }
             except Exception:
@@ -782,6 +849,12 @@ class WorkflowExecutor:
             raise WorkflowError("워크플로 단계 구성이 올바르지 않습니다.")
         if state.get("created_files") or state.get("work_product") is not None:
             raise WorkflowError("실행 전 워크플로 계획에 산출물 상태가 포함돼 있습니다.")
+        try:
+            state["applied_preferences"] = _validated_workflow_preferences(
+                state.get("applied_preferences") or {}
+            )
+        except (ValueError, TypeError, OSError) as error:
+            raise WorkflowError("승인 전에 학습 기본값이 바뀌어 새 미리보기가 필요합니다.") from error
 
         source = Path(_absolute_path(state.get("source_path") or ""))
         if (

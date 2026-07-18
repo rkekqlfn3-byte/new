@@ -97,12 +97,69 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def resolved_workflow_preferences(self, source_path: str) -> dict[str, Any]:
         return {}
 
+    @staticmethod
+    def _without_applied_preference(
+        preferences: Mapping[str, Any], name: str
+    ) -> dict[str, Any]:
+        """Remove an active default that an explicit request overrides."""
+        result = dict(preferences or {})
+        result.pop(name, None)
+        metadata = result.get("_learning_metadata")
+        if isinstance(metadata, Mapping):
+            metadata = dict(metadata)
+            metadata.pop(name, None)
+            if metadata:
+                result["_learning_metadata"] = metadata
+            else:
+                result.pop("_learning_metadata", None)
+        return result
+
+    @staticmethod
+    def _preference_preview(preferences: Mapping[str, Any]) -> tuple[dict, str]:
+        values = {
+            key: value for key, value in dict(preferences or {}).items()
+            if key != "_learning_metadata"
+        }
+        labels = {
+            "summary_lines": "요약 줄 수",
+            "report_tone": "보고서 문체",
+            "title_style": "제목 방식",
+            "number_format": "숫자 형식",
+            "table_style": "표 방식",
+            "ppt_slide_count": "PPT 장수",
+            "preferred_output_dir": "저장 위치",
+            "confirmation_actions": "확인 정책",
+            "workflow_order": "워크플로 순서",
+            "emphasis_style": "글자 강조",
+            "font_scale": "글자 크기",
+            "paragraph_align": "문단 정렬",
+        }
+        value_labels = {
+            "formal": "격식체", "concise": "간결하게", "friendly": "친근하게",
+            "bold": "굵게", "regular": "강조 없음",
+            "larger": "크게", "smaller": "작게",
+            "left": "왼쪽", "center": "가운데", "right": "오른쪽",
+            "justify": "양쪽",
+        }
+        parts = []
+        for name, value in values.items():
+            label = labels.get(name, name)
+            rendered = value_labels.get(value, value) if isinstance(value, str) else value
+            if isinstance(rendered, (list, tuple)):
+                rendered = ", ".join(str(item) for item in rendered)
+            parts.append(f"{label}={rendered}")
+        return values, " · ".join(parts)
+
     def _workflow_state(self, intent: WorkflowIntent) -> dict[str, Any]:
         source_path = self._path(self.session.get("file_path"))
         if intent.operation == "create_business_workflow":
             preferences = self.resolved_workflow_preferences(source_path)
             preferred_slides = preferences.get("ppt_slide_count", 5)
             slide_count = intent.params.get("slide_count") or preferred_slides
+            if intent.params.get("explicit_slide_count"):
+                preferences = self._without_applied_preference(
+                    preferences, "ppt_slide_count"
+                )
             output_dir = preferences.get("preferred_output_dir")
             return self.workflow_executor.prepare(
                 source_path,
@@ -139,6 +196,11 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             f"Word: {outputs.get('report', '')}\n"
             f"PowerPoint({state.get('slide_count', 5)}장): {outputs.get('presentation', '')}"
         )
+        applied_preferences, preference_summary = self._preference_preview(
+            state.get("applied_preferences") or {}
+        )
+        if preference_summary:
+            after += f"\n적용할 학습 기본값: {preference_summary}"
         preview = {
             "description": intent.description,
             "before": before,
@@ -146,6 +208,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "target": state.get("source_path"),
             "estimated_changes": 2,
             "noop": False,
+            "applied_preferences": applied_preferences,
         }
         arguments = {
             "workflow_id": state["workflow_id"],
@@ -189,6 +252,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 "workflow_id": state["workflow_id"],
                 "resume": intent.operation == "resume_business_workflow",
                 "rewrite_supported": False,
+                "applied_user_preferences": applied_preferences,
             },
         )
 
