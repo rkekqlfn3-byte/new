@@ -1231,6 +1231,17 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertNotIn(str(self.source), serialized)
         self.assertNotIn("owned-excel-fixture", serialized)
 
+    def test_unregistered_step_never_falls_through_to_a_writer(self):
+        state = self.executor.prepare(self.source)
+
+        with self.assertRaisesRegex(WorkflowError, "등록된 실행기가 없는"):
+            self.executor._run_step(state, "run_arbitrary_code")
+
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
+        self.assertEqual(0, self.ppt.calls)
+
     def test_hwp_plans_block_before_approval_when_environment_is_missing(self):
         for report_format in ("hwp", "both"):
             with self.subTest(report_format=report_format):

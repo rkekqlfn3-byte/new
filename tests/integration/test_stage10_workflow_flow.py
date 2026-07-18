@@ -682,6 +682,11 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertIn("성공한 단계 구조만 재사용 후보", first["message"])
         candidate = self.workflow_skills.latest_candidate()
         self.assertIsNotNone(candidate)
+        self.assertEqual(1, candidate["template"]["step_registry_schema_version"])
+        self.assertEqual(
+            candidate["template"]["step_order"],
+            [item["step_name"] for item in candidate["template"]["step_recipe"]],
+        )
         self.assertIsNone(self.workflow_skills.active_skill())
         self.assertFalse(
             self.workflow_skills.status()["raw_paths_or_content_stored"]
@@ -705,6 +710,9 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
 
         self.assertTrue(reused["success"])
         self.assertTrue(reused["data"]["observations"]["workflow_skill_reused"])
+        self.assertTrue(
+            reused["data"]["observations"]["step_contracts_verified"]
+        )
         self.assertIn("모든 단계를 다시 검증", reused["message"])
         self.assertEqual(2, self.analyzer.calls)
         self.assertEqual(2, self.word.calls)

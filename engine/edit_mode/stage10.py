@@ -1666,6 +1666,11 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             and result.get("verified")
             and result.get("status") == "completed"
             and len(result.get("created_files") or []) == expected_artifacts
+            and result.get("step_contracts_verified") is True
+            and result.get("registered_step_recipe_verified") is True
+            and result.get("step_registry_schema_version") == 1
+            and int(result.get("step_contract_count") or 0)
+            == expected_artifacts + 1
         )
         if verified:
             if result.get("join_plan") or result.get("source_scope"):

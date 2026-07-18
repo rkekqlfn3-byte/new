@@ -24,6 +24,7 @@ from engine.learning import (
 from engine.parser import CommandParser
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
+from engine.workflow_step_registry import validate_report_workflow_step_recipe
 from verification.prototype11_stage10_probe import (
     _create_source,
     _process_ids,
@@ -254,6 +255,10 @@ def _owned_probe():
             workflow_candidate["candidate_id"]
         )
         workflow_template = active_workflow_skill["template"]
+        registered_workflow_recipe = validate_report_workflow_step_recipe(
+            workflow_template.get("step_recipe"),
+            workflow_template.get("report_format"),
+        )
         contextual_intent = StructuredWorkflowIntentAnalyzer().analyze(
             "이거 보고서랑 7장짜리 발표자료 만들어줘",
             {"app_type": "excel"},
@@ -634,6 +639,12 @@ def _owned_probe():
             "workflow_skill_content_free_store": workflow_skill_content_free,
             "workflow_skill_requires_approval_each_run": bool(
                 workflow_template.get("requires_approval_each_run")
+            ),
+            "workflow_skill_registered_recipe_verified": bool(
+                workflow_template.get("step_registry_schema_version") == 1
+                and workflow_template.get("step_order")
+                == [item["step_name"] for item in registered_workflow_recipe]
+                and replay_result.get("registered_step_recipe_verified") is True
             ),
             "workflow_skill_fresh_output_plan": workflow_skill_fresh_plan,
             "workflow_skill_actual_replay_verified": bool(

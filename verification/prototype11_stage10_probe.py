@@ -538,6 +538,10 @@ def _owned_probe(report_format="word", progress=None):
                     for contract in (stored.get("step_contracts") or {}).values()
                 )
             ),
+            "registered_step_recipe_verified": (
+                result.get("registered_step_recipe_verified") is True
+                and result.get("step_registry_schema_version") == 1
+            ),
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),
             "two_source_tables_and_one_join_created": (

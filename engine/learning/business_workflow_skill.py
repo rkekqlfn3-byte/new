@@ -12,29 +12,17 @@ from typing import Any, Mapping
 
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
+from engine.workflow_step_registry import (
+    WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
+    report_workflow_step_order,
+    report_workflow_step_recipe,
+    validate_report_workflow_step_recipe,
+)
 
 
-WORKFLOW_SKILL_SCHEMA_VERSION = 1
+WORKFLOW_SKILL_SCHEMA_VERSION = 2
 DEFAULT_WORKFLOW_SKILL_PATH = user_data_path("business_workflow_skills.json")
 EVIDENCE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
-STEP_ORDERS = {
-    "word": (
-        "analyze_excel",
-        "create_word_report",
-        "create_powerpoint_summary",
-    ),
-    "hwp": (
-        "analyze_excel",
-        "create_hwp_report",
-        "create_powerpoint_summary",
-    ),
-    "both": (
-        "analyze_excel",
-        "create_word_report",
-        "create_hwp_report",
-        "create_powerpoint_summary",
-    ),
-}
 
 
 class BusinessWorkflowSkillError(ValueError):
@@ -49,12 +37,20 @@ def _canonical(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _validate_template(value: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_template(
+    value: Mapping[str, Any],
+    *,
+    allow_legacy_recipe=False,
+) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise BusinessWorkflowSkillError("업무 스킬 구조가 올바르지 않습니다.")
     report_format = str(value.get("report_format") or "").strip().casefold()
-    if report_format not in STEP_ORDERS:
-        raise BusinessWorkflowSkillError("업무 스킬의 보고서 형식이 올바르지 않습니다.")
+    try:
+        expected_step_order = report_workflow_step_order(report_format)
+    except ValueError as error:
+        raise BusinessWorkflowSkillError(
+            "업무 스킬의 보고서 형식이 올바르지 않습니다."
+        ) from error
     try:
         slide_count = int(value.get("slide_count"))
     except (TypeError, ValueError) as error:
@@ -62,8 +58,27 @@ def _validate_template(value: Mapping[str, Any]) -> dict[str, Any]:
     if not 3 <= slide_count <= 20:
         raise BusinessWorkflowSkillError("업무 스킬의 PPT 장수는 3~20장이어야 합니다.")
     step_order = tuple(str(item) for item in value.get("step_order") or ())
-    if step_order != STEP_ORDERS[report_format]:
+    if step_order != expected_step_order:
         raise BusinessWorkflowSkillError("업무 스킬의 단계 구성이 허용 계약과 다릅니다.")
+    if allow_legacy_recipe and "step_recipe" not in value:
+        step_recipe = report_workflow_step_recipe(report_format)
+    else:
+        try:
+            step_recipe = validate_report_workflow_step_recipe(
+                value.get("step_recipe"),
+                report_format,
+            )
+        except ValueError as error:
+            raise BusinessWorkflowSkillError(
+                "업무 스킬의 단계 레시피가 허용 목록과 다릅니다."
+            ) from error
+        if (
+            value.get("step_registry_schema_version")
+            != WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION
+        ):
+            raise BusinessWorkflowSkillError(
+                "업무 스킬의 단계 레지스트리 버전이 올바르지 않습니다."
+            )
     if value.get("read_only_source") is not True:
         raise BusinessWorkflowSkillError("업무 스킬은 Excel 원본 읽기 전용이어야 합니다.")
     if value.get("fresh_outputs_each_run") is not True:
@@ -75,6 +90,8 @@ def _validate_template(value: Mapping[str, Any]) -> dict[str, Any]:
         "report_format": report_format,
         "slide_count": slide_count,
         "step_order": list(step_order),
+        "step_registry_schema_version": WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
+        "step_recipe": step_recipe,
         "read_only_source": True,
         "fresh_outputs_each_run": True,
         "requires_approval_each_run": True,
@@ -85,16 +102,55 @@ def _template_id(template: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical(template).encode("utf-8")).hexdigest()[:24]
 
 
+def _legacy_template_id(template: Mapping[str, Any]) -> str:
+    legacy = {
+        key: copy.deepcopy(template[key])
+        for key in (
+            "kind",
+            "report_format",
+            "slide_count",
+            "step_order",
+            "read_only_source",
+            "fresh_outputs_each_run",
+            "requires_approval_each_run",
+        )
+    }
+    return _template_id(legacy)
+
+
 def workflow_skill_template(result: Mapping[str, Any]) -> dict[str, Any]:
     """Extract only reusable structure from one verified workflow result."""
-    if not isinstance(result, Mapping) or not result.get("verified"):
+    if (
+        not isinstance(result, Mapping)
+        or result.get("verified") is not True
+        or result.get("step_contracts_verified") is not True
+        or result.get("registered_step_recipe_verified") is not True
+        or result.get("step_registry_schema_version")
+        != WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION
+    ):
         raise BusinessWorkflowSkillError("검증되지 않은 업무 결과는 스킬 후보가 될 수 없습니다.")
     report_format = str(result.get("report_format") or "").strip().casefold()
     step_order = tuple(str(item) for item in result.get("successful_steps") or ())
+    try:
+        step_contract_count = int(result.get("step_contract_count") or 0)
+    except (TypeError, ValueError) as error:
+        raise BusinessWorkflowSkillError(
+            "검증된 단계 계약 수가 올바르지 않습니다."
+        ) from error
+    if step_contract_count != len(step_order):
+        raise BusinessWorkflowSkillError("검증된 단계 계약 수가 업무 결과와 다릅니다.")
+    try:
+        step_recipe = report_workflow_step_recipe(report_format)
+    except ValueError as error:
+        raise BusinessWorkflowSkillError(
+            "업무 스킬의 보고서 형식이 올바르지 않습니다."
+        ) from error
     return _validate_template({
         "report_format": report_format,
         "slide_count": result.get("slide_count"),
         "step_order": step_order,
+        "step_registry_schema_version": WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
+        "step_recipe": step_recipe,
         "read_only_source": True,
         "fresh_outputs_each_run": True,
         "requires_approval_each_run": True,
@@ -122,7 +178,16 @@ class BusinessWorkflowSkillManager:
     @classmethod
     def _normalize(cls, value) -> dict[str, Any]:
         raw = value if isinstance(value, dict) else {}
+        try:
+            stored_schema_version = int(raw.get("schema_version") or 0)
+        except (TypeError, ValueError):
+            stored_schema_version = 0
+        if stored_schema_version not in {1, WORKFLOW_SKILL_SCHEMA_VERSION}:
+            raw = {}
+            stored_schema_version = WORKFLOW_SKILL_SCHEMA_VERSION
+        legacy_schema = stored_schema_version == 1
         candidates = {}
+        candidate_id_map = {}
         records = (
             raw.get("candidates", {}).items()
             if isinstance(raw.get("candidates"), dict)
@@ -131,13 +196,26 @@ class BusinessWorkflowSkillManager:
         for identifier, record in records:
             if not isinstance(record, dict):
                 continue
+            raw_template = record.get("template") or {}
+            if legacy_schema and (
+                "step_recipe" in raw_template
+                or "step_registry_schema_version" in raw_template
+            ):
+                continue
             try:
-                template = _validate_template(record.get("template") or {})
+                template = _validate_template(
+                    raw_template,
+                    allow_legacy_recipe=legacy_schema,
+                )
             except (TypeError, ValueError):
                 continue
             expected_id = _template_id(template)
-            if str(identifier) != expected_id:
+            accepted_id = (
+                _legacy_template_id(template) if legacy_schema else expected_id
+            )
+            if str(identifier) != accepted_id:
                 continue
+            candidate_id_map[str(identifier)] = expected_id
             status = str(record.get("status") or "candidate").casefold()
             if status not in {"candidate", "active", "dismissed"}:
                 status = "candidate"
@@ -163,10 +241,22 @@ class BusinessWorkflowSkillManager:
         active = raw.get("active_skill")
         normalized_active = None
         if isinstance(active, dict):
-            candidate = candidates.get(str(active.get("candidate_id") or ""))
+            raw_active_id = str(active.get("candidate_id") or "")
+            candidate = candidates.get(
+                candidate_id_map.get(raw_active_id, raw_active_id)
+            )
             if candidate:
+                raw_active_template = active.get("template") or {}
+                if legacy_schema and (
+                    "step_recipe" in raw_active_template
+                    or "step_registry_schema_version" in raw_active_template
+                ):
+                    raw_active_template = None
                 try:
-                    template = _validate_template(active.get("template") or {})
+                    template = _validate_template(
+                        raw_active_template or {},
+                        allow_legacy_recipe=legacy_schema,
+                    )
                 except (TypeError, ValueError):
                     template = None
                 if template == candidate["template"] and active.get("user_confirmed") is True:

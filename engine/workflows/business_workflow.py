@@ -21,16 +21,25 @@ from typing import Any, Mapping
 from engine.learning import validate_preference_value
 from engine.runtime_paths import USER_DATA_DIR
 from engine.storage.json_store import atomic_write_json, safe_read_json
+from engine.workflow_step_registry import (
+    WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
+    registered_workflow_step_names,
+    report_workflow_step_order,
+    report_workflow_step_recipe,
+)
 
 
 WORKFLOW_SCHEMA_VERSION = 4
 WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION = 1
-STEP_NAMES = (
+STEP_NAMES = registered_workflow_step_names()
+EXECUTABLE_STEP_NAMES = frozenset({
     "analyze_excel",
     "create_word_report",
     "create_hwp_report",
     "create_powerpoint_summary",
-)
+})
+if frozenset(STEP_NAMES) != EXECUTABLE_STEP_NAMES:
+    raise RuntimeError("워크플로 단계 레지스트리와 실행기 허용 목록이 다릅니다.")
 MAX_WORKSHEETS = 20
 MAX_SOURCE_CELLS_PER_SHEET = 50_000
 MAX_SOURCE_CELLS = 100_000
@@ -310,13 +319,11 @@ def _report_kinds(report_format) -> tuple[str, ...]:
 
 
 def _step_order(report_format) -> tuple[str, ...]:
-    steps = ["analyze_excel"]
-    if "word" in _report_kinds(report_format):
-        steps.append("create_word_report")
-    if "hwp" in _report_kinds(report_format):
-        steps.append("create_hwp_report")
-    steps.append("create_powerpoint_summary")
-    return tuple(steps)
+    normalized = _report_format(report_format)
+    try:
+        return report_workflow_step_order(normalized)
+    except ValueError as error:
+        raise WorkflowError(str(error)) from error
 
 
 def _workflow_step_contracts(
@@ -332,18 +339,10 @@ def _workflow_step_contracts(
     ).strip().upper()
     if not re.fullmatch(r"[A-F0-9]{64}", source_sha256):
         raise WorkflowError("워크플로 원본 지문이 올바르지 않습니다.")
-    evidence = {
-        "analyze_excel": "validated_common_model",
-        "create_word_report": "file_fingerprint_and_word_readback",
-        "create_hwp_report": "file_fingerprint_and_hwp_readback",
-        "create_powerpoint_summary": (
-            "file_fingerprint_and_powerpoint_readback"
-        ),
-    }
     contracts = {}
-    previous = None
-    for step_name in _step_order(report_format):
-        depends_on = [] if previous is None else [previous]
+    for definition in report_workflow_step_recipe(_report_format(report_format)):
+        step_name = definition["step_name"]
+        depends_on = list(definition["depends_on"])
         identity = {
             "schema_version": WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION,
             "workflow_id": str(workflow_id or ""),
@@ -363,15 +362,10 @@ def _workflow_step_contracts(
             "schema_version": WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION,
             "step_name": step_name,
             "depends_on": depends_on,
-            "effect": (
-                "read_only_analysis"
-                if step_name == "analyze_excel"
-                else "create_owned_file"
-            ),
-            "completion_evidence": evidence[step_name],
+            "effect": definition["effect"],
+            "completion_evidence": definition["completion_evidence"],
             "idempotency_key": idempotency_key,
         }
-        previous = step_name
     return contracts
 
 
@@ -3390,6 +3384,8 @@ class WorkflowExecutor:
         return context
 
     def _run_step(self, state: dict, name: str):
+        if name not in EXECUTABLE_STEP_NAMES:
+            raise WorkflowError("등록된 실행기가 없는 워크플로 단계입니다.")
         context = self._step_context(state, name)
         if name == "analyze_excel":
             return WorkProductData.from_value(self.analyzer.run(context)).to_dict()
@@ -3398,7 +3394,9 @@ class WorkflowExecutor:
             return dict(self.word_writer.run(context, product))
         if name == "create_hwp_report":
             return dict(self.hwp_writer.run(context, product))
-        return dict(self.powerpoint_writer.run(context, product))
+        if name == "create_powerpoint_summary":
+            return dict(self.powerpoint_writer.run(context, product))
+        raise WorkflowError("등록된 실행기가 없는 워크플로 단계입니다.")
 
     def run(self, workflow_id: str) -> dict[str, Any]:
         state = self.load(workflow_id)
@@ -3537,6 +3535,9 @@ class WorkflowExecutor:
     @staticmethod
     def _result(state: dict, *, changed: bool) -> dict[str, Any]:
         step_contracts = _validated_state_step_contracts(state)
+        step_recipe = report_workflow_step_recipe(
+            _report_format(state.get("report_format") or "word")
+        )
         return {
             "success": True,
             "verified": state.get("status") == "completed",
@@ -3548,6 +3549,21 @@ class WorkflowExecutor:
             "successful_steps": list(state.get("successful_steps") or []),
             "step_contracts_verified": True,
             "step_contract_count": len(step_contracts),
+            "step_registry_schema_version": (
+                WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION
+            ),
+            "registered_step_recipe_verified": (
+                list(step_contracts) == [item["step_name"] for item in step_recipe]
+                and all(
+                    step_contracts[item["step_name"]][field] == item[field]
+                    for item in step_recipe
+                    for field in (
+                        "depends_on",
+                        "effect",
+                        "completion_evidence",
+                    )
+                )
+            ),
             "verification_results": dict(state.get("verification_results") or {}),
             "output_paths": dict(state.get("output_paths") or {}),
             "slide_count": int(state.get("slide_count") or 5),
