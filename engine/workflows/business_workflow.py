@@ -41,6 +41,23 @@ MAX_INSIGHTS = 50
 MAX_CHARTS = 20
 MAX_RELATIONSHIPS = 10
 MAX_RELATION_VALUES = 5_000
+RELATIONSHIP_CANDIDATE_FIELDS = frozenset({
+    "left_sheet",
+    "right_sheet",
+    "left_key",
+    "right_key",
+    "match_basis",
+    "ambiguous",
+    "cardinality",
+    "matched_key_count",
+    "left_distinct_count",
+    "right_distinct_count",
+    "left_coverage",
+    "right_coverage",
+    "sample_limited",
+    "requires_preaggregation",
+    "confidence",
+})
 MAX_PIVOT_SUMMARIES = 10
 MAX_PIVOT_GROUPS = 5
 MAX_JOIN_SOURCE_ROWS = 5_000
@@ -2658,6 +2675,90 @@ class WorkflowExecutor:
         self.word_writer = word_writer or WordReportWriter()
         self.hwp_writer = hwp_writer or HwpReportWriter()
         self.powerpoint_writer = powerpoint_writer or PowerPointSummaryWriter()
+        self._relationship_candidate_cache = None
+
+    def remember_relationship_candidates(
+        self,
+        *,
+        source_path,
+        source_fingerprint,
+        edit_session_id,
+        candidates,
+    ) -> None:
+        """Keep schema-only candidates in memory for one short edit session."""
+        raw_candidates = list(candidates or [])
+        if len(raw_candidates) > MAX_RELATIONSHIPS:
+            raise WorkflowJoinValidationError(
+                f"메모리 관계 후보는 최대 {MAX_RELATIONSHIPS}개여야 합니다."
+            )
+        safe_candidates = []
+        for item in raw_candidates:
+            if (
+                not isinstance(item, Mapping)
+                or set(item) != RELATIONSHIP_CANDIDATE_FIELDS
+            ):
+                raise WorkflowJoinValidationError(
+                    "메모리에 보관할 관계 후보 형식이 올바르지 않습니다."
+                )
+            safe_candidates.append(copy.deepcopy(dict(item)))
+        self._relationship_candidate_cache = {
+            "source_identity_hash": hashlib.sha256(
+                os.path.normcase(_absolute_path(source_path)).encode("utf-8")
+            ).hexdigest(),
+            "source_fingerprint": copy.deepcopy(dict(source_fingerprint or {})),
+            "edit_session_id": str(edit_session_id or ""),
+            "captured_at": time.monotonic(),
+            "candidates": safe_candidates,
+        }
+
+    def resolve_relationship_candidate(
+        self,
+        *,
+        source_path,
+        source_fingerprint,
+        edit_session_id,
+        candidate_index,
+        max_age_seconds=600,
+    ) -> dict[str, Any]:
+        """Resolve one numbered candidate only while its source is unchanged."""
+        cache = self._relationship_candidate_cache
+        if not isinstance(cache, Mapping):
+            raise WorkflowJoinValidationError(
+                "먼저 '시트 관계 후보 찾아줘'로 현재 Excel의 후보를 확인해주세요."
+            )
+        try:
+            index = int(candidate_index)
+        except (TypeError, ValueError) as error:
+            raise WorkflowJoinValidationError(
+                "관계 후보 번호는 1~10 사이 숫자여야 합니다."
+            ) from error
+        candidates = list(cache.get("candidates") or [])
+        expired = (
+            time.monotonic() - float(cache.get("captured_at") or 0.0)
+            > max(1, int(max_age_seconds))
+        )
+        source_changed = (
+            hashlib.sha256(
+                os.path.normcase(_absolute_path(source_path)).encode("utf-8")
+            ).hexdigest()
+            != str(cache.get("source_identity_hash") or "")
+            or dict(source_fingerprint or {})
+            != dict(cache.get("source_fingerprint") or {})
+            or str(edit_session_id or "")
+            != str(cache.get("edit_session_id") or "")
+        )
+        if expired or source_changed:
+            self._relationship_candidate_cache = None
+            raise WorkflowJoinValidationError(
+                "관계 후보를 확인한 뒤 시간이 지났거나 Excel 파일·편집 세션이 "
+                "바뀌었습니다. 후보를 다시 찾아주세요."
+            )
+        if not 1 <= index <= len(candidates):
+            raise WorkflowJoinValidationError(
+                f"현재 관계 후보는 {len(candidates)}개입니다. 표시된 번호를 "
+                "다시 선택해주세요."
+            )
+        return copy.deepcopy(dict(candidates[index - 1]))
 
     def _preflight_report_environment(self, report_format: str) -> None:
         if "hwp" not in _report_kinds(report_format):

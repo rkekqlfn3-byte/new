@@ -19,7 +19,10 @@ from engine.workflows import (
     WorkflowJoinValidationError,
     WorkflowSourceScopeValidationError,
 )
-from engine.workflows.business_workflow import file_fingerprint
+from engine.workflows.business_workflow import (
+    RELATIONSHIP_CANDIDATE_FIELDS,
+    file_fingerprint,
+)
 
 
 WORKFLOW_EXECUTION_OPERATIONS = frozenset(
@@ -431,11 +434,73 @@ class StructuredWorkflowIntentAnalyzer:
             },
         }
 
+    @staticmethod
+    def _relationship_candidate_params(command: str) -> dict[str, Any]:
+        text = re.sub(r"\s+", " ", str(command or "")).strip().casefold()
+        requested = (
+            "후보" in text
+            and bool(re.search(r"(?:조인|결합|\bjoin\b)", text))
+            and bool(re.search(
+                r"(?<!\d)\d{1,2}\s*(?:번\s*(?:후보)?|번째\s*후보)",
+                text,
+            ))
+        )
+        if not requested:
+            return {
+                "relationship_candidate_requested": False,
+                "relationship_candidate_index": None,
+                "relationship_candidate_join_type": None,
+            }
+        if "집계" in text:
+            return {
+                "relationship_candidate_requested": True,
+                "relationship_candidate_index": None,
+                "relationship_candidate_join_type": None,
+                "relationship_candidate_error": (
+                    "후보 번호 요청에서는 집계 조건을 생략해 실행하지 않습니다. "
+                    "사전 집계가 필요하면 두 시트·양쪽 키·집계 열과 방식을 "
+                    "직접 말해주세요."
+                ),
+            }
+        matches = []
+        for pattern in (
+            r"(?<!\d)(\d{1,2})\s*번\s*(?:후보)?",
+            r"(?<!\d)(\d{1,2})\s*번째\s*후보",
+        ):
+            matches.extend(int(value) for value in re.findall(pattern, text))
+        matches = list(dict.fromkeys(matches))
+        if len(matches) != 1 or not 1 <= matches[0] <= 10:
+            return {
+                "relationship_candidate_requested": True,
+                "relationship_candidate_index": None,
+                "relationship_candidate_join_type": None,
+                "relationship_candidate_error": (
+                    "관계 후보 번호는 현재 표시된 1~10번 중 하나만 말해주세요."
+                ),
+            }
+        inner = bool(re.search(r"(?:내부|\binner\b)", text))
+        left = bool(re.search(r"(?:왼쪽|\bleft\b)", text))
+        if inner == left:
+            return {
+                "relationship_candidate_requested": True,
+                "relationship_candidate_index": matches[0],
+                "relationship_candidate_join_type": None,
+                "relationship_candidate_error": (
+                    "후보로 조인하려면 내부 또는 왼쪽 방식 중 하나만 말해주세요."
+                ),
+            }
+        return {
+            "relationship_candidate_requested": True,
+            "relationship_candidate_index": matches[0],
+            "relationship_candidate_join_type": "inner" if inner else "left",
+        }
+
     def analyze(self, text: str, context: Mapping[str, Any]) -> WorkflowIntent | None:
         if str(context.get("app_type") or "").casefold() != "excel":
             return None
         raw_command = re.sub(r"\s+", " ", str(text or "")).strip()
         command = raw_command.casefold()
+        candidate_params = self._relationship_candidate_params(raw_command)
         if any(term in command for term in self.FORGET_TERMS):
             return WorkflowIntent(
                 "deactivate_business_workflow_skill",
@@ -451,7 +516,10 @@ class StructuredWorkflowIntentAnalyzer:
                 "resume_business_workflow",
                 "저장된 성공 단계는 건너뛰고 실패한 문서 워크플로 단계부터 재개",
             )
-        if any(term in command for term in self.RELATIONSHIP_INSPECTION_TERMS):
+        if (
+            any(term in command for term in self.RELATIONSHIP_INSPECTION_TERMS)
+            and not candidate_params.get("relationship_candidate_requested")
+        ):
             return WorkflowIntent(
                 "inspect_excel_relationships",
                 "현재 Excel의 시트 간 조인 키 후보를 읽기 전용으로 검사",
@@ -509,10 +577,18 @@ class StructuredWorkflowIntentAnalyzer:
                 params,
             )
         join_params = self._join_params(raw_command)
+        if (
+            candidate_params.get("relationship_candidate_requested")
+            and join_params.get("join_requested")
+        ):
+            candidate_params["relationship_candidate_error"] = (
+                "후보 번호와 시트·키 직접 지정은 한 요청에 함께 사용할 수 없습니다."
+            )
         scope_params = self._source_scope_params(raw_command, context)
         has_analysis = (
             any(term in command for term in ("분석", "요약", "analy"))
             or bool(join_params.get("join_requested"))
+            or bool(candidate_params.get("relationship_candidate_requested"))
             or bool(scope_params.get("source_scope_requested"))
         )
         has_report = any(term in command for term in self.CREATE_REPORT_TERMS)
@@ -527,7 +603,10 @@ class StructuredWorkflowIntentAnalyzer:
                 default_report_format="word",
             )
             params.update(join_params)
+            params.update(candidate_params)
             params.update(scope_params)
+            if params.get("relationship_candidate_requested"):
+                params["join_requested"] = True
             params["contextual_current_document"] = contextual_current_document
             report_format = str(params["report_format"])
             report_label = {
@@ -555,7 +634,18 @@ class StructuredWorkflowIntentAnalyzer:
                 )
             )
             join_plan = params.get("join_plan")
-            if join_plan:
+            if params.get("relationship_candidate_requested"):
+                candidate_index = params.get("relationship_candidate_index")
+                join_type = params.get("relationship_candidate_join_type")
+                join_label = {
+                    "inner": "내부",
+                    "left": "왼쪽",
+                }.get(join_type, "미지정")
+                description = (
+                    f"관계 후보 {candidate_index or '?'}번을 {join_label} 조인 후 "
+                    + description
+                )
+            elif join_plan:
                 join_label = (
                     "내부" if join_plan["join_type"] == "inner" else "왼쪽"
                 )
@@ -653,23 +743,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             or value.get("document_paths_reported") is not False
         ):
             raise Stage10EditError("키 후보 결과에는 셀 값이나 파일 경로를 넣을 수 없습니다.")
-        required = {
-            "left_sheet",
-            "right_sheet",
-            "left_key",
-            "right_key",
-            "match_basis",
-            "ambiguous",
-            "cardinality",
-            "matched_key_count",
-            "left_distinct_count",
-            "right_distinct_count",
-            "left_coverage",
-            "right_coverage",
-            "sample_limited",
-            "requires_preaggregation",
-            "confidence",
-        }
+        required = RELATIONSHIP_CANDIDATE_FIELDS
         candidates = []
         identities = set()
         for raw_candidate in raw_candidates:
@@ -998,9 +1072,39 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def _workflow_state(self, intent: WorkflowIntent) -> dict[str, Any]:
         source_path = self._path(self.session.get("file_path"))
         if intent.operation == "create_business_workflow":
+            join_plan = intent.params.get("join_plan")
+            if intent.params.get("relationship_candidate_requested"):
+                candidate_error = str(
+                    intent.params.get("relationship_candidate_error") or ""
+                ).strip()
+                if candidate_error:
+                    raise WorkflowJoinValidationError(candidate_error)
+                candidate = self.workflow_executor.resolve_relationship_candidate(
+                    source_path=source_path,
+                    source_fingerprint=file_fingerprint(source_path),
+                    edit_session_id=self.session.get("session_id"),
+                    candidate_index=intent.params.get(
+                        "relationship_candidate_index"
+                    ),
+                )
+                if candidate.get("requires_preaggregation"):
+                    raise WorkflowJoinValidationError(
+                        "선택한 후보는 양쪽 키가 중복된 N:M 관계라 번호만으로 "
+                        "조인하지 않습니다. 양쪽 시트·키와 필요한 사전 집계를 "
+                        "직접 말해주세요."
+                    )
+                join_plan = {
+                    "left_sheet": candidate["left_sheet"],
+                    "right_sheet": candidate["right_sheet"],
+                    "left_key": candidate["left_key"],
+                    "right_key": candidate["right_key"],
+                    "join_type": intent.params.get(
+                        "relationship_candidate_join_type"
+                    ),
+                }
             if (
                 intent.params.get("join_requested")
-                and not intent.params.get("join_plan")
+                and not join_plan
             ):
                 raise WorkflowJoinValidationError(
                     str(intent.params.get("join_error") or "")
@@ -1055,7 +1159,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 slide_count=slide_count,
                 explicit_slide_count=bool(intent.params.get("explicit_slide_count")),
                 report_format=report_format,
-                join_plan=intent.params.get("join_plan"),
+                join_plan=join_plan,
                 source_scope=intent.params.get("source_scope"),
             )
         state = self.workflow_executor.latest_for_source(source_path)
@@ -1142,7 +1246,8 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "before": "현재 표시 시트의 머리글·키 겹침·고유성만 검사",
             "after": (
                 "후보 시트·키·관계 형태·표본 제한 여부만 표시하고 "
-                "셀 값·파일 경로는 보관하지 않음"
+                "셀 값·파일 경로는 보관하지 않음 · 번호 선택용 후보는 현재 "
+                "편집 세션 메모리에서 10분 뒤 만료"
             ),
             "target": str(context.get("document_name") or Path(source_path).name),
             "estimated_changes": 0,
@@ -1396,6 +1501,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 raise Stage10EditError(
                     "관계 후보 검사 중 Excel 원본 파일이 바뀌어 결과를 폐기했습니다."
                 )
+            self.workflow_executor.remember_relationship_candidates(
+                source_path=source_path,
+                source_fingerprint=expected_fingerprint,
+                edit_session_id=prepared_action.edit_session_id,
+                candidates=inspection["candidates"],
+            )
             return {
                 **inspection,
                 "changed": False,

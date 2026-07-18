@@ -1590,6 +1590,136 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual("both", both.params["report_format"])
         self.assertIn("Word·한글 보고서", both.description)
 
+    def test_workflow_intent_requires_complete_numbered_candidate_contract(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        context = {"app_type": "excel"}
+
+        valid = analyzer.analyze(
+            "조인 키 후보 1번으로 왼쪽 조인해서 Word 보고서와 5장 PPT 만들어줘",
+            context,
+        )
+        missing_join_type = analyzer.analyze(
+            "2번 후보로 조인해서 보고서와 PPT 만들어줘",
+            context,
+        )
+        invalid_number = analyzer.analyze(
+            "11번 후보로 내부 조인해서 보고서와 PPT 만들어줘",
+            context,
+        )
+        ignored_aggregation = analyzer.analyze(
+            "1번 후보로 매출을 합계 집계해서 왼쪽 조인하고 "
+            "보고서와 PPT 만들어줘",
+            context,
+        )
+
+        self.assertEqual("create_business_workflow", valid.operation)
+        self.assertEqual(1, valid.params["relationship_candidate_index"])
+        self.assertEqual(
+            "left", valid.params["relationship_candidate_join_type"]
+        )
+        self.assertTrue(valid.params["join_requested"])
+        self.assertIsNone(valid.params["join_plan"])
+        self.assertIn("후보 1번", valid.description)
+        self.assertIn(
+            "내부 또는 왼쪽",
+            missing_join_type.params["relationship_candidate_error"],
+        )
+        self.assertIn(
+            "1~10번",
+            invalid_number.params["relationship_candidate_error"],
+        )
+        self.assertIn(
+            "집계 조건을 생략해 실행하지 않습니다",
+            ignored_aggregation.params["relationship_candidate_error"],
+        )
+
+    def test_relationship_candidate_cache_is_session_scoped_and_expires(self):
+        from engine.workflows.business_workflow import file_fingerprint
+
+        fingerprint = file_fingerprint(self.source)
+        candidate = {
+            "left_sheet": "고객",
+            "right_sheet": "주문",
+            "left_key": "고객ID",
+            "right_key": "구매자ID",
+            "match_basis": "value_overlap",
+            "ambiguous": False,
+            "cardinality": "one_to_many",
+            "matched_key_count": 4,
+            "left_distinct_count": 4,
+            "right_distinct_count": 5,
+            "left_coverage": 1.0,
+            "right_coverage": 0.8,
+            "sample_limited": False,
+            "requires_preaggregation": False,
+            "confidence": "review_required",
+        }
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "후보 형식",
+        ):
+            self.executor.remember_relationship_candidates(
+                source_path=self.source,
+                source_fingerprint=fingerprint,
+                edit_session_id="session-a",
+                candidates=[{**candidate, "raw_values": ["비공개"]}],
+            )
+        self.executor.remember_relationship_candidates(
+            source_path=self.source,
+            source_fingerprint=fingerprint,
+            edit_session_id="session-a",
+            candidates=[candidate],
+        )
+
+        resolved = self.executor.resolve_relationship_candidate(
+            source_path=self.source,
+            source_fingerprint=fingerprint,
+            edit_session_id="session-a",
+            candidate_index=1,
+        )
+
+        self.assertEqual(candidate, resolved)
+        self.assertNotIn(
+            "source_path", self.executor._relationship_candidate_cache
+        )
+        self.assertIn(
+            "source_identity_hash", self.executor._relationship_candidate_cache
+        )
+        resolved["left_sheet"] = "변조"
+        self.assertEqual(
+            "고객",
+            self.executor._relationship_candidate_cache["candidates"][0][
+                "left_sheet"
+            ],
+        )
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "파일·편집 세션",
+        ):
+            self.executor.resolve_relationship_candidate(
+                source_path=self.source,
+                source_fingerprint=fingerprint,
+                edit_session_id="session-b",
+                candidate_index=1,
+            )
+        self.executor.remember_relationship_candidates(
+            source_path=self.source,
+            source_fingerprint=fingerprint,
+            edit_session_id="session-a",
+            candidates=[candidate],
+        )
+        self.executor._relationship_candidate_cache["captured_at"] -= 601
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "시간이 지났거나",
+        ):
+            self.executor.resolve_relationship_candidate(
+                source_path=self.source,
+                source_fingerprint=fingerprint,
+                edit_session_id="session-a",
+                candidate_index=1,
+            )
+
     def test_workflow_intent_requires_complete_explicit_join_contract(self):
         analyzer = StructuredWorkflowIntentAnalyzer()
         context = {"app_type": "excel"}

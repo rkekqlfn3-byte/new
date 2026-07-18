@@ -84,6 +84,7 @@ PROBE_SPECS = {
         "report_format": "word",
         "required_checks": (
             "relationship_inspection_verified",
+            "numbered_relationship_candidate_verified",
             "powerpoint_formatting_verified",
             "bounded_pivot_summaries_created",
             "explicit_join_verified",

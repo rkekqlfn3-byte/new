@@ -311,6 +311,26 @@ def _owned_probe(report_format="word", progress=None):
         relationship_inspection_source_unchanged = (
             file_fingerprint(source) == source_before
         )
+        cache_entries_before = {path.name for path in temp_dir.iterdir()}
+        executor.remember_relationship_candidates(
+            source_path=source,
+            source_fingerprint=source_before,
+            edit_session_id="owned-stage10-probe",
+            candidates=relationship_inspection.get("candidates") or [],
+        )
+        numbered_candidate = executor.resolve_relationship_candidate(
+            source_path=source,
+            source_fingerprint=source_before,
+            edit_session_id="owned-stage10-probe",
+            candidate_index=2,
+        )
+        numbered_candidate_cache_created_nothing = (
+            cache_entries_before
+            == {path.name for path in temp_dir.iterdir()}
+        )
+        numbered_candidate_source_unchanged = (
+            file_fingerprint(source) == source_before
+        )
 
         stage = "prepare_approval_state"
         _publish_progress(progress, stage)
@@ -494,6 +514,14 @@ def _owned_probe(report_format="word", progress=None):
                 }
                 and relationship_inspection_created_nothing
                 and relationship_inspection_source_unchanged
+            ),
+            "numbered_relationship_candidate_verified": (
+                numbered_candidate
+                == relationship_inspection["candidates"][1]
+                and numbered_candidate.get("match_basis") == "value_overlap"
+                and numbered_candidate.get("confidence") == "review_required"
+                and numbered_candidate_cache_created_nothing
+                and numbered_candidate_source_unchanged
             ),
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),

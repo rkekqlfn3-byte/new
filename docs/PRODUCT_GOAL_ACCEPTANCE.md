@@ -50,6 +50,11 @@ Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개�
 3개 이상·양쪽 포함률 80% 이상·최소 한쪽 거의 고유 조건에서만 검토 후보로
 제시하고, 약한 겹침과 일반 다대다를 거부하며 복수 대응 열을 모호하다고 표시하는
 검사를 추가로 요구한다. 어떤 후보도 실제 조인을 자동 실행해서는 안 된다.
+후보 번호 선택은 현재 편집 세션·같은 파일 지문·10분 이내에서만 허용하고,
+번호·내부/왼쪽 방식·Word/한글 보고서·PPT를 완전히 말한 경우에도 정확한 시트와
+양쪽 키가 채워진 별도 고위험 미리보기를 다시 승인해야 한다. 실제 Word probe는
+두 번째 상이명 후보의 메모리 해석이 파일·산출물을 만들지 않았다는
+`numbered_relationship_candidate_verified`도 남겨야 한다.
 같은 Word probe에서 `매출!B1:E4`만 읽는 별도 워크플로가 범위 밖 시트를
 제외하고 `explicit_selection_scope_verified`를 남기며, Word와 정확히 5장인
 PowerPoint를 재열기 검증하는 `selection_scope_cross_app_outputs_verified`도

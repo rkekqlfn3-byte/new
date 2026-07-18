@@ -411,6 +411,101 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(0, self.word.calls)
         self.assertEqual(0, self.ppt.calls)
 
+    def test_numbered_relationship_candidate_requires_current_inspection(self):
+        blocked = self.command(
+            "1번 후보로 내부 조인해서 Word 보고서와 5장 PPT 만들어줘",
+            "stage10-candidate-without-inspection",
+        )
+
+        self.assertFalse(blocked["success"])
+        self.assertEqual("validation_error", blocked["error_type"])
+        self.assertIn("먼저 '시트 관계 후보 찾아줘'", blocked["message"])
+        self.assertNotIn("confirmation", blocked.get("data") or {})
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
+    def test_numbered_many_to_many_candidate_requires_explicit_preaggregation(self):
+        inspected = self.command(
+            "시트 관계 후보 찾아줘",
+            "stage10-candidate-many-to-many-inspection",
+        )
+        self.assertTrue(inspected["success"], inspected)
+
+        blocked = self.command(
+            "1번 후보로 왼쪽 조인해서 Word 보고서와 5장 PPT 만들어줘",
+            "stage10-candidate-many-to-many-use",
+        )
+
+        self.assertFalse(blocked["success"])
+        self.assertEqual("validation_error", blocked["error_type"])
+        self.assertIn("N:M 관계", blocked["message"])
+        self.assertIn("사전 집계", blocked["message"])
+        self.assertNotIn("confirmation", blocked.get("data") or {})
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
+    def test_numbered_relationship_candidate_creates_exact_approval_preview(self):
+        candidate_result = Analyzer().relationship_candidates({
+            "source_path": str(self.source),
+        })
+        candidate_result["candidates"][0].update({
+            "right_key": "구매자ID",
+            "match_basis": "value_overlap",
+            "cardinality": "one_to_many",
+            "matched_key_count": 4,
+            "left_distinct_count": 4,
+            "right_distinct_count": 5,
+            "left_coverage": 1.0,
+            "right_coverage": 0.8,
+            "requires_preaggregation": False,
+            "confidence": "review_required",
+        })
+        self.analyzer.relationship_candidates = lambda _context: candidate_result
+        self.ppt.fail_times = 0
+        inspected = self.command(
+            "조인 키 후보 알려줘",
+            "stage10-numbered-candidate-inspection",
+        )
+        self.assertTrue(inspected["success"], inspected)
+
+        preview = self.command(
+            "1번 후보로 왼쪽 조인해서 Word 보고서와 5장 PPT 만들어줘",
+            "stage10-numbered-candidate-preview",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"][
+            "workflow_plan"
+        ]
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("읽기 전용 왼쪽 조인", preview["message"])
+        self.assertIn("고객ID ↔ 구매자ID", preview["message"])
+        self.assertEqual(
+            {
+                "left_sheet": "고객",
+                "right_sheet": "주문",
+                "left_key": "고객ID",
+                "right_key": "구매자ID",
+                "join_type": "left",
+            },
+            plan["join_plan"],
+        )
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+        self.assertEqual([], list(self.executor.store_dir.glob("*.json")))
+
+        completed = self.approve(preview)
+
+        self.assertTrue(completed["success"], completed)
+        self.assertEqual(1, self.word.calls)
+        self.assertEqual(1, self.ppt.calls)
+        self.assertEqual(
+            plan["join_plan"], self.analyzer.contexts[-1]["join_plan"]
+        )
+
     def test_cancelled_preview_creates_no_state_and_is_not_resumable(self):
         preview = self.command(
             "이 엑셀을 분석해서 보고서와 7장짜리 PPT 만들어줘.",
