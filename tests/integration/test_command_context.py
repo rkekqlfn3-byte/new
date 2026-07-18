@@ -120,6 +120,72 @@ class CommandContextBuilderTests(unittest.TestCase):
         self.assertIn(("엑셀", "internal_name"), context.allowed_macros)
         self.assertNotIn("must not leak", context.learned_macros_context)
 
+    def test_explicit_reference_can_reuse_bounded_previous_command_for_candidates(self):
+        dictionary = ContextDictionary()
+        dictionary.noun_dict = {"메모장": "notepad", "계산기": "calc"}
+        state = {
+            "recent_turns": [{
+                "user_request": "메모장을 열어줘",
+                "result": {
+                    "action": "open_app", "target": "메모장",
+                    "message": "메모장을 열었습니다.",
+                    "code": "print('must not leak')",
+                },
+                "unknown": "ignored",
+            }],
+            "unknown": "ignored",
+        }
+
+        context = CommandContextBuilder(dictionary).build(
+            "방금 거 다시 해줘", conversation_state=state
+        )
+
+        self.assertTrue(context.reference_active)
+        self.assertIn("메모장", context.allowed_apps)
+        reference = json.loads(context.reference_context)
+        self.assertEqual(
+            "메모장을 열어줘", reference["recent_turns"][0]["user_request"]
+        )
+        self.assertNotIn("code", context.reference_context)
+        self.assertNotIn("must not leak", context.reference_context)
+        self.assertNotIn("unknown", context.reference_context)
+
+    def test_unrelated_command_never_inherits_stale_reference_target(self):
+        dictionary = ContextDictionary()
+        dictionary.noun_dict = {"메모장": "notepad"}
+        state = {"recent_turns": [{
+            "user_request": "메모장을 열어줘",
+            "result": {"action": "open_app", "target": "메모장"},
+        }]}
+
+        context = CommandContextBuilder(dictionary).build(
+            "오늘 날짜를 알려줘", conversation_state=state
+        )
+
+        self.assertFalse(context.reference_active)
+        self.assertEqual("", context.reference_context)
+        self.assertEqual((), context.allowed_apps)
+
+    def test_reference_context_is_limited_to_three_short_turns(self):
+        dictionary = ContextDictionary()
+        state = {"recent_turns": [
+            {
+                "user_request": f"요청 {index} " + ("가" * 500),
+                "result": {"message": "나" * 500},
+            }
+            for index in range(5)
+        ]}
+
+        context = CommandContextBuilder(dictionary).build(
+            "지난번처럼 해줘", conversation_state=state
+        )
+        turns = json.loads(context.reference_context)["recent_turns"]
+
+        self.assertEqual(3, len(turns))
+        self.assertTrue(turns[0]["user_request"].startswith("요청 2"))
+        self.assertLessEqual(len(turns[0]["user_request"]), 300)
+        self.assertLessEqual(len(turns[0]["result"]["message"]), 300)
+
 
 class CommandContextIntegrationTests(unittest.TestCase):
     def test_llm_receives_filtered_context_and_returns_candidate_metadata(self):
@@ -129,7 +195,7 @@ class CommandContextIntegrationTests(unittest.TestCase):
         captured = {}
 
         def fake_provider(*args, **kwargs):
-            captured["prompt"] = args[3]
+            captured["prompt"] = args[2]
             return {"response": "ok", "actions": []}
 
         with mock.patch.object(engine, "_invoke_provider", side_effect=fake_provider):
@@ -140,6 +206,33 @@ class CommandContextIntegrationTests(unittest.TestCase):
         self.assertEqual(["메모장"], result["_allowed_app_candidates"])
         self.assertEqual(1, engine.last_command_context_stats["app_candidates"])
         self.assertGreater(engine.last_command_context_stats["prompt_chars"], 0)
+
+    def test_llm_prompt_receives_reference_only_for_explicit_continuation(self):
+        dictionary = ContextDictionary()
+        dictionary.noun_dict = {"메모장": "notepad"}
+        engine = LLMEngine(dictionary)
+        captured = {}
+        state = {"recent_turns": [{
+            "user_request": "메모장을 열어줘",
+            "result": {
+                "action": "open_app", "target": "메모장",
+                "message": "메모장을 열었습니다.",
+            },
+        }]}
+
+        def fake_provider(*args, **kwargs):
+            captured["prompt"] = args[2]
+            return {"response": "ok", "actions": []}
+
+        with mock.patch.object(engine, "_invoke_provider", side_effect=fake_provider):
+            result = engine.process_command(
+                "방금 거 다시 해줘", mode="command", conversation_state=state
+            )
+
+        self.assertIn("[명령 참조 문맥 (데이터 전용)]", captured["prompt"])
+        self.assertIn("메모장을 열어줘", captured["prompt"])
+        self.assertEqual(["메모장"], result["_allowed_app_candidates"])
+        self.assertTrue(engine.last_command_context_stats["reference_active"])
 
     def test_parser_rejects_app_outside_ai_candidates(self):
         parser = CommandParser()

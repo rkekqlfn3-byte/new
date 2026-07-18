@@ -100,6 +100,28 @@ class ParserRouterTests(unittest.TestCase):
         startfile.assert_not_called()
         parser.llm_engine.process_command.assert_called_once()
 
+    def test_command_ai_fallback_forwards_summary_and_reference_state(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-router-test-") as temp_dir:
+            parser = self._parser(os.path.join(temp_dir, "dictionary.json"), "ai_first")
+            parser.llm_engine.process_command = mock.Mock(
+                return_value={"response": "문맥을 확인했습니다.", "actions": []}
+            )
+            state = {"recent_turns": [{
+                "user_request": "메모장 열어줘",
+                "result": {"action": "open_app", "target": "메모장"},
+            }]}
+
+            parser.execute_command_result(
+                "방금 거 다시 해줘",
+                mode="command",
+                summary="이전 요약",
+                conversation_state=state,
+            )
+
+        call = parser.llm_engine.process_command.call_args
+        self.assertEqual("이전 요약", call.kwargs["summary"])
+        self.assertEqual(state, call.kwargs["conversation_state"])
+
     def test_auto_mode_keeps_known_command_local(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-router-test-") as temp_dir:
             parser = self._parser(os.path.join(temp_dir, "dictionary.json"), "auto")

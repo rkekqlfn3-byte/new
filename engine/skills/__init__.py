@@ -27,6 +27,7 @@ from engine.skills.skill_executor import (
     SkillPreflightDecision,
     SkillReturnedFailure,
     SkillStateError,
+    SkillTargetContractError,
     SkillVerificationFailed,
 )
 from engine.skills.skill_learning_service import SkillLearningService
@@ -75,6 +76,7 @@ __all__ = [
     "SkillReturnedFailure",
     "SkillRouteUnavailable",
     "SkillStateError",
+    "SkillTargetContractError",
     "SkillVerificationFailed",
     "AUTO_SUCCESS_THRESHOLD",
     "DIRECTIVE_CONFIRM",

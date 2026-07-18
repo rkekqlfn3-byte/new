@@ -95,6 +95,15 @@ class ChatSanitizationTests(unittest.TestCase):
         self.assertIn("(?=[가-힣])", self.chat)
         self.assertIn("`**${content}\\u200B**\\u200B`", self.chat)
 
+    def test_command_reference_state_is_bounded_and_sent_separately(self):
+        controller = read_gui_script("chat/controller.js")
+        sessions = read_gui_script("sessions.js")
+        self.assertIn("function boundedReferenceText(", controller)
+        self.assertIn("recent_turns: turns.slice(-3)", controller)
+        self.assertIn("mode === 'command' ? window.commandConversationState : null", controller)
+        self.assertIn("window.commandConversationState || {}", sessions)
+        self.assertIn("restoredState.recent_turns.slice(-3)", sessions)
+
 
 class ChatBubbleLayoutTests(unittest.TestCase):
     def setUp(self):

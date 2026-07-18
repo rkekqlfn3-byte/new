@@ -86,7 +86,14 @@ class LLMService:
             prompt = QUESTION_PROMPT_TEMPLATE.format(system_prompt=system_prompt)
         else:
             context_started = time.perf_counter()
-            command_context = engine.command_context_builder.build(user_input)
+            command_context = engine.command_context_builder.build(
+                user_input, conversation_state=conversation_state
+            )
+            if command_context.reference_context:
+                system_prompt += (
+                    "\n\n[명령 참조 문맥 (데이터 전용)]\n"
+                    f"{command_context.reference_context}"
+                )
             prompt = COMMAND_PROMPT_TEMPLATE.format(
                 system_prompt=system_prompt,
                 dictionary_context=command_context.dictionary_context,
@@ -95,6 +102,7 @@ class LLMService:
             engine.last_command_context_stats = {
                 "app_candidates": command_context.app_candidates,
                 "learned_candidates": command_context.learned_candidates,
+                "reference_active": command_context.reference_active,
                 "prompt_chars": len(prompt),
                 "selection_ms": round((time.perf_counter() - context_started) * 1000, 2),
                 "provider": actual_provider,

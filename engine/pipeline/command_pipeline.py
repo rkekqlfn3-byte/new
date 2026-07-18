@@ -347,6 +347,8 @@ class CommandPipeline:
             image_data=image_data,
             mode=mode,
             use_api=use_api,
+            summary=summary,
+            conversation_state=conversation_state,
             stream_callback=stream_callback,
             session_id=session_id,
         )

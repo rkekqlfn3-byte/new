@@ -103,6 +103,15 @@ async function switchSession(id) {
 
         const messages = sessionData.messages;
         window.conversationSummary = sessionData.summary || '';
+        const restoredState = sessionData.state;
+        window.commandConversationState = (
+            restoredState && typeof restoredState === 'object'
+            && Array.isArray(restoredState.recent_turns)
+        ) ? {
+            version: 1,
+            recent_turns: restoredState.recent_turns.slice(-3),
+            pending_confirmation: restoredState.pending_confirmation === true,
+        } : { version: 1, recent_turns: [], pending_confirmation: false };
 
         const fragment = document.createDocumentFragment();
         messages.forEach(message => {
@@ -181,11 +190,13 @@ async function _doSaveSession() {
     const sessionIdToSave = currentSessionId;
     const saveSignature = JSON.stringify([
         sessionIdToSave, history, window.conversationSummary || '',
+        window.commandConversationState || {},
     ]);
     if (saveSignature === lastSavedSessionSignature) return;
 
     const saved = await eel.save_chat_session(
-        sessionIdToSave, title, history, window.conversationSummary || '', null
+        sessionIdToSave, title, history, window.conversationSummary || '',
+        window.commandConversationState || {}
     )();
     if (!saved) throw new Error('대화 기록을 저장하지 못했습니다.');
     if (currentSessionId === sessionIdToSave) {

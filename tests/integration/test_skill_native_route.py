@@ -19,6 +19,7 @@ from engine.llm_engine import LLMEngine
 from engine.managers.dict_manager import DictionaryManager
 from engine.parser import CommandParser
 from engine.skills.skill_executor import SkillNativeAppActionUnsupported
+from engine.skills.skill_executor import SkillTargetContractError
 
 
 def _verified(action="native", message="완료"):
@@ -157,6 +158,61 @@ class LearnedNativeRouteTests(unittest.TestCase):
         self.assertEqual("validation_error", raised.exception.error_type)
         self.assertFalse(raised.exception.state_changed)
         self.assertIn("한 단계만", str(raised.exception))
+
+    def test_app_specific_native_skill_cannot_target_another_app(self):
+        skill = {
+            "state": "active",
+            "native_plan": [{
+                "action": "app_command",
+                "target": "hwp",
+                "operation": "insert_text",
+                "params": {"text": "변경"},
+            }],
+            "learning": {"intent": "WRONG_APP", "slots": []},
+        }
+        with mock.patch.object(
+            self.parser.app_command_router, "execute"
+        ) as native_run:
+            with self.assertRaises(SkillTargetContractError):
+                self.executor.execute("엑셀", "잘못된대상", skill=skill)
+        native_run.assert_not_called()
+
+    def test_app_specific_uia_skill_cannot_target_another_app(self):
+        skill = {
+            "state": "active",
+            "uia_plan": [{
+                "action": "uia_click",
+                "target": "계산기",
+                "selector": {"name": "확인"},
+            }],
+            "learning": {"intent": "WRONG_UIA_APP", "slots": []},
+        }
+        with mock.patch.object(
+            self.parser.action_executor, "execute_plan"
+        ) as run:
+            with self.assertRaises(SkillTargetContractError):
+                self.executor.execute("메모장", "잘못된UIA", skill=skill)
+        run.assert_not_called()
+
+    def test_system_skill_can_explicitly_span_multiple_apps(self):
+        skill = {
+            "state": "active",
+            "plan": [
+                {"action": "focus_window", "target": "메모장"},
+                {"action": "focus_window", "target": "계산기"},
+            ],
+            "learning": {"intent": "MULTI_APP", "slots": []},
+        }
+        with mock.patch.object(
+            self.parser.action_executor, "execute_plan",
+            return_value=_verified(action="action_plan"),
+        ) as run:
+            result = self.executor.execute("시스템", "여러앱", skill=skill)
+        run.assert_called_once()
+        contract = result["data"]["skill_execution"]["target_contract"]
+        self.assertTrue(contract["validated"])
+        self.assertTrue(contract["multi_app_allowed"])
+        self.assertEqual(["메모장", "계산기"], contract["target_apps"])
 
 
 if __name__ == "__main__":

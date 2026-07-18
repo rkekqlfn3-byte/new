@@ -11,6 +11,8 @@ def execute_ai_fallback_route(
     image_data=None,
     mode="command",
     use_api=False,
+    summary="",
+    conversation_state=None,
     stream_callback=None,
     session_id=None,
 ):
@@ -37,6 +39,8 @@ def execute_ai_fallback_route(
         image_data,
         mode=mode,
         use_api=use_api,
+        summary=summary,
+        conversation_state=conversation_state,
         stream_callback=stream_callback,
     )
     if isinstance(result, dict) and result.get("provider_error"):

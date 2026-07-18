@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import copy
+import re
 import time
 from dataclasses import dataclass
 
 from engine.action_executor import ActionConfirmationRequired
+from engine.action_registry import app_target_actions
 from engine.execution_result import (
     failure_result,
     normalize_execution_result,
@@ -59,6 +61,13 @@ class SkillNotFoundError(SkillExecutionError):
 
 class SkillStateError(SkillExecutionError):
     error_type = "validation_error"
+
+
+class SkillTargetContractError(SkillStateError):
+    """A reusable structured plan points outside its approved app owner."""
+
+    route_failure_code = "target_contract_mismatch"
+    state_changed = False
 
 
 class SkillNativeAppActionUnsupported(SkillStateError):
@@ -308,6 +317,48 @@ class SkillExecutor:
             normalized.append(item)
         return normalized
 
+    @staticmethod
+    def _canonical_app(value):
+        compact = re.sub(r"[^0-9a-zA-Z가-힣]+", "", str(value or "")).casefold()
+        aliases = {
+            "excel": "excel", "엑셀": "excel",
+            "hwp": "hwp", "한글": "hwp", "한컴오피스한글": "hwp",
+            "word": "word", "워드": "word", "microsoftword": "word",
+            "ppt": "powerpoint", "파워포인트": "powerpoint",
+            "powerpoint": "powerpoint", "microsoftpowerpoint": "powerpoint",
+            "system": "system", "시스템": "system",
+            "windows": "system", "윈도우": "system",
+        }
+        return aliases.get(compact, compact)
+
+    @classmethod
+    def _validate_plan_target_contract(cls, app_name, plan):
+        """Bind a stored app-specific plan to that app before any side effect."""
+        owner_app = cls._canonical_app(app_name)
+        target_actions = set(app_target_actions()) | {
+            "hotkey", "type_text", "app_command",
+        }
+        targets = []
+        for step in plan if isinstance(plan, list) else []:
+            if not isinstance(step, dict) or step.get("action") not in target_actions:
+                continue
+            target = cls._canonical_app(step.get("target"))
+            if target and target not in targets:
+                targets.append(target)
+        if owner_app and owner_app != "system":
+            mismatches = [target for target in targets if target != owner_app]
+            if mismatches:
+                raise SkillTargetContractError(
+                    "학습 행동의 등록 앱과 실제 계획 대상 앱이 달라 실행하지 않았습니다. "
+                    "학습 목록에서 이 행동을 다시 검토해주세요."
+                )
+        return {
+            "owner_app": owner_app,
+            "target_apps": targets,
+            "validated": True,
+            "multi_app_allowed": owner_app == "system",
+        }
+
     def _native_continuation(self, route, skill, params, diagnostic):
         return {
             "kind": "learned_native",
@@ -364,9 +415,15 @@ class SkillExecutor:
                 f"스킬 실행 경로 '{route}'에 필요한 실행 데이터가 없습니다."
             )
         plan = self._normalize_native_plan(route, plan)
-        if self._app_command_steps(plan):
+        rendered = self.owner.action_executor.render_plan(
+            plan, dict(params["slots"] or {})
+        )
+        diagnostic["target_contract"] = self._validate_plan_target_contract(
+            params["app_name"], rendered
+        )
+        if self._app_command_steps(rendered):
             return self._run_native_app_command(
-                route, plan, skill, params, diagnostic
+                route, rendered, skill, params, diagnostic
             )
         return self.owner.action_executor.execute_plan(
             plan,

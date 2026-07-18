@@ -46,6 +46,55 @@ document.addEventListener('paste', (e) => {
 
 
 window.lastFailedMessagePayload = null;
+window.commandConversationState = window.commandConversationState || {
+    version: 1,
+    recent_turns: [],
+    pending_confirmation: false,
+};
+
+function boundedReferenceText(value, limit) {
+    return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ')
+        .replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function compactCommandResult(response, responseText) {
+    const value = response && typeof response === 'object' ? response : {};
+    const data = value.data && typeof value.data === 'object' ? value.data : {};
+    return {
+        action: boundedReferenceText(value.action, 60),
+        target: boundedReferenceText(value.target, 200),
+        app_name: boundedReferenceText(value.app_name || data.app, 100),
+        macro_name: boundedReferenceText(value.macro_name || data.macro_name, 100),
+        status: boundedReferenceText(value.status, 60),
+        verified: value.verified === true,
+        message: boundedReferenceText(responseText, 300),
+    };
+}
+
+function rememberCommandTurn(userRequest, response, responseText) {
+    const previous = window.commandConversationState;
+    const turns = Array.isArray(previous?.recent_turns)
+        ? previous.recent_turns.slice(-3)
+        : [];
+    const result = compactCommandResult(response, responseText);
+    const pendingBefore = previous?.pending_confirmation === true;
+    if (pendingBefore && turns.length) {
+        // A confirmation answer completes the original request; do not replace
+        // its referential subject with a bare "예" or option label.
+        turns[turns.length - 1] = { ...turns[turns.length - 1], result };
+    } else {
+        turns.push({
+            user_request: boundedReferenceText(userRequest, 300),
+            result,
+        });
+    }
+    window.commandConversationState = {
+        version: 1,
+        recent_turns: turns.slice(-3),
+        pending_confirmation: result.status === 'confirmation_required',
+    };
+}
+
 async function sendMessage(isRetry = false) {
     if (sendBtn.disabled) return;
 
@@ -129,7 +178,8 @@ async function sendMessage(isRetry = false) {
         } : null;
 
         const response = await eel.parse_command(
-            historyPayload, imgDataToSend, mode, useApi, summaryPayload, null,
+            historyPayload, imgDataToSend, mode, useApi, summaryPayload,
+            mode === 'command' ? window.commandConversationState : null,
             currentSessionId, editContext
         )();
 
@@ -137,6 +187,9 @@ async function sendMessage(isRetry = false) {
         let responseText = null;
         if (response) {
             responseText = (typeof response === 'object' && response !== null) ? (response.display_message || response.message || response.response || JSON.stringify(response)) : response;
+        }
+        if (mode === 'command' && response) {
+            rememberCommandTurn(text, response, responseText || '');
         }
 
         if (getConfirmationFromResponse(response)) {
@@ -324,6 +377,9 @@ async function startNewChat(savePrevious = true) {
     if (typeof lastSavedSessionSignature !== 'undefined') lastSavedSessionSignature = null;
     chatArea.innerHTML = '<div class="message system-date">오늘</div>';
     window.conversationSummary = "";
+    window.commandConversationState = {
+        version: 1, recent_turns: [], pending_confirmation: false,
+    };
     addMessage("안녕하세요! 새로운 대화를 시작할게요 😊", true);
     if (typeof loadSessions === 'function') loadSessions();
 }
