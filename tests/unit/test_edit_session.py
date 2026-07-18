@@ -153,6 +153,39 @@ class EditFileIntakeTests(unittest.TestCase):
         with self.assertRaises(EditDocumentOpenTimeout):
             self.manager.connect_file(str(self.file))
 
+    def test_exact_reopen_launches_once_and_verifies_the_same_path(self):
+        self.bridge.waited = self.metadata()
+
+        result = self.manager.reopen_exact_file(str(self.file))
+
+        self.assertTrue(result["launch_requested"])
+        self.assertEqual(1, len(self.bridge.launches))
+        self.assertEqual("excel", self.bridge.launches[0][0])
+
+        other = self.root / "다른문서.xlsx"
+        other.write_bytes(b"other")
+        self.bridge.waited = self.metadata(other)
+        with self.assertRaises(EditDocumentOpenTimeout):
+            self.manager.reopen_exact_file(str(self.file))
+        self.assertEqual(2, len(self.bridge.launches))
+
+    def test_exact_reopen_never_launches_when_app_is_missing(self):
+        self.bridge.available = False
+
+        with self.assertRaises(EditAppUnavailable):
+            self.manager.reopen_exact_file(str(self.file))
+
+        self.assertEqual([], self.bridge.launches)
+
+    def test_exact_reopen_reports_busy_after_one_launch(self):
+        self.bridge.wait_error = NativeOfficeBusy("Excel still busy")
+
+        with self.assertRaises(EditAppBusy) as raised:
+            self.manager.reopen_exact_file(str(self.file))
+
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(1, len(self.bridge.launches))
+
     def test_missing_app_and_open_timeout_are_explicit(self):
         self.bridge.available = False
         with self.assertRaises(EditAppUnavailable):

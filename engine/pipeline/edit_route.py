@@ -85,10 +85,16 @@ def execute_edit_route(
                     "현재 문서를 다시 연결해주세요."
                 )
             elif recovery.get("outcome") == "unavailable":
-                message += (
-                    " 연결 문서를 앞으로 가져오지 못했습니다. 문서 창을 한 번 "
-                    "눌러 선택한 뒤 같은 요청을 다시 말해주세요."
-                )
+                if recovery.get("strategy") == "connected_document_reopen":
+                    message += (
+                        " 연결 문서를 자동으로 다시 열지 못했습니다. 앱의 경고·보호된 "
+                        "보기 창을 확인한 뒤 같은 요청을 다시 말해주세요."
+                    )
+                else:
+                    message += (
+                        " 연결 문서를 앞으로 가져오지 못했습니다. 문서 창을 한 번 "
+                        "눌러 선택한 뒤 같은 요청을 다시 말해주세요."
+                    )
         return failure_result(
             message,
             action="edit",

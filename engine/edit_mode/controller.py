@@ -224,6 +224,10 @@ class EditModeController:
             "연결 문서 창을 다시 찾아 같은 문서인지 확인한 뒤 편집을 "
             "계속했습니다."
         ),
+        "connected_document_reopen": (
+            "닫힌 연결 문서를 같은 저장 파일로 한 번 다시 열고 문서 대상을 "
+            "확인한 뒤 편집을 계속했습니다."
+        ),
     }
 
     @classmethod
@@ -272,6 +276,13 @@ class EditModeController:
             [str(document_fingerprint or "")],
         )
 
+    @staticmethod
+    def _reopen_signature(document_fingerprint) -> str:
+        return recovery_target_signature(
+            "edit_document_reopen",
+            [str(document_fingerprint or "")],
+        )
+
     def _rediscover_document_window(
         self,
         app_type: str,
@@ -303,12 +314,15 @@ class EditModeController:
         session: dict,
         request: EditRequest,
         initial_error,
+        *,
+        allow_reopen: bool = False,
     ) -> tuple[dict, dict, dict]:
         """Find the same connected document once before an explicit edit.
 
-        The search reads window and ROT state only: it never launches an app,
-        changes focus, or edits the document. A found window may re-bind the
-        stored window handle after the document fingerprint is proven equal.
+        The search itself reads window and ROT state only. A found window may
+        re-bind the stored handle after the document fingerprint is proven
+        equal. The initial request path may separately hand an absent saved
+        document to the exact-file reopen recovery; approval checks may not.
         """
         signature = self._rediscovery_signature(request.document_fingerprint)
         contract = PreExecutionRecoveryContract(
@@ -358,13 +372,17 @@ class EditModeController:
             self._record_edit_recovery_event(proof["outcome"], proof)
             raise self._decorate_edit_recovery_error(initial_error, proof)
         if found is None:
-            contract.complete(
+            outcome = contract.complete(
                 "not_found",
                 current_target_signature=signature,
                 target_resolved=False,
             )
             proof = contract.to_dict()
-            self._record_edit_recovery_event(proof["outcome"], proof)
+            self._record_edit_recovery_event(outcome, proof)
+            if allow_reopen:
+                return self._reopen_connected_document(
+                    session, request, initial_error
+                )
             raise self._decorate_edit_recovery_error(initial_error, proof)
 
         current = session
@@ -414,10 +432,190 @@ class EditModeController:
             raise self._decorate_edit_recovery_error(error, proof)
         return current, context, proof
 
+    def _reopen_connected_document(
+        self,
+        session: dict,
+        request: EditRequest,
+        initial_error,
+    ) -> tuple[dict, dict, dict]:
+        """Reopen one unchanged saved document before the first edit preview.
+
+        The exact canonical file is launched once only after its durable
+        identity still matches the connected session.  The reopened native
+        document is then checked again, rebound to the existing session, and
+        recaptured before any edit preparation or execution can start.
+        """
+        signature = self._reopen_signature(request.document_fingerprint)
+        contract = PreExecutionRecoveryContract(
+            strategy="connected_document_reopen",
+            target_kind="document",
+            target_signature=signature,
+        )
+        if not contract.begin(signature):
+            proof = contract.to_dict()
+            self._record_edit_recovery_event(proof["outcome"], proof)
+            raise self._decorate_edit_recovery_error(initial_error, proof)
+        self._record_edit_recovery_event("retrying", contract.to_dict())
+
+        app_type = str(session.get("app_type") or "").casefold()
+        file_path = str(session.get("file_path") or "")
+        expected_fingerprint = str(request.document_fingerprint or "")
+
+        try:
+            before_fingerprint = document_identity_fingerprint(
+                file_path, app_type
+            )
+        except Exception:
+            before_fingerprint = ""
+        if before_fingerprint != expected_fingerprint:
+            outcome = contract.complete(
+                "not_found",
+                current_target_signature=self._reopen_signature(
+                    before_fingerprint
+                ),
+                target_resolved=False,
+            )
+            proof = contract.to_dict()
+            self._record_edit_recovery_event(outcome, proof)
+            error = EditSessionStale(
+                "닫힌 연결 문서 파일이 바뀌었거나 삭제되어 다시 열지 않았습니다. "
+                "현재 문서를 다시 연결해주세요."
+            )
+            raise self._decorate_edit_recovery_error(error, proof)
+
+        try:
+            reopened = self.intake_manager.reopen_exact_file(file_path)
+        except Exception as recovery_error:
+            try:
+                failed_fingerprint = document_identity_fingerprint(
+                    file_path, app_type
+                )
+            except Exception:
+                failed_fingerprint = ""
+            if failed_fingerprint != expected_fingerprint:
+                outcome = contract.complete(
+                    "not_found",
+                    current_target_signature=self._reopen_signature(
+                        failed_fingerprint
+                    ),
+                    target_resolved=False,
+                )
+                proof = contract.to_dict()
+                self._record_edit_recovery_event(outcome, proof)
+                error = EditSessionStale(
+                    "문서를 다시 열기 직전에 연결 파일이 바뀌어 중단했습니다. "
+                    "현재 문서를 다시 연결해주세요."
+                )
+                raise self._decorate_edit_recovery_error(error, proof)
+            contract.complete(
+                "unavailable",
+                current_target_signature=signature,
+                target_resolved=False,
+            )
+            proof = contract.to_dict()
+            self._record_edit_recovery_event(proof["outcome"], proof)
+            raise self._decorate_edit_recovery_error(recovery_error, proof)
+
+        try:
+            reopened_path = os.path.normcase(
+                os.path.abspath(str(reopened.get("file_path") or ""))
+            )
+            expected_path = os.path.normcase(os.path.abspath(file_path))
+            reopened_app = str(reopened.get("app_type") or "").casefold()
+            after_fingerprint = document_identity_fingerprint(
+                reopened_path, reopened_app
+            )
+        except Exception:
+            reopened_path = ""
+            expected_path = os.path.normcase(os.path.abspath(file_path))
+            reopened_app = ""
+            after_fingerprint = ""
+        target_metadata_matches = bool(
+            reopened_path == expected_path
+            and reopened_app == app_type
+            and after_fingerprint == expected_fingerprint
+        )
+        if not target_metadata_matches:
+            outcome = contract.complete(
+                "not_found",
+                current_target_signature=self._reopen_signature(
+                    after_fingerprint
+                ),
+                target_resolved=False,
+            )
+            proof = contract.to_dict()
+            self._record_edit_recovery_event(outcome, proof)
+            error = EditSessionStale(
+                "다시 열린 문서가 연결 대상과 일치하지 않아 편집하지 않았습니다. "
+                "현재 문서를 다시 연결해주세요."
+            )
+            raise self._decorate_edit_recovery_error(error, proof)
+
+        handle = int(reopened.get("window_handle") or 0)
+        if handle <= 0:
+            contract.complete(
+                "unavailable",
+                current_target_signature=signature,
+                target_resolved=False,
+            )
+            proof = contract.to_dict()
+            self._record_edit_recovery_event(proof["outcome"], proof)
+            error = EditContextUnavailable(
+                "다시 열린 연결 문서 창을 안전하게 식별하지 못했습니다."
+            )
+            raise self._decorate_edit_recovery_error(error, proof)
+
+        try:
+            current = self.session_manager.rebind_window_handle(
+                session["session_id"], handle
+            )
+            activation = self.window_activator.activate(handle)
+            if not activation.get("success") or not activation.get("focused"):
+                raise EditContextUnavailable(
+                    "다시 열린 연결 문서 창을 앞으로 가져오지 못했습니다."
+                )
+            current, context = self._capture_context(current)
+        except Exception as recovery_error:
+            contract.complete(
+                "unavailable",
+                current_target_signature=signature,
+                target_resolved=False,
+            )
+            proof = contract.to_dict()
+            self._record_edit_recovery_event(proof["outcome"], proof)
+            raise self._decorate_edit_recovery_error(recovery_error, proof)
+
+        final_signature = self._reopen_signature(
+            context.get("document_fingerprint")
+            or current.get("document_fingerprint")
+        )
+        target_resolved = bool(
+            current.get("session_id") == request.edit_session_id
+            and current.get("document_fingerprint")
+            == expected_fingerprint
+            and context.get("document_fingerprint")
+            == expected_fingerprint
+        )
+        outcome = contract.complete(
+            "recovered" if target_resolved else "not_found",
+            current_target_signature=final_signature,
+            target_resolved=target_resolved,
+        )
+        proof = contract.to_dict()
+        self._record_edit_recovery_event(outcome, proof)
+        if outcome != "recovered":
+            error = EditSessionStale(
+                "문서를 다시 연 뒤 확인한 대상이 연결 문서와 달라 편집하지 않았습니다."
+            )
+            raise self._decorate_edit_recovery_error(error, proof)
+        return current, context, proof
+
     def _capture_context_for_edit_request(
         self,
         session: dict,
         request: EditRequest,
+        *,
+        allow_reopen: bool = False,
     ) -> tuple[dict, dict, dict | None]:
         """Capture once, or recover the same connected document once before edits."""
         try:
@@ -427,7 +625,10 @@ class EditModeController:
             if str(session.get("identity_kind") or "file") == "runtime":
                 raise
             return self._rediscover_connected_document(
-                session, request, initial_error
+                session,
+                request,
+                initial_error,
+                allow_reopen=allow_reopen,
             )
         except EditContextInactive as initial_error:
             signature = self._edit_context_target_signature(
@@ -1197,7 +1398,9 @@ class EditModeController:
         session = session_value.to_dict()
         try:
             session, initial_context, recovery = (
-                self._capture_context_for_edit_request(session, request)
+                self._capture_context_for_edit_request(
+                    session, request, allow_reopen=True
+                )
             )
             if session["document_fingerprint"] != request.document_fingerprint:
                 raise EditSessionStale(
@@ -1259,11 +1462,17 @@ class EditModeController:
             raise EditSessionStale("승인한 작업과 현재 편집 문서가 달라 실행하지 않았습니다.")
         try:
             current, approval_context, recovery = (
-                self._capture_context_for_edit_request(current, request)
+                self._capture_context_for_edit_request(
+                    current, request, allow_reopen=False
+                )
             )
             current = self._guard_continuation(current, approval_context)
         except Exception:
             self._clear_continuation(current["session_id"])
+            self._reset_if_safe(
+                current["session_id"],
+                reason="승인 전 문서 문맥 변경으로 기존 미리보기 폐기",
+            )
             raise
         machine = self.session_manager.state_machine_for(current["session_id"])
         state = machine.to_dict()

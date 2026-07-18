@@ -5,6 +5,7 @@ from pathlib import Path
 from engine.app_actions import PreparedAction
 from engine.edit_mode import (
     EditContextInactive,
+    FileIntakeManager,
     EditModeController,
     EditSessionManager,
     EditSessionStale,
@@ -22,11 +23,40 @@ class FakeDocumentBridge:
         self.document_open = True
         self.busy_error = None
         self.find_calls = 0
+        self.launches = []
+        self.wait_calls = 0
+        self.reopen_succeeds = False
+        self.replace_after_missing_find = False
+
+    def is_available(self, app_type):
+        return True
 
     def find_document(self, app_type, expected_path=None):
         self.find_calls += 1
         if self.busy_error is not None:
             raise self.busy_error
+        if not self.document_open:
+            if self.replace_after_missing_find:
+                self.replace_after_missing_find = False
+                target = Path(self.path)
+                target.unlink()
+                target.write_bytes(b"replacement-during-rediscovery")
+            return None
+        return {
+            "app_type": app_type,
+            "file_path": self.path,
+            "document_name": Path(self.path).name,
+            "window_handle": self.window_handle,
+            "is_saved": True,
+        }
+
+    def launch_document(self, app_type, file_path):
+        self.launches.append((app_type, str(file_path)))
+        if self.reopen_succeeds:
+            self.document_open = True
+
+    def wait_for_document(self, app_type, expected_path, timeout=15.0):
+        self.wait_calls += 1
         if not self.document_open:
             return None
         return {
@@ -55,6 +85,11 @@ class FakeIntakeManager:
             "active_container": "Sheet1",
             "selection_reference": "A2",
         }
+
+    def reopen_exact_file(self, file_path):
+        return FileIntakeManager(
+            self.bridge, open_timeout=1
+        ).reopen_exact_file(file_path)
 
 
 class FakeLayoutManager:
@@ -318,6 +353,7 @@ class Stage5EditFlowTests(unittest.TestCase):
         self.assertEqual(1, recovery["retry_count"])
         self.assertEqual(1, recovery["retry_limit"])
         self.assertEqual(1, self.bridge.find_calls)
+        self.assertEqual([], self.bridge.launches)
         self.assertEqual(
             77, self.controller.status()["session"]["window_handle"]
         )
@@ -325,7 +361,7 @@ class Stage5EditFlowTests(unittest.TestCase):
         self.assertEqual(0, self.native.executed)
         self.assertIn("다시 찾아", preview["message"])
 
-    def test_truly_closed_document_reports_not_found_without_retry_loop(self):
+    def test_truly_closed_document_reopen_timeout_is_retryable_without_loop(self):
         self.context.unavailable_captures = 1
         self.bridge.document_open = False
 
@@ -333,12 +369,88 @@ class Stage5EditFlowTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         recovery = result["data"]["automatic_recovery"]
-        self.assertEqual("connected_document_rediscovery", recovery["strategy"])
-        self.assertEqual("not_found", recovery["outcome"])
+        self.assertEqual("connected_document_reopen", recovery["strategy"])
+        self.assertEqual("unavailable", recovery["outcome"])
         self.assertEqual(1, recovery["retry_count"])
         self.assertEqual(1, self.bridge.find_calls)
+        self.assertEqual(1, len(self.bridge.launches))
+        self.assertEqual(1, self.bridge.wait_calls)
+        self.assertTrue(result["retryable"])
         self.assertEqual(0, self.native.executed)
-        self.assertIn("닫혔거나", result["message"])
+        self.assertIn("자동으로 다시 열지 못했습니다", result["message"])
+
+    def test_closed_saved_document_is_reopened_once_before_preview(self):
+        self.context.unavailable_captures = 1
+        self.bridge.document_open = False
+        self.bridge.reopen_succeeds = True
+        self.bridge.window_handle = 88
+
+        preview = self.command("42 입력해줘", "request-reopen-success")
+
+        self.assertEqual("confirmation_required", preview["status"])
+        recovery = preview["data"]["automatic_recovery"]
+        self.assertEqual("connected_document_reopen", recovery["strategy"])
+        self.assertEqual("recovered", recovery["outcome"])
+        self.assertEqual("pre_execution", recovery["phase"])
+        self.assertFalse(recovery["execution_started"])
+        self.assertTrue(recovery["target_unchanged"])
+        self.assertEqual(1, recovery["retry_count"])
+        self.assertEqual(1, recovery["retry_limit"])
+        self.assertEqual(1, self.bridge.find_calls)
+        self.assertEqual(1, len(self.bridge.launches))
+        self.assertEqual(1, self.bridge.wait_calls)
+        self.assertEqual([88], self.activator.calls)
+        self.assertEqual(88, self.context.captured_window_handles[-1])
+        self.assertEqual(0, self.native.executed)
+        self.assertIn("같은 저장 파일로 한 번 다시 열고", preview["message"])
+
+    def test_closed_document_is_not_reopened_from_existing_approval(self):
+        preview = self.command("42 입력해줘", "request-approval-no-reopen")
+        confirmation = preview["data"]["confirmation"]
+        self.context.unavailable_captures = 1
+        self.bridge.document_open = False
+        self.bridge.reopen_succeeds = True
+
+        result = self.parser.resolve_pending_confirmation(
+            "chat-stage5",
+            confirmation_id=confirmation["confirmation_id"],
+            option_id="apply",
+        )
+
+        self.assertFalse(result["success"])
+        recovery = result["data"]["automatic_recovery"]
+        self.assertEqual("connected_document_rediscovery", recovery["strategy"])
+        self.assertEqual("not_found", recovery["outcome"])
+        self.assertEqual([], self.bridge.launches)
+        self.assertEqual(0, self.native.executed)
+        self.assertEqual("ready", self.controller.status()["session"]["state"])
+
+        self.context.unavailable_captures = 1
+        next_preview = self.command(
+            "42 입력해줘", "request-after-stale-approval"
+        )
+        self.assertEqual("confirmation_required", next_preview["status"])
+        self.assertEqual(
+            "connected_document_reopen",
+            next_preview["data"]["automatic_recovery"]["strategy"],
+        )
+        self.assertEqual(1, len(self.bridge.launches))
+
+    def test_file_replaced_after_rediscovery_is_not_reopened(self):
+        self.context.unavailable_captures = 1
+        self.bridge.document_open = False
+        self.bridge.reopen_succeeds = True
+        self.bridge.replace_after_missing_find = True
+
+        result = self.command("42 입력해줘", "request-reopen-race")
+
+        self.assertFalse(result["success"])
+        recovery = result["data"]["automatic_recovery"]
+        self.assertEqual("connected_document_reopen", recovery["strategy"])
+        self.assertEqual("target_changed", recovery["outcome"])
+        self.assertFalse(recovery["target_unchanged"])
+        self.assertEqual([], self.bridge.launches)
+        self.assertEqual(0, self.native.executed)
 
     def test_busy_rediscovery_is_environment_blocked_and_retryable(self):
         self.context.unavailable_captures = 1
@@ -400,9 +512,10 @@ class Stage5EditFlowTests(unittest.TestCase):
 
         with self.assertRaises(EditContextUnavailable):
             self.controller._capture_context_for_edit_request(
-                runtime_session, request
+                runtime_session, request, allow_reopen=True
             )
         self.assertEqual(0, self.bridge.find_calls)
+        self.assertEqual([], self.bridge.launches)
 
     def test_status_polling_never_rediscovers_documents(self):
         self.context.unavailable_captures = 1
@@ -411,6 +524,7 @@ class Stage5EditFlowTests(unittest.TestCase):
 
         self.assertIsNotNone(status["context_error"])
         self.assertEqual(0, self.bridge.find_calls)
+        self.assertEqual([], self.bridge.launches)
 
     def test_cancel_never_executes_and_returns_ready(self):
         preview = self.command('"완료" 입력해줘', "request-cancel")

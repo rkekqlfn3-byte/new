@@ -26,6 +26,27 @@ def resolve(owner, context):
             kwargs["feedback_text"] = context.feedback_text
         return callback(context.payload, **kwargs)
     except Exception as error:
+        diagnostic_context = getattr(error, "diagnostic_context", None)
+        diagnostic_context = (
+            dict(diagnostic_context)
+            if isinstance(diagnostic_context, dict)
+            else {}
+        )
+        recovery = diagnostic_context.get("automatic_recovery")
+        data = {"diagnostic_context": diagnostic_context}
+        if isinstance(recovery, dict):
+            data["automatic_recovery"] = dict(recovery)
+            data["retry_count"] = int(recovery.get("retry_count") or 0)
+            data["triage_hints"] = {
+                "intent_understood": True,
+                "target_resolved": bool(recovery.get("target_resolved")),
+                "recovery_target_changed": (
+                    recovery.get("outcome") == "target_changed"
+                ),
+                "environment_blocked": (
+                    recovery.get("outcome") == "unavailable"
+                ),
+            }
         return failure_result(
             str(error),
             action="edit",
@@ -34,4 +55,5 @@ def resolve(owner, context):
             failed_step=getattr(error, "failed_step", None),
             retryable=getattr(error, "retryable", False),
             status=getattr(error, "status", "failed"),
+            data=data,
         )

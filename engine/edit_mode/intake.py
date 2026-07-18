@@ -188,6 +188,54 @@ class FileIntakeManager:
         })
         return result
 
+    def reopen_exact_file(self, file_path: str) -> dict:
+        """Open one already-verified saved path without a second discovery pass.
+
+        This entry point is intentionally narrower than ``connect_file``.  Its
+        caller must first prove that a previously connected document is no
+        longer open.  We launch the exact canonical path once, wait for that
+        same path, and return only verified serializable metadata.
+        """
+        canonical_path = canonical_document_path(file_path)
+        app_type = app_type_for_path(canonical_path)
+        if not self.bridge.is_available(app_type):
+            raise EditAppUnavailable(
+                f"{APP_LABELS[app_type]}이 설치되어 있지 않아 문서를 다시 열 수 없습니다."
+            )
+
+        try:
+            self.bridge.launch_document(app_type, canonical_path)
+        except NativeBridgeError as error:
+            raise EditAppUnavailable(str(error)) from error
+        try:
+            document = self.bridge.wait_for_document(
+                app_type,
+                canonical_path,
+                timeout=self.open_timeout,
+            )
+        except NativeOfficeBusy as error:
+            raise self._busy_error(app_type, error) from error
+        if not document:
+            raise EditDocumentOpenTimeout(
+                f"{APP_LABELS[app_type]}에서 연결 문서가 다시 열린 것을 확인하지 못했습니다. "
+                "앱의 경고 또는 보호된 보기 창을 확인해주세요."
+            )
+        verified_path = canonical_document_path(document.get("file_path"))
+        if verified_path != canonical_path:
+            raise EditDocumentOpenTimeout(
+                "다시 열린 문서 경로가 연결 파일과 일치하지 않아 편집하지 않았습니다."
+            )
+        result = dict(document)
+        result.update({
+            "app_type": app_type,
+            "file_path": canonical_path,
+            "document_name": str(
+                result.get("document_name") or Path(canonical_path).name
+            ),
+            "launch_requested": True,
+        })
+        return result
+
     def connect_active_document(self, app_type: str | None = None) -> dict:
         requested = str(app_type or "").strip().casefold()
         if requested and requested not in APP_LABELS:
