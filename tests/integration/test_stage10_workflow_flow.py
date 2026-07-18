@@ -70,6 +70,7 @@ class Activator:
 class Context:
     def __init__(self):
         self.fail_app_type = None
+        self.context_fingerprint = "A" * 64
 
     def capture(self, session):
         value = session.to_dict() if hasattr(session, "to_dict") else dict(session)
@@ -95,7 +96,7 @@ class Context:
             "file_path": value["file_path"],
             "document_name": value["document_name"],
             "document_fingerprint": value["document_fingerprint"],
-            "context_fingerprint": "A" * 64,
+            "context_fingerprint": self.context_fingerprint,
             "read_only": False,
             "modified": False,
             "captured_at": "2026-07-17T12:00:00+09:00",
@@ -140,6 +141,18 @@ class Analyzer:
             "insights": ["부산 매출이 가장 높습니다."],
             "source_files": [context["source_path"]],
         }
+        source_scope = dict(context.get("source_scope") or {})
+        if source_scope:
+            value["tables"] = [{
+                "name": (
+                    f"{source_scope['sheet_name']}!{source_scope['address']}"
+                ),
+                "headers": ["지역", "매출"],
+                "rows": [["서울", 100], ["부산", 200]],
+                "total_rows": 2,
+                "included_rows": 2,
+                "source_scope": source_scope,
+            }]
         join_plan = dict(context.get("join_plan") or {})
         if join_plan:
             value["tables"].append({
@@ -565,6 +578,52 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             item.get("preference") == "ppt_slide_count"
             for item in preference_candidates
         ))
+
+    def test_explicit_selection_scope_is_previewed_executed_and_not_learned(self):
+        self.ppt.fail_times = 0
+        preview = self.command(
+            "선택한 범위만 분석해서 Word 보고서와 5장짜리 PPT 만들어줘",
+            "selection-scope",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertEqual(
+            {"kind": "range", "sheet_name": "매출", "address": "A1:B3"},
+            plan["source_scope"],
+        )
+        self.assertIn("매출!A1:B3", preview["message"])
+        self.assertIn("범위 밖 제외", preview["message"])
+
+        completed = self.approve(preview)
+        verification = completed["data"]["observations"][
+            "verification_results"
+        ]["analyze_excel"]
+
+        self.assertTrue(completed["success"], completed)
+        self.assertTrue(verification["source_scope_verified"])
+        self.assertEqual(
+            plan["source_scope"], self.analyzer.contexts[-1]["source_scope"]
+        )
+        self.assertIn("범위 밖 셀은 제외", completed["message"])
+        self.assertIsNone(self.workflow_skills.latest_candidate())
+
+    def test_selection_scope_approval_rejects_changed_excel_context(self):
+        preview = self.command(
+            "선택한 범위만 분석해서 Word 보고서와 5장짜리 PPT 만들어줘",
+            "selection-scope-changed",
+        )
+        self.context_manager.context_fingerprint = "B" * 64
+
+        blocked = self.approve(preview)
+
+        self.assertFalse(blocked["success"])
+        self.assertEqual("context_changed", blocked["status"])
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertFalse(any(self.root.joinpath("workflow-state").glob("*.json")))
 
     def test_explicit_join_requires_complete_contract_and_is_not_learned(self):
         self.ppt.fail_times = 0

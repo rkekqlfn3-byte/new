@@ -144,6 +144,14 @@ class WorkflowJoinValidationError(WorkflowError):
     retryable = False
 
 
+class WorkflowSourceScopeValidationError(WorkflowError):
+    """An explicit Excel source range is missing, ambiguous, or unsafe."""
+
+    error_type = "validation_error"
+    status = "blocked"
+    retryable = False
+
+
 def _timestamp() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -354,6 +362,93 @@ def _validated_workflow_preferences(value) -> dict[str, Any]:
     if len(encoded) > 100_000:
         raise WorkflowError("워크플로 기본값 정보가 너무 큽니다.")
     return result
+
+
+def _validated_source_scope(value) -> dict[str, str] | None:
+    """Validate one content-free, exact Excel range analysis scope."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != {
+        "kind", "sheet_name", "address"
+    }:
+        raise WorkflowSourceScopeValidationError(
+            "선택 범위 계획에는 범위 종류·시트명·셀 주소만 있어야 합니다."
+        )
+    if str(value.get("kind") or "").strip().casefold() != "range":
+        raise WorkflowSourceScopeValidationError(
+            "현재 워크플로 분석 범위는 Excel 셀 범위만 지원합니다."
+        )
+    sheet_name = re.sub(
+        r"\s+", " ", str(value.get("sheet_name") or "")
+    ).strip()
+    if (
+        not sheet_name
+        or len(sheet_name) > 80
+        or any(ord(character) < 32 for character in sheet_name)
+    ):
+        raise WorkflowSourceScopeValidationError(
+            "분석할 시트명은 1~80자의 한 줄 이름이어야 합니다."
+        )
+    address = re.sub(
+        r"\s+", "", str(value.get("address") or "")
+    ).replace("$", "").upper()
+    match = re.fullmatch(
+        r"(?P<start_col>[A-Z]{1,3})(?P<start_row>[1-9]\d*)"
+        r"(?::(?P<end_col>[A-Z]{1,3})(?P<end_row>[1-9]\d*))?",
+        address,
+    )
+    if match is None:
+        raise WorkflowSourceScopeValidationError(
+            "분석할 선택 범위는 A1:E20 같은 연속 셀 주소여야 합니다."
+        )
+
+    def column_number(letters):
+        result = 0
+        for character in letters:
+            result = result * 26 + ord(character) - ord("A") + 1
+        return result
+
+    start_column = column_number(match.group("start_col"))
+    end_column = column_number(
+        match.group("end_col") or match.group("start_col")
+    )
+    start_row = int(match.group("start_row"))
+    end_row = int(match.group("end_row") or match.group("start_row"))
+    if (
+        start_column > end_column
+        or start_row > end_row
+        or end_column > 16_384
+        or end_row > 1_048_576
+    ):
+        raise WorkflowSourceScopeValidationError(
+            "선택 범위의 시작·끝 주소가 Excel 범위를 벗어났습니다."
+        )
+    rows = end_row - start_row + 1
+    columns = end_column - start_column + 1
+    if rows < 2:
+        raise WorkflowSourceScopeValidationError(
+            "선택 범위는 머리글 1행과 데이터 1행 이상을 포함해야 합니다."
+        )
+    if columns > MAX_TABLE_COLUMNS:
+        raise WorkflowSourceScopeValidationError(
+            f"선택 범위는 {MAX_TABLE_COLUMNS}열까지 분석할 수 있습니다."
+        )
+    if rows * columns > MAX_SOURCE_CELLS_PER_SHEET:
+        raise WorkflowSourceScopeValidationError(
+            f"선택 범위는 {MAX_SOURCE_CELLS_PER_SHEET:,}셀까지 분석할 수 있습니다."
+        )
+    normalized_end = (
+        f":{match.group('end_col')}{end_row}"
+        if match.group("end_col")
+        else ""
+    )
+    return {
+        "kind": "range",
+        "sheet_name": sheet_name,
+        "address": (
+            f"{match.group('start_col')}{start_row}{normalized_end}"
+        ),
+    }
 
 
 def _validated_join_plan(value) -> dict[str, Any] | None:
@@ -1074,6 +1169,11 @@ class ExcelSalesAnalyzer:
 
         source_path = _absolute_path(context["source_path"])
         join_plan = _validated_join_plan(context.get("join_plan"))
+        source_scope = _validated_source_scope(context.get("source_scope"))
+        if join_plan is not None and source_scope is not None:
+            raise WorkflowSourceScopeValidationError(
+                "시트 조인과 선택 범위만 분석은 함께 실행할 수 없습니다."
+            )
         lease = None
         workbook = None
         with com_apartment(self._com_runtime):
@@ -1093,39 +1193,82 @@ class ExcelSalesAnalyzer:
                         visible_sheets.append(worksheet)
                 if not visible_sheets:
                     raise WorkflowError("표시된 Excel 시트가 없어 분석할 수 없습니다.")
-                if len(visible_sheets) > MAX_WORKSHEETS:
+                if source_scope is None and len(visible_sheets) > MAX_WORKSHEETS:
                     raise WorkflowError(
                         f"한 번에 분석할 수 있는 표시 시트는 {MAX_WORKSHEETS}개까지입니다."
                     )
 
                 sheet_ranges = []
                 total_source_cells = 0
-                for worksheet in visible_sheets:
+                if source_scope is not None:
+                    scoped_sheets = [
+                        worksheet
+                        for worksheet in visible_sheets
+                        if str(getattr(worksheet, "Name", "") or "").casefold()
+                        == source_scope["sheet_name"].casefold()
+                    ]
+                    if len(scoped_sheets) != 1:
+                        raise WorkflowSourceScopeValidationError(
+                            f"표시된 Excel 시트에서 선택 범위의 시트 "
+                            f"'{source_scope['sheet_name']}'을 정확히 찾지 못했습니다."
+                        )
+                    worksheet = scoped_sheets[0]
                     sheet_name = str(getattr(worksheet, "Name", "") or "Sheet")
-                    used = worksheet.UsedRange
+                    used = worksheet.Range(source_scope["address"])
                     rows = int(used.Rows.Count)
                     columns = int(used.Columns.Count)
-                    if rows < 1 or columns < 1:
-                        continue
                     sheet_cells = rows * columns
-                    if sheet_cells > MAX_SOURCE_CELLS_PER_SHEET:
-                        raise WorkflowError(
-                            f"'{sheet_name}' 시트는 {MAX_SOURCE_CELLS_PER_SHEET:,}셀을 넘어 "
-                            "한 번에 분석할 수 없습니다."
+                    if (
+                        rows < 2
+                        or columns < 1
+                        or columns > MAX_TABLE_COLUMNS
+                        or sheet_cells > MAX_SOURCE_CELLS_PER_SHEET
+                    ):
+                        raise WorkflowSourceScopeValidationError(
+                            "승인된 선택 범위의 실제 크기가 안전 한도와 다릅니다."
                         )
-                    if columns > MAX_TABLE_COLUMNS:
-                        raise WorkflowError(
-                            f"'{sheet_name}' 시트는 {MAX_TABLE_COLUMNS}열을 넘어 "
-                            "한 번에 분석할 수 없습니다."
-                        )
-                    total_source_cells += sheet_cells
-                    if total_source_cells > MAX_SOURCE_CELLS:
-                        raise WorkflowError(
-                            f"표시 시트 전체 분석 범위는 {MAX_SOURCE_CELLS:,}셀까지입니다."
-                        )
-                    sheet_ranges.append(
-                        (worksheet, used, sheet_name, rows, columns, sheet_cells)
-                    )
+                    sheet_ranges.append((
+                        worksheet,
+                        used,
+                        f"{sheet_name}!{source_scope['address']}",
+                        rows,
+                        columns,
+                        sheet_cells,
+                        dict(source_scope),
+                    ))
+                else:
+                    for worksheet in visible_sheets:
+                        sheet_name = str(getattr(worksheet, "Name", "") or "Sheet")
+                        used = worksheet.UsedRange
+                        rows = int(used.Rows.Count)
+                        columns = int(used.Columns.Count)
+                        if rows < 1 or columns < 1:
+                            continue
+                        sheet_cells = rows * columns
+                        if sheet_cells > MAX_SOURCE_CELLS_PER_SHEET:
+                            raise WorkflowError(
+                                f"'{sheet_name}' 시트는 {MAX_SOURCE_CELLS_PER_SHEET:,}셀을 넘어 "
+                                "한 번에 분석할 수 없습니다."
+                            )
+                        if columns > MAX_TABLE_COLUMNS:
+                            raise WorkflowError(
+                                f"'{sheet_name}' 시트는 {MAX_TABLE_COLUMNS}열을 넘어 "
+                                "한 번에 분석할 수 없습니다."
+                            )
+                        total_source_cells += sheet_cells
+                        if total_source_cells > MAX_SOURCE_CELLS:
+                            raise WorkflowError(
+                                f"표시 시트 전체 분석 범위는 {MAX_SOURCE_CELLS:,}셀까지입니다."
+                            )
+                        sheet_ranges.append((
+                            worksheet,
+                            used,
+                            sheet_name,
+                            rows,
+                            columns,
+                            sheet_cells,
+                            None,
+                        ))
 
                 metrics = []
                 tables = []
@@ -1136,7 +1279,7 @@ class ExcelSalesAnalyzer:
                     if join_plan is not None
                     else MAX_TOTAL_TABLE_ROWS
                 )
-                qualify_metrics = len(visible_sheets) > 1
+                qualify_metrics = len(sheet_ranges) > 1
                 for (
                     worksheet,
                     used,
@@ -1144,6 +1287,7 @@ class ExcelSalesAnalyzer:
                     rows,
                     columns,
                     sheet_cells,
+                    table_scope,
                 ) in sheet_ranges:
                     matrix = self._matrix(used.Value2, rows, columns)
                     if not matrix or not any(
@@ -1196,6 +1340,8 @@ class ExcelSalesAnalyzer:
                         "included_rows": len(table_rows),
                         "used_cells": sheet_cells,
                     }
+                    if table_scope is not None:
+                        table["source_scope"] = dict(table_scope)
                     tables.append(table)
                     analysis_profiles.append({
                         "sheet_name": sheet_name,
@@ -1203,9 +1349,10 @@ class ExcelSalesAnalyzer:
                         "rows": data_rows,
                         "table": table,
                     })
-                    charts.extend(self._chart_data(
-                        worksheet, MAX_CHARTS - len(charts)
-                    ))
+                    if table_scope is None:
+                        charts.extend(self._chart_data(
+                            worksheet, MAX_CHARTS - len(charts)
+                        ))
 
                 if not tables:
                     raise WorkflowError("표시된 Excel 시트에 분석할 데이터가 없습니다.")
@@ -2128,6 +2275,7 @@ class WorkflowExecutor:
             "step_order", list(_step_order(state.get("report_format") or "word"))
         )
         state.setdefault("join_plan", None)
+        state.setdefault("source_scope", None)
         return state
 
     def prepare(
@@ -2141,6 +2289,7 @@ class WorkflowExecutor:
         explicit_slide_count=False,
         report_format="word",
         join_plan=None,
+        source_scope=None,
     ) -> dict:
         source = Path(_absolute_path(source_path))
         if not source.is_file() or source.suffix.casefold() not in SUPPORTED_EXCEL_SUFFIXES:
@@ -2154,6 +2303,11 @@ class WorkflowExecutor:
             raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
         report_format = _report_format(report_format)
         join_plan = _validated_join_plan(join_plan)
+        source_scope = _validated_source_scope(source_scope)
+        if join_plan is not None and source_scope is not None:
+            raise WorkflowSourceScopeValidationError(
+                "시트 조인과 선택 범위만 분석은 한 요청에서 함께 사용할 수 없습니다."
+            )
         self._preflight_report_environment(report_format)
         destination = Path(_absolute_path(output_dir or source.parent))
         if not destination.is_dir():
@@ -2203,6 +2357,7 @@ class WorkflowExecutor:
             "output_paths": output_paths,
             "report_format": report_format,
             "join_plan": join_plan,
+            "source_scope": source_scope,
             "step_order": list(step_order),
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
@@ -2268,6 +2423,13 @@ class WorkflowExecutor:
         report_format = _report_format(state.get("report_format") or "word")
         state["report_format"] = report_format
         state["join_plan"] = _validated_join_plan(state.get("join_plan"))
+        state["source_scope"] = _validated_source_scope(
+            state.get("source_scope")
+        )
+        if state["join_plan"] is not None and state["source_scope"] is not None:
+            raise WorkflowSourceScopeValidationError(
+                "승인된 계획에서 시트 조인과 선택 범위 분석이 충돌합니다."
+            )
         expected_steps = _step_order(report_format)
         if (
             tuple(state.get("step_order") or ()) != expected_steps
@@ -2551,6 +2713,9 @@ class WorkflowExecutor:
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
             "join_plan": _validated_join_plan(state.get("join_plan")),
+            "source_scope": _validated_source_scope(
+                state.get("source_scope")
+            ),
         }
         if name == "create_word_report":
             context["output_path"] = state["output_paths"][
@@ -2584,9 +2749,14 @@ class WorkflowExecutor:
             failure.get("retryable")
         ) if isinstance(failure, Mapping) else False
         if state.get("status") == "blocked" and not retryable_failure:
-            raise WorkflowJoinValidationError(
-                "재시도할 수 없는 검증 오류로 차단된 워크플로입니다. 조인 조건을 "
-                "고쳐 새 요청으로 다시 미리보기·승인해주세요."
+            error_class = (
+                WorkflowSourceScopeValidationError
+                if state.get("source_scope")
+                else WorkflowJoinValidationError
+            )
+            raise error_class(
+                "재시도할 수 없는 검증 오류로 차단된 워크플로입니다. 분석 범위나 "
+                "조인 조건을 고쳐 새 요청으로 다시 미리보기·승인해주세요."
             )
         if state.get("status") == "completed":
             self._reconcile(state)
@@ -2611,7 +2781,9 @@ class WorkflowExecutor:
             try:
                 artifact = self._run_step(state, name)
                 if name == "analyze_excel":
-                    state["work_product"] = artifact
+                    expected_source_scope = _validated_source_scope(
+                        state.get("source_scope")
+                    )
                     verification = {
                         "valid_common_model": True,
                         "metric_count": len(artifact["metrics"]),
@@ -2637,7 +2809,22 @@ class WorkflowExecutor:
                             bool(table.get("join"))
                             for table in artifact["tables"]
                         ),
+                        "source_scope_verified": bool(
+                            expected_source_scope is not None
+                            and len(artifact["tables"]) == 1
+                            and dict(
+                                artifact["tables"][0].get("source_scope") or {}
+                            ) == expected_source_scope
+                        ),
                     }
+                    if (
+                        expected_source_scope is not None
+                        and not verification["source_scope_verified"]
+                    ):
+                        raise WorkflowSourceScopeValidationError(
+                            "분석 결과가 승인한 Excel 선택 범위와 일치하지 않습니다."
+                        )
+                    state["work_product"] = artifact
                     stored_artifact = None
                 else:
                     stored_artifact = dict(artifact)
@@ -2703,6 +2890,9 @@ class WorkflowExecutor:
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
             "join_plan": _validated_join_plan(state.get("join_plan")),
+            "source_scope": _validated_source_scope(
+                state.get("source_scope")
+            ),
             "report_formats": list(
                 _report_kinds(state.get("report_format") or "word")
             ),

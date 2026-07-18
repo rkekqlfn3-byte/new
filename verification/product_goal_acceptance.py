@@ -88,6 +88,8 @@ PROBE_SPECS = {
             "explicit_join_verified",
             "mapped_join_keys_verified",
             "aggregated_join_verified",
+            "explicit_selection_scope_verified",
+            "selection_scope_cross_app_outputs_verified",
         ),
     },
     "workflow_hwp": {

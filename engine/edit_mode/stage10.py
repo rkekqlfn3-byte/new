@@ -14,7 +14,11 @@ from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.stage9 import Stage9EditError, Stage9NativeEditAdapter
 from engine.edit_mode.window_layout import DocumentWindowActivator
 from engine.learning import BusinessWorkflowSkillManager
-from engine.workflows import WorkflowExecutor, WorkflowJoinValidationError
+from engine.workflows import (
+    WorkflowExecutor,
+    WorkflowJoinValidationError,
+    WorkflowSourceScopeValidationError,
+)
 from engine.workflows.business_workflow import file_fingerprint
 
 
@@ -306,6 +310,48 @@ class StructuredWorkflowIntentAnalyzer:
             "explicit_report_format": bool(word_explicit or hwp_explicit),
         }
 
+    @staticmethod
+    def _source_scope_params(
+        command: str,
+        context: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        requested = bool(re.search(
+            r"(?:선택(?:한)?\s*(?:셀\s*)?(?:범위|영역)\s*만|"
+            r"이\s*(?:셀\s*)?범위\s*만)",
+            str(command or ""),
+            re.IGNORECASE,
+        ))
+        if not requested:
+            return {"source_scope_requested": False, "source_scope": None}
+        if str(context.get("selection_kind") or "").casefold() != "range":
+            return {
+                "source_scope_requested": True,
+                "source_scope": None,
+                "source_scope_error": (
+                    "선택 범위만 분석하려면 Excel에서 머리글과 데이터가 있는 "
+                    "연속 셀 범위를 먼저 선택해주세요."
+                ),
+            }
+        sheet_name = str(context.get("active_container") or "").strip()
+        address = str(context.get("selection_reference") or "").strip()
+        if not sheet_name or not address:
+            return {
+                "source_scope_requested": True,
+                "source_scope": None,
+                "source_scope_error": (
+                    "현재 선택 범위의 시트명과 셀 주소를 확인하지 못했습니다. "
+                    "범위를 다시 선택해주세요."
+                ),
+            }
+        return {
+            "source_scope_requested": True,
+            "source_scope": {
+                "kind": "range",
+                "sheet_name": sheet_name,
+                "address": address,
+            },
+        }
+
     def analyze(self, text: str, context: Mapping[str, Any]) -> WorkflowIntent | None:
         if str(context.get("app_type") or "").casefold() != "excel":
             return None
@@ -371,6 +417,7 @@ class StructuredWorkflowIntentAnalyzer:
                 default_report_format=None,
             )
             params.update(self._join_params(raw_command))
+            params.update(self._source_scope_params(raw_command, context))
             params["reuse_approved_skill"] = True
             return WorkflowIntent(
                 "create_business_workflow",
@@ -378,9 +425,11 @@ class StructuredWorkflowIntentAnalyzer:
                 params,
             )
         join_params = self._join_params(raw_command)
+        scope_params = self._source_scope_params(raw_command, context)
         has_analysis = (
             any(term in command for term in ("분석", "요약", "analy"))
             or bool(join_params.get("join_requested"))
+            or bool(scope_params.get("source_scope_requested"))
         )
         has_report = any(term in command for term in self.CREATE_REPORT_TERMS)
         has_slides = any(term in command for term in self.CREATE_SLIDE_TERMS)
@@ -394,6 +443,7 @@ class StructuredWorkflowIntentAnalyzer:
                 default_report_format="word",
             )
             params.update(join_params)
+            params.update(scope_params)
             params["contextual_current_document"] = contextual_current_document
             report_format = str(params["report_format"])
             report_label = {
@@ -403,9 +453,13 @@ class StructuredWorkflowIntentAnalyzer:
             }[report_format]
             slide_count = params["slide_count"]
             source_label = (
-                "현재 연결 Excel 전체 읽기 전용 분석"
-                if contextual_current_document
-                else "Excel 읽기 전용 분석"
+                "현재 선택 Excel 범위만 읽기 전용 분석"
+                if params.get("source_scope_requested")
+                else (
+                    "현재 연결 Excel 전체 읽기 전용 분석"
+                    if contextual_current_document
+                    else "Excel 읽기 전용 분석"
+                )
             )
             description = (
                 f"{source_label} → {report_label} 보고서 → "
@@ -647,6 +701,14 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                     str(intent.params.get("join_error") or "")
                     or "조인할 두 시트·양쪽 키·결합 방식을 모두 지정해주세요."
                 )
+            if (
+                intent.params.get("source_scope_requested")
+                and not intent.params.get("source_scope")
+            ):
+                raise WorkflowSourceScopeValidationError(
+                    str(intent.params.get("source_scope_error") or "")
+                    or "분석할 Excel 선택 범위를 다시 지정해주세요."
+                )
             preferences = self.resolved_workflow_preferences(source_path)
             reuse = bool(intent.params.get("reuse_approved_skill"))
             active_skill = (
@@ -689,6 +751,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 explicit_slide_count=bool(intent.params.get("explicit_slide_count")),
                 report_format=report_format,
                 join_plan=intent.params.get("join_plan"),
+                source_scope=intent.params.get("source_scope"),
             )
         state = self.workflow_executor.latest_for_source(source_path)
         if state is None:
@@ -818,6 +881,13 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 f"· 키 {key_label}{aggregation_label} "
                 "· Excel 원본 변경 없음"
             )
+        source_scope = dict(state.get("source_scope") or {})
+        if source_scope:
+            after += (
+                f"\n읽기 전용 분석 범위: "
+                f"{source_scope.get('sheet_name')}!{source_scope.get('address')} "
+                "· 첫 행을 머리글로 사용 · 범위 밖 제외 · Excel 원본 변경 없음"
+            )
         applied_preferences, preference_summary = self._preference_preview(
             state.get("applied_preferences") or {}
         )
@@ -854,6 +924,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "workflow_skill_reused": bool(reused_skill),
             "workflow_skill": reused_skill,
             "join_plan": join_plan or None,
+            "source_scope": source_scope or None,
         }
         if intent.operation == "create_business_workflow":
             arguments["workflow_plan"] = state
@@ -892,6 +963,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 "workflow_skill_reused": bool(reused_skill),
                 "workflow_skill": reused_skill,
                 "explicit_join": bool(join_plan),
+                "explicit_source_scope": bool(source_scope),
                 "rewrite_supported": False,
                 "applied_user_preferences": applied_preferences,
             },
@@ -1027,11 +1099,11 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             and len(result.get("created_files") or []) == expected_artifacts
         )
         if verified:
-            if result.get("join_plan"):
+            if result.get("join_plan") or result.get("source_scope"):
                 if isinstance(result, dict):
                     result["workflow_skill_candidate"] = None
                     result["workflow_skill_candidate_suppressed"] = (
-                        "explicit_join_parameters_not_persisted"
+                        "explicit_source_parameters_not_persisted"
                     )
             else:
                 candidate = self.workflow_skill_manager.record_verified_success(

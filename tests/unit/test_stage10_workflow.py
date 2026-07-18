@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import queue
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ from engine.workflows import (
     WorkflowExecutionError,
     WorkflowExecutor,
     WorkflowJoinValidationError,
+    WorkflowSourceScopeValidationError,
 )
 from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 
@@ -141,7 +143,37 @@ class FakeWorksheet:
     def __init__(self, name, value, *, visible=-1, rows=None, columns=None):
         self.Name = name
         self.Visible = visible
+        self._value = value
         self.UsedRange = FakeUsedRange(value, rows=rows, columns=columns)
+
+    def Range(self, address):
+        normalized = str(address).replace("$", "").upper()
+        match = re.fullmatch(
+            r"([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?", normalized
+        )
+        if match is None:
+            raise ValueError(address)
+
+        def column_index(letters):
+            value = 0
+            for character in letters:
+                value = value * 26 + ord(character) - ord("A") + 1
+            return value - 1
+
+        start_column = column_index(match.group(1))
+        start_row = int(match.group(2)) - 1
+        end_column = column_index(match.group(3) or match.group(1))
+        end_row = int(match.group(4) or match.group(2)) - 1
+        matrix = [list(row) for row in self._value]
+        selected = tuple(
+            tuple(row[start_column:end_column + 1])
+            for row in matrix[start_row:end_row + 1]
+        )
+        return FakeUsedRange(
+            selected,
+            rows=end_row - start_row + 1,
+            columns=end_column - start_column + 1,
+        )
 
     def ChartObjects(self):
         return FakeCharts()
@@ -272,7 +304,9 @@ class Stage10WorkflowTests(unittest.TestCase):
                 source_files=[],
             )
 
-    def _analyze_sheets(self, worksheets, *, join_plan=None):
+    def _analyze_sheets(
+        self, worksheets, *, join_plan=None, source_scope=None
+    ):
         lease = FakeLease()
         workbook = FakeWorkbook(self.source, worksheets)
         analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
@@ -282,6 +316,7 @@ class Stage10WorkflowTests(unittest.TestCase):
             "title": "다중 시트 분석",
             "preferences": {"summary_lines": 8},
             "join_plan": join_plan,
+            "source_scope": source_scope,
         })
         self.assertTrue(lease.cleaned)
         return result
@@ -603,6 +638,58 @@ class Stage10WorkflowTests(unittest.TestCase):
             sum(table["included_rows"] for table in result["tables"]),
             500,
         )
+
+    def test_excel_analyzer_reads_only_explicit_source_scope(self):
+        selected_sheet = FakeWorksheet("매출", (
+            ("지역", "담당자", "매출"),
+            ("서울", "김", 100),
+            ("부산", "이", 200),
+            ("대전", "박", 300),
+        ))
+        excluded_sheet = FakeWorksheet("비용", (
+            ("항목", "비용"),
+            ("인건비", 50),
+        ))
+        source_scope = {
+            "kind": "range",
+            "sheet_name": "매출",
+            "address": "B1:C3",
+        }
+
+        result = self._analyze_sheets(
+            [selected_sheet, excluded_sheet],
+            source_scope=source_scope,
+        )
+
+        self.assertEqual(1, len(result["tables"]))
+        table = result["tables"][0]
+        self.assertEqual("매출!B1:C3", table["name"])
+        self.assertEqual(["담당자", "매출"], table["headers"])
+        self.assertEqual([["김", 100], ["이", 200]], table["rows"])
+        self.assertEqual(source_scope, table["source_scope"])
+        self.assertEqual([], result["charts"])
+        self.assertEqual(0, selected_sheet.UsedRange.value_reads)
+        self.assertEqual(0, excluded_sheet.UsedRange.value_reads)
+
+    def test_excel_analyzer_blocks_missing_or_hidden_source_scope_sheet(self):
+        for source_scope in (
+            {"kind": "range", "sheet_name": "없음", "address": "A1:B2"},
+            {"kind": "range", "sheet_name": "숨김", "address": "A1:B2"},
+        ):
+            with self.subTest(source_scope=source_scope):
+                with self.assertRaisesRegex(
+                    WorkflowSourceScopeValidationError,
+                    "표시된 Excel 시트",
+                ):
+                    self._analyze_sheets(
+                        [
+                            FakeWorksheet("매출", (("A", "B"), (1, 2))),
+                            FakeWorksheet(
+                                "숨김", (("A", "B"), (1, 2)), visible=0
+                            ),
+                        ],
+                        source_scope=source_scope,
+                    )
 
     def test_excel_analyzer_builds_one_bounded_table_per_visible_sheet(self):
         result = self._analyze_sheets([
@@ -1238,6 +1325,43 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertIsNone(incomplete.params["join_plan"])
         self.assertIn("조인 방식", incomplete.params["join_error"])
 
+    def test_workflow_intent_requires_explicit_valid_selection_scope(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        context = {
+            "app_type": "excel",
+            "selection_kind": "range",
+            "active_container": "7월 실적",
+            "selection_reference": "$B$2:$F$18",
+        }
+
+        scoped = analyzer.analyze(
+            "선택한 범위만 분석해서 Word 보고서와 5장짜리 PPT 만들어줘",
+            context,
+        )
+        whole = analyzer.analyze(
+            "이 엑셀을 분석해서 Word 보고서와 5장짜리 PPT 만들어줘",
+            context,
+        )
+        missing = analyzer.analyze(
+            "선택한 범위만 분석해서 Word 보고서와 PPT 만들어줘",
+            {**context, "selection_kind": "cell", "selection_reference": "B2"},
+        )
+
+        self.assertEqual(
+            {
+                "kind": "range",
+                "sheet_name": "7월 실적",
+                "address": "$B$2:$F$18",
+            },
+            scoped.params["source_scope"],
+        )
+        self.assertIn("현재 선택 Excel 범위만", scoped.description)
+        self.assertIsNone(whole.params.get("source_scope"))
+        self.assertFalse(whole.params.get("source_scope_requested"))
+        self.assertTrue(missing.params["source_scope_requested"])
+        self.assertIsNone(missing.params["source_scope"])
+        self.assertIn("연속 셀 범위", missing.params["source_scope_error"])
+
     def test_workflow_intent_recognizes_approved_reuse_lifecycle(self):
         analyzer = StructuredWorkflowIntentAnalyzer()
         context = {"app_type": "excel"}
@@ -1609,6 +1733,54 @@ class Stage10WorkflowTests(unittest.TestCase):
             "합계만 지원",
         ):
             self.executor.start(aggregate_state)
+
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertFalse(self.executor._path(state["workflow_id"]).exists())
+
+    def test_source_scope_is_bounded_and_revalidated_before_any_step(self):
+        state = self.executor.prepare(
+            self.source,
+            source_scope={
+                "kind": "range",
+                "sheet_name": "매출",
+                "address": "$A$1:$B$3",
+            },
+        )
+        self.assertEqual("A1:B3", state["source_scope"]["address"])
+        state["source_scope"]["address"] = "A1:AE3"
+
+        with self.assertRaisesRegex(
+            WorkflowSourceScopeValidationError,
+            "30열",
+        ):
+            self.executor.start(state)
+
+        with self.assertRaisesRegex(
+            WorkflowSourceScopeValidationError,
+            "머리글 1행",
+        ):
+            self.executor.prepare(
+                self.source,
+                source_scope={
+                    "kind": "range",
+                    "sheet_name": "매출",
+                    "address": "A1:B1",
+                },
+            )
+
+        with self.assertRaisesRegex(
+            WorkflowSourceScopeValidationError,
+            "함께 사용할 수 없습니다",
+        ):
+            self.executor.prepare(
+                self.source,
+                join_plan=self._join_plan(),
+                source_scope={
+                    "kind": "range",
+                    "sheet_name": "매출",
+                    "address": "A1:B3",
+                },
+            )
 
         self.assertEqual(0, self.analyzer.calls)
         self.assertFalse(self.executor._path(state["workflow_id"]).exists())

@@ -845,6 +845,14 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
                 f"{key_label}{aggregation_label}. 시트명과 키는 재사용 스킬로 "
                 "저장하지 않았습니다."
             )
+        if observations.get("source_scope"):
+            source_scope = dict(observations["source_scope"])
+            message += (
+                "\n승인한 Excel 선택 범위만 읽기 전용으로 분석했습니다: "
+                f"{source_scope.get('sheet_name')}!"
+                f"{source_scope.get('address')}. 범위 밖 셀은 제외했고, "
+                "시트명과 주소는 재사용 스킬로 저장하지 않았습니다."
+            )
         return message
     if prepared.operation == "vba_inspect_project":
         observations = result.observations

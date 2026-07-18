@@ -479,6 +479,78 @@ def _owned_probe(report_format="word", progress=None):
                 stored.get("verification_results") or {}
             ) == len(expected_steps),
         }
+        if report_format == "word":
+            stage = "prepare_selection_scope_workflow"
+            _publish_progress(progress, stage)
+            scope_plan = {
+                "kind": "range",
+                "sheet_name": "매출",
+                "address": "B1:E4",
+            }
+            scope_executor = WorkflowExecutor(temp_dir / "workflow-state-scope")
+            scope_state = scope_executor.prepare(
+                source,
+                title="Stage 10 선택 범위 분석",
+                report_format="word",
+                preferences=expected_formatting,
+                slide_count=5,
+                explicit_slide_count=True,
+                source_scope=scope_plan,
+            )
+            scope_preview_created_nothing = all(
+                not Path(path).exists()
+                for path in scope_state["output_paths"].values()
+            )
+
+            stage = "execute_selection_scope_workflow"
+            _publish_progress(progress, stage)
+            scope_result = scope_executor.start(scope_state)
+            scope_report_path = Path(scope_result["output_paths"]["report"])
+            scope_presentation_path = Path(
+                scope_result["output_paths"]["presentation"]
+            )
+
+            stage = "verify_selection_scope_outputs"
+            _publish_progress(progress, stage)
+            scope_word_verified = _verify_word(
+                scope_report_path, expected_formatting
+            )
+            scope_powerpoint = _verify_powerpoint(
+                scope_presentation_path, expected_formatting
+            )
+            scope_stored = scope_executor.load(scope_state["workflow_id"])
+            scope_tables = (
+                scope_stored.get("work_product") or {}
+            ).get("tables", [])
+            scope_table = scope_tables[0] if len(scope_tables) == 1 else {}
+            scope_verification = (
+                scope_stored.get("verification_results", {})
+                .get("analyze_excel", {})
+            )
+            checks.update({
+                "selection_scope_preview_created_nothing": (
+                    scope_preview_created_nothing
+                ),
+                "explicit_selection_scope_verified": (
+                    scope_stored.get("source_scope") == scope_plan
+                    and scope_verification.get("source_scope_verified") is True
+                    and scope_table.get("source_scope") == scope_plan
+                    and scope_table.get("name") == "매출!B1:E4"
+                    and scope_table.get("headers")
+                    == ["지역", "담당자", "수량", "매출"]
+                    and int(scope_table.get("total_rows") or 0) == 3
+                ),
+                "selection_scope_cross_app_outputs_verified": (
+                    scope_word_verified
+                    and scope_powerpoint.get("slide_count") is True
+                    and scope_powerpoint.get("formatting") is True
+                    and len(scope_result.get("created_files") or []) == 2
+                    and scope_stored.get("status") == "completed"
+                ),
+                "selection_scope_source_unchanged": (
+                    file_fingerprint(source) == source_before
+                ),
+            })
         return {
             "status": "passed" if all(checks.values()) else "failed",
             "owned_fixture_only": True,
