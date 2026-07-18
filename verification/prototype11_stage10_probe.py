@@ -7,6 +7,7 @@ import gc
 import json
 import multiprocessing
 import queue
+import re
 import shutil
 import tempfile
 import time
@@ -522,6 +523,20 @@ def _owned_probe(report_format="word", progress=None):
                 and numbered_candidate.get("confidence") == "review_required"
                 and numbered_candidate_cache_created_nothing
                 and numbered_candidate_source_unchanged
+            ),
+            "step_contracts_verified": (
+                result.get("step_contracts_verified") is True
+                and int(result.get("step_contract_count") or 0)
+                == len(expected_steps)
+                and stored.get("step_contract_schema_version") == 1
+                and list(stored.get("step_contracts") or {}) == expected_steps
+                and all(
+                    re.fullmatch(
+                        r"[A-F0-9]{64}",
+                        str(contract.get("idempotency_key") or ""),
+                    )
+                    for contract in (stored.get("step_contracts") or {}).values()
+                )
             ),
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),

@@ -1188,6 +1188,49 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertFalse(Path(state["output_paths"]["report"]).exists())
         self.assertFalse(Path(state["output_paths"]["presentation"]).exists())
 
+    def test_prepare_declares_content_free_step_execution_contracts(self):
+        state = self.executor.prepare(self.source, report_format="both")
+        contracts = state["step_contracts"]
+
+        self.assertEqual(1, state["step_contract_schema_version"])
+        self.assertEqual(state["step_order"], list(contracts))
+        self.assertEqual([], contracts["analyze_excel"]["depends_on"])
+        self.assertEqual(
+            ["analyze_excel"],
+            contracts["create_word_report"]["depends_on"],
+        )
+        self.assertEqual(
+            ["create_word_report"],
+            contracts["create_hwp_report"]["depends_on"],
+        )
+        self.assertEqual(
+            ["create_hwp_report"],
+            contracts["create_powerpoint_summary"]["depends_on"],
+        )
+        self.assertEqual(
+            "read_only_analysis", contracts["analyze_excel"]["effect"]
+        )
+        self.assertTrue(
+            all(
+                contract["effect"] == "create_owned_file"
+                for name, contract in contracts.items()
+                if name != "analyze_excel"
+            )
+        )
+        idempotency_keys = {
+            contract["idempotency_key"] for contract in contracts.values()
+        }
+        self.assertEqual(len(contracts), len(idempotency_keys))
+        self.assertTrue(
+            all(
+                re.fullmatch(r"[A-F0-9]{64}", key)
+                for key in idempotency_keys
+            )
+        )
+        serialized = str(contracts)
+        self.assertNotIn(str(self.source), serialized)
+        self.assertNotIn("owned-excel-fixture", serialized)
+
     def test_hwp_plans_block_before_approval_when_environment_is_missing(self):
         for report_format in ("hwp", "both"):
             with self.subTest(report_format=report_format):
@@ -2083,7 +2126,7 @@ class Stage10WorkflowTests(unittest.TestCase):
 
         migrated = self.executor.load(state["workflow_id"])
 
-        self.assertEqual(3, migrated["schema_version"])
+        self.assertEqual(4, migrated["schema_version"])
         self.assertEqual(2, migrated["migrated_from_schema"])
         self.assertEqual(
             [
@@ -2124,6 +2167,28 @@ class Stage10WorkflowTests(unittest.TestCase):
             self.executor._path(collision_plan["workflow_id"]).exists()
         )
 
+    def test_approval_rejects_tampered_step_contract_before_any_writer(self):
+        mutations = (
+            ("dependency", "depends_on", ["create_powerpoint_summary"]),
+            ("effect", "effect", "read_only_analysis"),
+            ("idempotency", "idempotency_key", "0" * 64),
+        )
+        for label, field, value in mutations:
+            with self.subTest(label=label):
+                plan = self.executor.prepare(self.source)
+                plan["step_contracts"]["create_word_report"][field] = value
+
+                with self.assertRaisesRegex(Exception, "단계 실행 계약"):
+                    self.executor.start(plan)
+
+                self.assertFalse(
+                    self.executor._path(plan["workflow_id"]).exists()
+                )
+
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
     def test_failure_resumes_only_failed_step_without_duplicate_artifacts(self):
         state = self.executor.prepare(self.source)
         with self.assertRaises(WorkflowExecutionError) as captured:
@@ -2158,6 +2223,59 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertFalse(repeated["changed"])
         self.assertEqual(1, self.word.calls)
         self.assertEqual(2, self.ppt.calls)
+
+    def test_schema_three_state_backfills_contract_and_resumes_without_duplicates(self):
+        state = self.executor.prepare(self.source)
+        with self.assertRaises(WorkflowExecutionError):
+            self.executor.start(state)
+        failed = self.executor.load(state["workflow_id"])
+        failed["schema_version"] = 3
+        failed.pop("step_contract_schema_version")
+        failed.pop("step_contracts")
+        self.executor._save(failed)
+
+        migrated = self.executor.load(state["workflow_id"])
+        self.assertEqual(4, migrated["schema_version"])
+        self.assertEqual(3, migrated["migrated_from_schema"])
+        self.assertEqual(1, migrated["step_contract_schema_version"])
+        self.assertEqual(migrated["step_order"], list(migrated["step_contracts"]))
+
+        completed = self.executor.run(state["workflow_id"])
+
+        self.assertTrue(completed["step_contracts_verified"])
+        self.assertEqual(3, completed["step_contract_count"])
+        self.assertEqual(1, self.analyzer.calls)
+        self.assertEqual(1, self.word.calls)
+        self.assertEqual(2, self.ppt.calls)
+
+    def test_current_state_with_missing_contract_fails_closed(self):
+        missing_field_sets = (
+            ("step_contracts",),
+            ("step_contract_schema_version", "step_contracts"),
+        )
+        for fields in missing_field_sets:
+            with self.subTest(fields=fields):
+                state = self.executor.prepare(self.source)
+                for field in fields:
+                    state.pop(field)
+                self.executor._save(state)
+
+                with self.assertRaisesRegex(Exception, "단계 실행 계약이 불완전"):
+                    self.executor.load(state["workflow_id"])
+
+    def test_stored_workflow_identity_mismatch_fails_closed(self):
+        state = self.executor.prepare(self.source)
+        state["status"] = "failed"
+        self.executor._save(state)
+        path = self.executor._path(state["workflow_id"])
+        payload = path.read_text(encoding="utf-8")
+        path.write_text(
+            payload.replace(state["workflow_id"], "f" * 32, 1),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(Exception, "파일 ID와 일치하지"):
+            self.executor.load(state["workflow_id"])
 
     def test_missing_verified_artifact_restarts_at_that_step(self):
         state = self.executor.prepare(self.source)

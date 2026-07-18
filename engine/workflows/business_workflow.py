@@ -23,7 +23,8 @@ from engine.runtime_paths import USER_DATA_DIR
 from engine.storage.json_store import atomic_write_json, safe_read_json
 
 
-WORKFLOW_SCHEMA_VERSION = 3
+WORKFLOW_SCHEMA_VERSION = 4
+WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION = 1
 STEP_NAMES = (
     "analyze_excel",
     "create_word_report",
@@ -316,6 +317,83 @@ def _step_order(report_format) -> tuple[str, ...]:
         steps.append("create_hwp_report")
     steps.append("create_powerpoint_summary")
     return tuple(steps)
+
+
+def _workflow_step_contracts(
+    workflow_id,
+    report_format,
+    source_fingerprint,
+) -> dict[str, dict[str, Any]]:
+    """Build deterministic, content-free execution contracts for every step."""
+    source_sha256 = str(
+        (source_fingerprint or {}).get("sha256")
+        if isinstance(source_fingerprint, Mapping)
+        else ""
+    ).strip().upper()
+    if not re.fullmatch(r"[A-F0-9]{64}", source_sha256):
+        raise WorkflowError("워크플로 원본 지문이 올바르지 않습니다.")
+    evidence = {
+        "analyze_excel": "validated_common_model",
+        "create_word_report": "file_fingerprint_and_word_readback",
+        "create_hwp_report": "file_fingerprint_and_hwp_readback",
+        "create_powerpoint_summary": (
+            "file_fingerprint_and_powerpoint_readback"
+        ),
+    }
+    contracts = {}
+    previous = None
+    for step_name in _step_order(report_format):
+        depends_on = [] if previous is None else [previous]
+        identity = {
+            "schema_version": WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION,
+            "workflow_id": str(workflow_id or ""),
+            "step_name": step_name,
+            "depends_on": depends_on,
+            "source_sha256": source_sha256,
+        }
+        idempotency_key = hashlib.sha256(
+            json.dumps(
+                identity,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest().upper()
+        contracts[step_name] = {
+            "schema_version": WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION,
+            "step_name": step_name,
+            "depends_on": depends_on,
+            "effect": (
+                "read_only_analysis"
+                if step_name == "analyze_excel"
+                else "create_owned_file"
+            ),
+            "completion_evidence": evidence[step_name],
+            "idempotency_key": idempotency_key,
+        }
+        previous = step_name
+    return contracts
+
+
+def _validated_state_step_contracts(
+    state: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Fail closed unless the stored contracts exactly match the approved plan."""
+    expected = _workflow_step_contracts(
+        state.get("workflow_id"),
+        state.get("report_format") or "word",
+        state.get("source_fingerprint"),
+    )
+    try:
+        schema_version = int(state.get("step_contract_schema_version") or 0)
+    except (TypeError, ValueError):
+        schema_version = 0
+    if (
+        schema_version != WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION
+        or state.get("step_contracts") != expected
+    ):
+        raise WorkflowError("워크플로 단계 실행 계약이 올바르지 않습니다.")
+    return expected
 
 
 def _expected_output_suffixes(report_format) -> dict[str, str]:
@@ -2781,13 +2859,15 @@ class WorkflowExecutor:
         state = safe_read_json(self._path(workflow_id), None)
         if not isinstance(state, dict):
             raise WorkflowError("저장된 워크플로를 찾을 수 없습니다.")
+        if str(state.get("workflow_id") or "") != str(workflow_id):
+            raise WorkflowError("저장된 워크플로 ID가 파일 ID와 일치하지 않습니다.")
         schema_version = int(state.get("schema_version") or 0)
-        if schema_version not in {1, 2, WORKFLOW_SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, WORKFLOW_SCHEMA_VERSION}:
             raise WorkflowError("지원하지 않는 워크플로 저장 형식입니다.")
-        if schema_version in {1, 2}:
+        if schema_version in {1, 2, 3}:
             state = copy.deepcopy(state)
             report_format = _report_format(state.get("report_format") or "word")
-            if report_format == "hwp":
+            if schema_version in {1, 2} and report_format == "hwp":
                 steps = dict(state.get("steps") or {})
                 legacy = steps.pop("create_word_report", None)
                 if legacy is not None:
@@ -2817,6 +2897,23 @@ class WorkflowExecutor:
         )
         state.setdefault("join_plan", None)
         state.setdefault("source_scope", None)
+        has_contract_version = "step_contract_schema_version" in state
+        has_contracts = "step_contracts" in state
+        if (
+            not has_contract_version
+            and not has_contracts
+            and schema_version in {1, 2, 3}
+        ):
+            state["step_contract_schema_version"] = (
+                WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION
+            )
+            state["step_contracts"] = _workflow_step_contracts(
+                state.get("workflow_id"),
+                state.get("report_format") or "word",
+                state.get("source_fingerprint"),
+            )
+        elif not (has_contract_version and has_contracts):
+            raise WorkflowError("저장된 워크플로 단계 실행 계약이 불완전합니다.")
         return state
 
     def prepare(
@@ -2887,19 +2984,28 @@ class WorkflowExecutor:
                 "noun": f"{source.stem} 분석 보고서",
                 "sentence": f"{source.stem} 분석 결과를 보고합니다",
             }.get(style, f"{source.stem} 분석")
+        source_fingerprint = file_fingerprint(source)
         state = {
             "schema_version": WORKFLOW_SCHEMA_VERSION,
             "workflow_id": workflow_id,
             "status": "approval_required",
             "title": str(title),
             "source_path": str(source),
-            "source_fingerprint": file_fingerprint(source),
+            "source_fingerprint": source_fingerprint,
             "output_dir": str(destination),
             "output_paths": output_paths,
             "report_format": report_format,
             "join_plan": join_plan,
             "source_scope": source_scope,
             "step_order": list(step_order),
+            "step_contract_schema_version": (
+                WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION
+            ),
+            "step_contracts": _workflow_step_contracts(
+                workflow_id,
+                report_format,
+                source_fingerprint,
+            ),
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
             "applied_preferences": learned,
@@ -2978,6 +3084,7 @@ class WorkflowExecutor:
         ):
             raise WorkflowError("워크플로 단계 구성이 올바르지 않습니다.")
         state["step_order"] = list(expected_steps)
+        _validated_state_step_contracts(state)
         self._preflight_report_environment(report_format)
         outputs = dict(state.get("output_paths") or {})
         expected = _expected_output_suffixes(report_format)
@@ -3209,22 +3316,34 @@ class WorkflowExecutor:
         return bool(path) and _fingerprint_matches(path, value.get("fingerprint"))
 
     @staticmethod
+    def _state_step_contracts(
+        state: Mapping[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        return _validated_state_step_contracts(state)
+
+    @staticmethod
     def _state_step_order(state: Mapping[str, Any]) -> tuple[str, ...]:
         report_format = _report_format(state.get("report_format") or "word")
         expected = _step_order(report_format)
         actual = tuple(state.get("step_order") or ())
         if actual != expected or set(state.get("steps") or {}) != set(expected):
             raise WorkflowError("저장된 워크플로 단계 구성이 올바르지 않습니다.")
+        _validated_state_step_contracts(state)
         return expected
 
     def _reconcile(self, state: dict) -> None:
         if not _fingerprint_matches(state["source_path"], state["source_fingerprint"]):
             raise WorkflowError("준비 이후 Excel 원본 파일이 바뀌어 워크플로를 계속할 수 없습니다.")
+        contracts = self._state_step_contracts(state)
         invalid_seen = False
         successful = []
         for name in self._state_step_order(state):
             step = state["steps"][name]
-            valid = step.get("status") == "succeeded"
+            dependencies_valid = all(
+                dependency in successful
+                for dependency in contracts[name]["depends_on"]
+            )
+            valid = step.get("status") == "succeeded" and dependencies_valid
             if name == "analyze_excel":
                 if valid:
                     try:
@@ -3417,6 +3536,7 @@ class WorkflowExecutor:
 
     @staticmethod
     def _result(state: dict, *, changed: bool) -> dict[str, Any]:
+        step_contracts = _validated_state_step_contracts(state)
         return {
             "success": True,
             "verified": state.get("status") == "completed",
@@ -3426,6 +3546,8 @@ class WorkflowExecutor:
             "source_path": state["source_path"],
             "created_files": list(state.get("created_files") or []),
             "successful_steps": list(state.get("successful_steps") or []),
+            "step_contracts_verified": True,
+            "step_contract_count": len(step_contracts),
             "verification_results": dict(state.get("verification_results") or {}),
             "output_paths": dict(state.get("output_paths") or {}),
             "slide_count": int(state.get("slide_count") or 5),

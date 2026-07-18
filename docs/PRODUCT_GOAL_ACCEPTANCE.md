@@ -55,6 +55,9 @@ Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개�
 양쪽 키가 채워진 별도 고위험 미리보기를 다시 승인해야 한다. 실제 Word probe는
 두 번째 상이명 후보의 메모리 해석이 파일·산출물을 만들지 않았다는
 `numbered_relationship_candidate_verified`도 남겨야 한다.
+같은 실제 워크플로의 모든 단계에 내용·경로 없는 선행조건·부작용·완료 증거·
+중복 방지 키가 고정되고 저장 상태와 일치한다는 `step_contracts_verified`도
+남겨야 한다.
 같은 Word probe에서 `매출!B1:E4`만 읽는 별도 워크플로가 범위 밖 시트를
 제외하고 `explicit_selection_scope_verified`를 남기며, Word와 정확히 5장인
 PowerPoint를 재열기 검증하는 `selection_scope_cross_app_outputs_verified`도
