@@ -239,6 +239,12 @@ COM-free JSON으로만 유지되며 취소·만료 시 파일을 남기지 않�
   분석·workflow JSON·HWP 프로세스를 만들지 않고 `environment_error`로
   차단한다. 유효한 이름은 `RegisterModule("FilePathCheckDLL", 이름)`에
   그대로 전달하며 활성화 실패도 파일 쓰기 전에 차단한다.
+- 차단 진단에는 한컴의
+  [한글 Automation 개발 가이드](https://developer.hancom.com/hwpautomation),
+  `HKCU\Software\HNC\HwpAutomation\Modules`, `automatic_install_attempted=false`
+  만 남긴다. 프로그램은 보안 모듈을 다운로드·등록하거나 레지스트리를 자동으로
+  바꾸지 않는다. 설치된 `HwpAutomation.dll`은 보안 승인 모듈이 아니므로 대신
+  등록하지 않는다.
 - 승인된 굵기·글자 크기·문단 정렬 기본값은 미리보기에 표시하고, 새 보고서
   전체에 적용한 뒤 COM 값으로 재검증한다. 승인 전 payload의 형식·경로·선호가
   바뀌면 실행하지 않는다.
@@ -316,7 +322,7 @@ Stage 11 소유 fixture에서는 첫 Word·7장 PowerPoint의 검증 구조만 �
 두 번째 새 Word·7장 산출물을 실제 Office로 생성·재열기 검증했다. Excel 원본과
 첫 산출물 지문은 그대로였고 스킬 저장소에 경로나 내용이 없음을 확인했다.
 
-같은 날 최신 전체 자동 회귀는 892개 중 889개 통과(unit 353·integration 333·
+같은 날 최신 전체 자동 회귀는 893개 중 890개 통과(unit 354·integration 333·
 windows 203), 외부 AI 자격 증명이 필요한 3개 skip, 실패 0개였다.
 
 ## 현재 범위

@@ -383,6 +383,16 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual("environment_error", blocked["error_type"])
         self.assertNotEqual("confirmation_required", blocked["status"])
         self.assertIn("설치·등록", blocked["message"])
+        diagnostic = blocked["data"]["diagnostic_context"]
+        self.assertEqual(
+            "https://developer.hancom.com/hwpautomation",
+            diagnostic["setup_guide_url"],
+        )
+        self.assertEqual(
+            r"HKCU\Software\HNC\HwpAutomation\Modules",
+            diagnostic["registry_location"],
+        )
+        self.assertFalse(diagnostic["automatic_install_attempted"])
         self.assertEqual(1, blocking_hwp.preflight_calls)
         self.assertEqual(0, self.analyzer.calls)
         self.assertEqual([], list(self.executor.store_dir.glob("*.json")))

@@ -868,7 +868,51 @@ class Stage10WorkflowTests(unittest.TestCase):
 
         self.assertEqual("environment_error", raised.exception.error_type)
         self.assertTrue(raised.exception.retryable)
+        self.assertEqual(
+            "https://developer.hancom.com/hwpautomation",
+            raised.exception.diagnostic_context["setup_guide_url"],
+        )
+        self.assertEqual(
+            r"HKCU\Software\HNC\HwpAutomation\Modules",
+            raised.exception.diagnostic_context["registry_location"],
+        )
+        self.assertFalse(
+            raised.exception.diagnostic_context["automatic_install_attempted"]
+        )
         self.assertFalse(process_context_called)
+
+    def test_hwp_environment_diagnostics_survive_workflow_failure_wrapper(self):
+        class MissingModuleWriter:
+            def run(self, context, work_product):
+                raise HwpSecurityModuleUnavailable(
+                    "한글 공식 보안 모듈 준비가 필요합니다."
+                )
+
+        executor = WorkflowExecutor(
+            self.root / "hwp-diagnostic-state",
+            analyzer=FakeAnalyzer(),
+            word_writer=FakeWriter("word"),
+            hwp_writer=MissingModuleWriter(),
+            powerpoint_writer=FakeWriter("ppt", slides=5),
+        )
+        state = executor.prepare(self.source, report_format="hwp")
+
+        with self.assertRaises(WorkflowExecutionError) as raised:
+            executor.start(state)
+
+        diagnostic = raised.exception.diagnostic_context
+        self.assertEqual(
+            "hwp_automation_security_module",
+            diagnostic["environment_component"],
+        )
+        self.assertEqual(
+            "https://developer.hancom.com/hwpautomation",
+            diagnostic["setup_guide_url"],
+        )
+        self.assertEqual(
+            "environment_error", diagnostic["cause_error_type"]
+        )
+        self.assertFalse(diagnostic["automatic_install_attempted"])
 
     def test_hwp_worker_security_activation_failure_keeps_environment_type(self):
         class FakeProcess:

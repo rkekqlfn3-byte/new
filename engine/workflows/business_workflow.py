@@ -46,6 +46,10 @@ MAX_JOIN_SOURCE_ROWS = 5_000
 MAX_JOIN_OUTPUT_ROWS = 5_000
 MAX_WORK_PRODUCT_BYTES = 1_000_000
 SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xlsb", ".xls"})
+HWP_AUTOMATION_GUIDE_URL = "https://developer.hancom.com/hwpautomation"
+HWP_AUTOMATION_MODULE_REGISTRY = (
+    r"HKCU\Software\HNC\HwpAutomation\Modules"
+)
 REPORT_FORMATS = {
     "word": {"label": "Word", "suffix": ".docx"},
     "hwp": {"label": "한글", "suffix": ".hwp"},
@@ -98,6 +102,9 @@ class WorkflowExecutionError(WorkflowError):
             "failed_step": self.failed_step,
             "cause_error_type": self.error_type,
         }
+        cause_context = getattr(cause, "diagnostic_context", None)
+        if isinstance(cause_context, Mapping):
+            self.diagnostic_context.update(dict(cause_context))
         super().__init__(
             f"워크플로 {self.workflow_id}의 {self.step} 단계에서 실패했습니다: {message} "
             "같은 Excel 문서에서 '실패한 워크플로 이어서'라고 요청하면 이 단계부터 다시 시도합니다."
@@ -118,6 +125,15 @@ class HwpSecurityModuleUnavailable(WorkflowError):
     error_type = "environment_error"
     status = "blocked"
     retryable = True
+
+    def __init__(self, message: str):
+        self.diagnostic_context = {
+            "environment_component": "hwp_automation_security_module",
+            "setup_guide_url": HWP_AUTOMATION_GUIDE_URL,
+            "registry_location": HWP_AUTOMATION_MODULE_REGISTRY,
+            "automatic_install_attempted": False,
+        }
+        super().__init__(message)
 
 
 class WorkflowJoinValidationError(WorkflowError):
@@ -1522,8 +1538,9 @@ class HwpReportWriter:
         if not security_module_name:
             raise HwpSecurityModuleUnavailable(
                 "한글 Automation 파일 보안 모듈이 등록되어 있지 않아 보고서를 "
-                "저장할 수 없습니다. 한글 공식 보안 모듈을 사용자가 설치·등록한 "
-                "뒤 다시 미리보기를 요청해주세요."
+                "저장할 수 없습니다. 한컴 개발 가이드의 '보안모듈(Automation).zip'"
+                "을 사용자가 설치·등록한 뒤 다시 미리보기를 요청해주세요: "
+                f"{HWP_AUTOMATION_GUIDE_URL}"
             )
         return {
             "status": "ready",

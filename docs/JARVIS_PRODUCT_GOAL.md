@@ -434,6 +434,12 @@ HWP 환경 검사는 보고서 미리보기 계획을 만들기 전과 사용자
 만들지 않는다. 준비와 실행 사이에 환경이 바뀐 경우에도 첫 분석 전에
 `environment_error`·`blocked`·재시도 가능 상태를 그대로 반환한다. 공통 편집
 실행 경계는 이 하위 실패 분류와 진단 문맥을 `execution_error`로 덮지 않는다.
+차단 진단에는
+[한컴 공식 Automation 개발 가이드](https://developer.hancom.com/hwpautomation),
+사용자 범위 모듈 등록 위치와 `automatic_install_attempted=false`를 보존한다.
+현재 PC의 Hancom 설치 트리에는 Automation 런타임만 있고 별도 파일 접근 보안
+모듈과 HKCU 등록은 없었다. JARVIS는 런타임 DLL을 보안 모듈로 오인하거나
+다운로드·레지스트리 변경을 자동 수행하지 않는다.
 
 ## 2026-07-18 다중 시트 관계 후보·제한 피벗·명시 조인
 
