@@ -8,6 +8,7 @@
 
 ```text
 EditRequest와 현재 문맥 재확인
+→ 연결 문서 비활성 시 실행 전 focus 복구 1회와 문서 fingerprint 재검증
 → 허용된 로컬 의도 분석
 → 네이티브 PreparedAction 준비
 → 문서·시트·선택 일치 검증
@@ -61,6 +62,9 @@ EditRequest와 현재 문맥 재확인
 - 한글은 전체 선택 텍스트의 길이와 SHA-256 digest를 다시 확인한다.
 - 한글 선택이 네이티브 준비 중 사라지면 커서 입력으로 바꾸지 않고 차단한다.
 - 승인 사이에 선택·내용·수정 상태가 달라지면 `context_changed`로 실행하지 않는다.
+- 편집 준비·승인 직전 연결 문서가 뒤로 밀린 경우에만 창을 한 번 활성화하고,
+  동일 문서 fingerprint와 현재 선택을 다시 읽은 뒤 계속한다.
+- 상태 조회는 focus를 바꾸지 않으며 focus 거부·다른 문서 확인은 쓰기 전에 차단한다.
 - 승인 레코드는 프로세스 메모리에만 있고 한 번 소비된 뒤 재실행할 수 없다.
 - 취소·만료·실패·복구 후 세션 상태를 `ready`로 정리한다.
 
@@ -92,7 +96,8 @@ Word와 PowerPoint의 실제 편집은
 - `tests/unit/test_stage5_editing.py`: Excel·한글 대표 명령 22개, JSON-only
   준비 작업, 다른 셀·문서·선택 차단, 한글 전체 선택 digest 검증
 - `tests/integration/test_stage5_edit_flow.py`: 미리보기 승인, 한 번 실행,
-  취소 무변경, 승인 중 선택 변경 차단, 다른 문서 차단, 읽기 즉시 실행
+  취소 무변경, 승인 중 선택 변경 차단, 다른 문서 차단, 읽기 즉시 실행,
+  준비·승인 전 focus 복구와 상태 조회 비개입
 - `verification/prototype1_stage5_probe.py`: 사용자 Excel/HWP 프로세스가 없을
   때만 격리 프로세스에서 JARVIS 소유 임시 문서를 생성해 실제 편집 후 정리
 

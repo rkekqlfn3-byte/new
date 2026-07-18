@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07-18 — 실행 전 공통 복구 계약·연결 문서 focus 복구·교정 학습 확장
+
+- 실행 전임을 증명할 수 있고 대상 서명이 같을 때만 최대 1회 허용하는 공통 복구
+  계약(`engine/recovery`)을 추가했다. 복구 증거에는 해시·불리언·횟수만 남기고
+  앱 이름·경로·사용자 원문은 저장하지 않는다.
+- 등록되지 않은 앱 열기·닫기 대상은 실행 전에 Windows App Paths와 시작 메뉴·
+  바탕화면 바로가기를 한 번만 재탐색하고, 미발견 시 반복 탐색 없이 사용자에게
+  묻는다.
+- 명시적 편집 요청의 준비·승인 직전에 연결 문서가 다른 창 뒤로 밀린 경우 그
+  문서 창만 한 번 활성화하고 동일 문서 fingerprint를 재확인한 뒤에만 미리보기와
+  승인 실행을 계속한다. 평소 상태 조회는 창 focus를 바꾸지 않는다.
+- 실패 결과를 결정적 책임 분류(runtime_recoverable, needs_input,
+  missing_capability, implementation_bug, environment_blocked, policy_blocked,
+  preference_mismatch)로 나누는 failure triage와 익명 개발 이슈 기록을 추가했다.
+- 미리보기 재작성·취소 사유와 검증된 후속 교정, JARVIS 편집 직후 같은 구조적
+  시작점의 명확한 직접 축약을 파일 범위 선호 학습 증거로 구조화했다. 같은 값
+  3회와 사용자 승인이 있어야 기본값으로 활성화된다.
+- 편집 대상 표시 bar와 선택 overlay UI를 추가해 현재 편집 대상과 선택 영역을
+  화면에서 확인할 수 있게 했다.
+- 앱 실행 차단 정책을 `engine/security/launch_policy`로, 시스템 볼륨 제어를
+  `engine/system_volume`으로 분리했다.
+- 전체 자동 회귀 729개 중 726개 통과, 외부 AI 라이브 3개 skip, 실패 0을
+  확인했다.
+
 ## 1.1.0-rc.6 — 독립 감사 후속 안전성 보완
 
 - 편집 문맥의 1초 COM polling을 제거하고 연결·탭 진입·focus·수동 새로고침·
