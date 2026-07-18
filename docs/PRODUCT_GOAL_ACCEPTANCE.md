@@ -14,8 +14,9 @@
 결과에는 승인된 생략 글자 크기 선호의 실제 read-back 검사가 포함돼야 한다.
 또한 한글 선택 문장 교체 후 같은 범위의 직접 단일 서식 교정이 원문 없이 학습
 증거로 기록되는 검사도 필수다.
-Stage 6도 Word와 PowerPoint 대상이 모두 있어야 하며, PowerPoint 결과에는
-단일 Shape 직접 서식 교정의 구조화 증거 기록 검사가 포함돼야 한다.
+Stage 6도 Word와 PowerPoint 대상이 모두 있어야 하며, Word 결과에는 접힌
+Range→동일 Range 재선택 뒤 직접 서식 교정, PowerPoint 결과에는 단일 Shape
+직접 서식 교정의 구조화 증거 기록 검사가 각각 포함돼야 한다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

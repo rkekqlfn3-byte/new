@@ -521,7 +521,15 @@ class WordAdapter:
                 raise AppActionVerificationError(
                     "Word 선택 텍스트 교체 결과가 요청과 다릅니다."
                 )
-            document.Range(start, start + len(text)).Select()
+            verified_range = document.Range(start, start + len(text))
+            verified_range.Select()
+            post_format = {
+                "bold": int(verified_range.Font.Bold),
+                "font_size": float(verified_range.Font.Size),
+                "alignment": int(
+                    verified_range.ParagraphFormat.Alignment
+                ),
+            }
         except Exception as error:
             try:
                 document.Range(start, start + len(text)).Text = original
@@ -538,6 +546,7 @@ class WordAdapter:
             {
                 "text_length": len(text),
                 "document_digest": self._digest(document.Content.Text),
+                "format": post_format,
             },
         )
 

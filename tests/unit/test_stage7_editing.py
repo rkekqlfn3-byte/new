@@ -263,6 +263,87 @@ class Stage7EditingTests(unittest.TestCase):
             },
             record["post_selection_formatting"],
         )
+        self.assertEqual(
+            "verified_native_replacement",
+            record["post_identity_source"],
+        )
+
+    def test_word_replacement_keeps_verified_range_when_com_selection_collapses(self):
+        replacement = "Word 교체 결과 문장입니다."
+        native = native_action(
+            app="word",
+            operation="replace_selection",
+            params={
+                "text": replacement,
+                "original_text": "기존 Word 문장입니다.",
+                "start": 10,
+                "end": 28,
+            },
+            current_state={
+                "has_selection": True,
+                "selected_length": 18,
+                "selected_digest": "D" * 64,
+                "in_table": False,
+                "table": {},
+            },
+        )
+        prepared = edit_action(native)
+        result = SimpleNamespace(observations={
+            "verified": True,
+            "changed": True,
+            "format": {
+                "bold": 0,
+                "font_size": 11.0,
+                "alignment": 0,
+            },
+        })
+        record, _ = build_commit_records(
+            EditRequest(
+                text='선택 문장을 "Word 교체 결과 문장입니다."으로 바꿔줘',
+                edit_session_id="stage7-session",
+                document_fingerprint=FP_B,
+                request_id="stage7-request-word",
+            ),
+            prepared,
+            result,
+            {
+                "app_type": "word",
+                "context_fingerprint": FP_B,
+                "document_fingerprint": FP_B,
+                "selection_reference": "10:10",
+                "selection_kind": "cursor",
+                "selected_text_digest": hashlib.sha256(b"").hexdigest().upper(),
+                "selected_text_length": 0,
+                "target": {"start": 10, "end": 10},
+            },
+        )
+
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "kind": "word_text",
+                "start": 10,
+            },
+            record["post_selection_anchor"],
+        )
+        self.assertEqual(len(replacement), record["post_selected_text_length"])
+        self.assertEqual(
+            hashlib.sha256(replacement.encode("utf-8")).hexdigest().upper(),
+            record["post_selected_text_digest"],
+        )
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+            record["post_selection_formatting"],
+        )
+        self.assertEqual(
+            "verified_native_replacement",
+            record["post_identity_source"],
+        )
 
 
 if __name__ == "__main__":

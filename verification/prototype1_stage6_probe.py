@@ -135,6 +135,7 @@ def _probe_word():
         return {"status": "unavailable"}
 
     application = document = provider = controller = parser = None
+    learning_manager = None
     temp_dir = tempfile.mkdtemp(prefix="jarvis-stage6-word-")
     path = Path(temp_dir) / f"stage6-{uuid.uuid4().hex}.docx"
     original = "6단계 Word 선택 문장입니다."
@@ -158,7 +159,16 @@ def _probe_word():
             application_getter=lambda: application,
             require_visible=False,
         )
-        session, controller, parser = _session_parser("word", path, manager, adapter)
+        learning_manager = UserPreferenceLearningManager(
+            Path(temp_dir) / "word-direct-edit-preferences.json"
+        )
+        session, controller, parser = _session_parser(
+            "word",
+            path,
+            manager,
+            adapter,
+            user_learning_manager=learning_manager,
+        )
 
         stage = "approved_replace"
         replaced = _approve(
@@ -169,6 +179,58 @@ def _probe_word():
             "stage6-word-replace",
         )
         text_verified = str(document.Range(0, len(replacement)).Text) == replacement
+
+        stage = "observe_collapsed_word_formatting_correction"
+        post_status = controller.status()
+        post_action = dict(
+            controller.session_manager.continuation_state(
+                session["session_id"]
+            ).get("last_action") or {}
+        )
+        application.Selection.SetRange(0, 0)
+        cursor_session, cursor_context = controller._capture_context(
+            controller.session_manager.current()
+        )
+        collapsed_contract_matched = (
+            controller._defer_word_collapsed_cursor(
+                cursor_session, post_action, cursor_context
+            )
+        )
+        collapsed = controller.status()
+        collapsed_deferred = bool(
+            collapsed.get("session", {}).get("last_action")
+        ) and not collapsed.get("direct_edit_feedback")
+        application.Selection.SetRange(0, len(replacement))
+        reselected = controller.status()
+        reselect_deferred = bool(
+            reselected.get("session", {}).get("last_action")
+        ) and not reselected.get("direct_edit_feedback")
+        previous_bold = int(application.Selection.Font.Bold)
+        changed_bold = 0 if previous_bold else -1
+        application.Selection.Font.Bold = changed_bold
+        observed = controller.status()
+        feedback = dict(observed.get("direct_edit_feedback") or {})
+        expected_emphasis = "bold" if changed_bold else "regular"
+        matching_candidates = [
+            item
+            for item in learning_manager.list_candidates(
+                include_observing=True
+            )
+            if item.get("preference") == "emphasis_style"
+            and item.get("proposed_value") == expected_emphasis
+        ]
+        direct_observation_verified = (
+            collapsed_deferred
+            and reselect_deferred
+            and feedback.get("recorded") is True
+            and feedback.get("source") == "verified_direct_edit"
+            and feedback.get("observation_kind") == "formatting"
+            and feedback.get("preference") == "emphasis_style"
+            and feedback.get("value") == expected_emphasis
+            and feedback.get("raw_content_stored") is False
+            and len(matching_candidates) == 1
+            and int(matching_candidates[0].get("evidence_count") or 0) == 1
+        )
 
         stage = "approved_font"
         application.Selection.SetRange(0, len(replacement))
@@ -189,6 +251,7 @@ def _probe_word():
         save_verified = bool(document.Saved) and path.is_file()
         verified = all((
             text_verified,
+            direct_observation_verified,
             font_verified,
             save_verified,
             replaced["verified"],
@@ -201,6 +264,20 @@ def _probe_word():
             "user_process_protected": True,
             "preview_approval_verified": True,
             "selection_replace_readback_verified": text_verified,
+            "collapsed_word_direct_observation_verified": (
+                direct_observation_verified
+            ),
+            "word_collapsed_cursor_deferred": collapsed_deferred,
+            "word_collapsed_cursor_contract_matched": (
+                collapsed_contract_matched
+            ),
+            "word_reselection_deferred": reselect_deferred,
+            "word_direct_feedback_recorded": (
+                feedback.get("recorded") is True
+            ),
+            "word_direct_candidate_recorded": (
+                len(matching_candidates) == 1
+            ),
             "font_readback_verified": font_verified,
             "save_readback_verified": save_verified,
             "session_returned_ready": controller.status()["session"]["state"] == "ready",
@@ -214,7 +291,7 @@ def _probe_word():
             "user_process_protected": True,
         }
     finally:
-        parser = controller = provider = None
+        parser = controller = provider = learning_manager = None
         if document is not None:
             try:
                 document.Close(SaveChanges=False)

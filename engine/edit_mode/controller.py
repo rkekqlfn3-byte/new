@@ -1006,6 +1006,57 @@ class EditModeController:
         return EditModeController._recent_direct_action(last_action)
 
     @staticmethod
+    def _defer_word_collapsed_cursor(
+        session: dict,
+        last_action: dict,
+        context: dict,
+    ) -> bool:
+        """Keep one recent Word Range while its cursor is at the same start."""
+        if (
+            str(session.get("app_type") or "").casefold() != "word"
+            or str(last_action.get("app_type") or "").casefold() != "word"
+            or str(context.get("app_type") or "").casefold() != "word"
+            or str(context.get("selection_kind") or "").casefold() != "cursor"
+        ):
+            return False
+        anchor = last_action.get("post_selection_anchor")
+        if (
+            not isinstance(anchor, dict)
+            or anchor.get("kind") != "word_text"
+            or any(
+                key in anchor
+                for key in ("table_start", "table_row", "table_column")
+            )
+        ):
+            return False
+        target = context.get("target") or {}
+        if not isinstance(target, dict):
+            return False
+        try:
+            current_start = int(target.get("start"))
+            expected_start = int(anchor.get("start"))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        try:
+            current_end = int(target.get("end"))
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if current_start != current_end or current_start != expected_start:
+            return False
+        expected_fingerprint = str(
+            last_action.get("post_document_fingerprint") or ""
+        ).strip().upper()
+        if (
+            not expected_fingerprint
+            or expected_fingerprint
+            != str(context.get("document_fingerprint") or "").strip().upper()
+            or expected_fingerprint
+            != str(session.get("document_fingerprint") or "").strip().upper()
+        ):
+            return False
+        return EditModeController._recent_direct_action(last_action)
+
+    @staticmethod
     def _recent_direct_action(last_action: dict, seconds: int = 300) -> bool:
         try:
             completed_at = datetime.fromisoformat(
@@ -1074,6 +1125,10 @@ class EditModeController:
             ):
                 return session
             elif self._defer_powerpoint_collapsed_cursor(
+                session, last_action, context
+            ):
+                return session
+            elif self._defer_word_collapsed_cursor(
                 session, last_action, context
             ):
                 return session

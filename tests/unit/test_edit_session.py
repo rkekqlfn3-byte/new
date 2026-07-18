@@ -1000,6 +1000,112 @@ class DirectEditPreferenceEvidenceTests(unittest.TestCase):
         self.assertIn("굵게 강조", feedback["message"])
         self.assertFalse(feedback["raw_content_stored"])
 
+    def test_word_collapsed_cursor_and_unchanged_reselection_defer_then_observe(self):
+        self._connect_word_session()
+        fingerprint = self.session["document_fingerprint"]
+        post_context = {
+            "app_type": "word",
+            "selection_kind": "text",
+            "target": {"start": 10, "end": 110},
+        }
+        self._remember_verified_edit(
+            app_type="word",
+            selection_reference="10:110",
+            post_document_fingerprint=fingerprint,
+            post_selection_anchor=direct_text_selection_anchor(
+                "word", post_context
+            ),
+            post_selection_formatting={
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+            completed_at=datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            ),
+        )
+        cursor = self._changed_context(
+            app_type="word",
+            document_fingerprint=fingerprint,
+            selection_reference="10:10",
+            selection_kind="cursor",
+            selected_text_digest="E" * 64,
+            selected_text_length=0,
+            target={"start": 10, "end": 10},
+        )
+        current = self.controller._guard_continuation(
+            self.sessions.current(), cursor
+        )
+        self.assertIsNotNone(current["last_action"])
+
+        unchanged = self._changed_context(
+            app_type="word",
+            document_fingerprint=fingerprint,
+            selection_reference="10:110",
+            selection_kind="text",
+            selected_text_digest="B" * 64,
+            selected_text_length=100,
+            target={
+                "start": 10,
+                "end": 110,
+                "bold": 0,
+                "font_size": 11.0,
+                "paragraph_alignment": 0,
+            },
+        )
+        current = self.controller._guard_continuation(
+            self.sessions.current(), unchanged
+        )
+        self.assertIsNotNone(current["last_action"])
+
+        formatted = dict(unchanged)
+        formatted["context_fingerprint"] = "F" * 64
+        formatted["target"] = {**unchanged["target"], "bold": -1}
+        self.controller._guard_continuation(
+            self.sessions.current(), formatted
+        )
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("emphasis_style", candidate["preference"])
+        self.assertEqual("bold", candidate["proposed_value"])
+
+    def test_word_collapsed_cursor_at_another_start_is_not_deferred(self):
+        self._connect_word_session()
+        fingerprint = self.session["document_fingerprint"]
+        self._remember_verified_edit(
+            app_type="word",
+            selection_reference="10:110",
+            post_document_fingerprint=fingerprint,
+            post_selection_anchor=direct_text_selection_anchor("word", {
+                "selection_kind": "text",
+                "target": {"start": 10, "end": 110},
+            }),
+            post_selection_formatting={
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+            completed_at=datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            ),
+        )
+        current = self.controller._guard_continuation(
+            self.sessions.current(),
+            self._changed_context(
+                app_type="word",
+                document_fingerprint=fingerprint,
+                selection_reference="20:20",
+                selection_kind="cursor",
+                selected_text_length=0,
+                target={"start": 20, "end": 20},
+            ),
+        )
+        self.assertIsNone(current["last_action"])
+        self.assertEqual(
+            [], self.learning.list_candidates(include_observing=True)
+        )
+
     def test_multi_facet_formatting_change_is_not_interpreted(self):
         self._connect_word_session()
         self._remember_verified_edit(

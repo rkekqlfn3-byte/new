@@ -241,6 +241,10 @@ class WordAdapterTests(unittest.TestCase):
             result = adapter.execute(replacement)
             self.assertTrue(result["verified"])
             self.assertEqual("앞 새 문장 뒤", document.text)
+            self.assertEqual(
+                {"bold": 0, "font_size": 10.0, "alignment": 0},
+                result["format"],
+            )
 
             application.Selection = FakeWordSelection(document, 2, 7)
             formatted = adapter.prepare(

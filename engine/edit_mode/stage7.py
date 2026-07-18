@@ -388,6 +388,13 @@ def build_commit_records(
     native = PreparedAction.from_dict(native_payload) if native_payload else None
     stage7 = dict(prepared.metadata.get("stage7") or {})
     preview = dict(prepared.metadata.get("preview") or {})
+    verified_before_text = str(stage7.get("before_text") or "")
+    verified_after_text = str(stage7.get("after_text") or "")
+    if native and native.operation in TEXT_REPLACE_OPERATIONS:
+        if not verified_before_text and native.params.get("original_text") is not None:
+            verified_before_text = str(native.params.get("original_text"))
+        if not verified_after_text and native.params.get("text") is not None:
+            verified_after_text = str(native.params.get("text"))
     same_chain = (
         str(previous.get("post_context_fingerprint") or "").upper()
         == str(prepared.context_fingerprint or "").upper()
@@ -404,6 +411,7 @@ def build_commit_records(
         prepared.app_type,
         post_context,
     )
+    post_identity_source = "captured_context"
     if (
         native
         and prepared.app_type == "hwp"
@@ -411,7 +419,7 @@ def build_commit_records(
         and bool(native.current_state.get("has_selection"))
     ):
         coordinates = native.params.get("selection_coordinates") or []
-        after_text = str(stage7.get("after_text") or "")
+        after_text = verified_after_text
         if (
             isinstance(coordinates, (list, tuple))
             and len(coordinates) >= 6
@@ -446,6 +454,56 @@ def build_commit_records(
             post_formatting = formatting_snapshot(
                 "hwp", synthetic_context
             )
+            post_identity_source = "verified_native_replacement"
+    elif (
+        native
+        and prepared.app_type == "word"
+        and native.operation == "replace_selection"
+    ):
+        after_text = verified_after_text
+        try:
+            start = int(native.params.get("start"))
+        except (TypeError, ValueError, OverflowError):
+            start = -1
+        if start >= 0 and after_text:
+            target = {
+                "start": start,
+                "end": start + len(after_text),
+            }
+            selection_kind = "text"
+            if bool(native.current_state.get("in_table")):
+                table = native.current_state.get("table") or {}
+                if isinstance(table, Mapping):
+                    target.update({
+                        "table_start": table.get("range_start"),
+                        "table_row": table.get("row"),
+                        "table_column": table.get("column"),
+                    })
+                    selection_kind = "table_cell"
+            result_format = result.observations.get("format") or {}
+            if isinstance(result_format, Mapping):
+                target.update({
+                    "bold": result_format.get("bold"),
+                    "font_size": result_format.get("font_size"),
+                    "paragraph_alignment": result_format.get("alignment"),
+                })
+            synthetic_context = {
+                "app_type": "word",
+                "selection_kind": selection_kind,
+                "target": target,
+            }
+            post_anchor = direct_text_selection_anchor(
+                "word", synthetic_context
+            )
+            post_digest = hashlib.sha256(
+                after_text.encode("utf-8")
+            ).hexdigest().upper()
+            post_length = len(after_text)
+            post_tone = classify_text_tone(after_text)
+            post_formatting = formatting_snapshot(
+                "word", synthetic_context
+            )
+            post_identity_source = "verified_native_replacement"
     last_action = {
         "action_id": prepared.action_id,
         "request_id": request.request_id,
@@ -453,8 +511,8 @@ def build_commit_records(
         "operation": prepared.operation,
         "original_command": stage7.get("original_command") or request.text,
         "resolved_command": stage7.get("resolved_command") or request.text,
-        "before_text": stage7.get("before_text") or "",
-        "after_text": stage7.get("after_text") or "",
+        "before_text": verified_before_text,
+        "after_text": verified_after_text,
         "before_preview": preview.get("before") or "",
         "after_preview": preview.get("after") or "",
         "target": preview.get("target") or prepared.target.get("native_target"),
@@ -465,6 +523,7 @@ def build_commit_records(
         "post_selected_text_length": post_length,
         "post_selected_text_tone": post_tone,
         "post_selection_formatting": post_formatting,
+        "post_identity_source": post_identity_source,
         "pre_context_fingerprint": prepared.context_fingerprint,
         "post_context_fingerprint": post_context.get("context_fingerprint"),
         "sequence_count": min(sequence_count, 1000),

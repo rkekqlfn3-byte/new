@@ -44,6 +44,9 @@ PROBE_SPECS = {
         "probe": "prototype1_stage6_owned_fixture_word_powerpoint_editing",
         "required_targets": ("word", "powerpoint"),
         "required_target_checks": {
+            "word": (
+                "collapsed_word_direct_observation_verified",
+            ),
             "powerpoint": (
                 "collapsed_shape_direct_observation_verified",
             ),

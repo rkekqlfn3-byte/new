@@ -54,7 +54,10 @@ UI Automation 컨트롤을 못 찾은 경우에도 아직 클릭·입력이 시�
 여러 Shape 또는 다른 Shape로 이동하면 관찰하지 않습니다. 한글은 교체 뒤
 커서가 접혀도 검증된 선택 시작 좌표와 새 텍스트 지문·서식값을 최대 5분
 유지하며, 사용자가 같은 범위를 다시 선택한 뒤 한 서식 축을 바꿨을 때만
-관찰합니다.
+관찰합니다. Word도 검증된 Range 교체의 시작 좌표와 새 텍스트 지문·서식값을
+최대 5분 유지합니다. `Selection.Start == Selection.End`인 접힌 Range가 같은
+시작 위치일 때 선택 밖 본문을 읽지 않고 기다리며, 같은 Range를 다시 선택한
+뒤 한 서식 축을 바꿨을 때만 관찰합니다.
 
 예를 들어 `PPT는 항상 7장으로 만들어줘`를 세 번 확인하고 활성화하면 다음
 보고서 워크플로의 기본 PPT가 7장이 됩니다. `5장짜리 PPT`라고 직접 요청하면
@@ -226,8 +229,8 @@ handle만 갱신하고 동일 문서 fingerprint를 재확인한 뒤 계속합�
 .venv\Scripts\python.exe -m verification.product_goal_acceptance --automated-only
 ```
 
-2026-07-18 한글 직접 서식 교정 관찰 보강 기준으로 전체 자동 테스트
-831개 중 828개가 통과했고(unit 304·integration 321·windows 203), 실제 외부
+2026-07-18 Word 접힌 Range 직접 서식 교정 관찰 보강 기준으로 전체 자동 테스트
+834개 중 831개가 통과했고(unit 307·integration 321·windows 203), 실제 외부
 AI 자격 증명과 호출 승인이 필요한 라이브 테스트 3개만 건너뛰었으며 실패는
 0개입니다. 8단계는 Excel·한글·Word·PowerPoint 각각
 100/100회와 적용·검증·Undo를 통과했습니다. 9단계 소유 `.xlsm`은 프로젝트
