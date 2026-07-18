@@ -741,11 +741,13 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
     if prepared.operation in {"create_business_workflow", "resume_business_workflow"}:
         observations = result.observations
         outputs = dict(observations.get("output_paths") or {})
+        report_format = str(observations.get("report_format") or "word")
+        report_label = "한글" if report_format == "hwp" else "Word"
         return (
-            "Excel 원본을 변경하지 않고 분석을 완료해 Word 보고서와 "
+            f"Excel 원본을 변경하지 않고 분석을 완료해 {report_label} 보고서와 "
             f"{observations.get('slide_count', 5)}장짜리 PowerPoint를 만들고 "
             "파일 지문까지 검증했습니다.\n"
-            f"Word: {outputs.get('report', '')}\n"
+            f"{report_label}: {outputs.get('report', '')}\n"
             f"PowerPoint: {outputs.get('presentation', '')}\n"
             f"워크플로 ID: {observations.get('workflow_id', '')}"
         )

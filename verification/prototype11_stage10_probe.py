@@ -20,7 +20,9 @@ from engine.workflows.business_workflow import file_fingerprint
 
 
 REPORT_PATH = Path(__file__).with_name("prototype11_stage10_report.json")
-OFFICE_PROCESSES = frozenset({"excel.exe", "winword.exe", "powerpnt.exe"})
+OFFICE_PROCESSES = frozenset({
+    "excel.exe", "winword.exe", "powerpnt.exe", "hwp.exe", "hwp64.exe"
+})
 
 
 def _process_ids():
@@ -170,7 +172,7 @@ def _verify_powerpoint(path):
         gc.collect()
 
 
-def _owned_probe():
+def _owned_probe(report_format="word"):
     import pythoncom
 
     baseline = _process_ids()
@@ -191,7 +193,17 @@ def _owned_probe():
 
         stage = "prepare_approval_state"
         executor = WorkflowExecutor(temp_dir / "workflow-state")
-        state = executor.prepare(source, title="Stage 10 매출 분석")
+        expected_formatting = {
+            "emphasis_style": "bold",
+            "font_scale": "larger",
+            "paragraph_align": "center",
+        }
+        state = executor.prepare(
+            source,
+            title="Stage 10 매출 분석",
+            report_format=report_format,
+            preferences=expected_formatting,
+        )
         preview_created_nothing = all(
             not Path(path).exists() for path in state["output_paths"].values()
         )
@@ -202,9 +214,29 @@ def _owned_probe():
         presentation_path = Path(result["output_paths"]["presentation"])
 
         stage = "reopen_and_verify_outputs"
-        word_verified = _verify_word(report_path)
+        word_verified = (
+            _verify_word(report_path, expected_formatting)
+            if report_format == "word" else None
+        )
         powerpoint_verified = _verify_powerpoint(presentation_path)
         stored = executor.load(state["workflow_id"])
+        report_verification = (
+            stored.get("verification_results", {}).get("create_word_report", {})
+        )
+        report_verified = (
+            word_verified
+            if report_format == "word"
+            else (
+                report_path.suffix.casefold() == ".hwp"
+                and report_path.is_file()
+                and report_verification.get("format") == "hwp"
+                and report_verification.get("content_readback") is True
+                and report_verification.get("title_present") is True
+                and int(report_verification.get("text_length") or 0) > 0
+                and report_verification.get("applied_formatting")
+                == expected_formatting
+            )
+        )
         analyzed_tables = (stored.get("work_product") or {}).get("tables", [])
         analyzed_sheet_names = {table.get("name") for table in analyzed_tables}
         analyzed_sheet_count = (
@@ -223,7 +255,10 @@ def _owned_probe():
                 "create_word_report",
                 "create_powerpoint_summary",
             ],
-            "word_report_reopened": word_verified,
+            "requested_report_format_preserved": (
+                stored.get("report_format") == report_format
+            ),
+            "report_content_verified": bool(report_verified),
             "powerpoint_exactly_five_slides": powerpoint_verified,
             "two_artifacts_created": len(result.get("created_files") or []) == 2,
             "source_unchanged": file_fingerprint(source) == source_before,
@@ -254,11 +289,14 @@ def _owned_probe():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _worker(output):
-    output.put(_owned_probe())
+def _worker(output, report_format):
+    output.put(_owned_probe(report_format))
 
 
-def run_probe(timeout=240):
+def run_probe(timeout=240, report_format="word"):
+    report_format = str(report_format or "word").casefold()
+    if report_format not in {"word", "hwp"}:
+        raise ValueError("report_format must be word or hwp")
     baseline = _process_ids()
     if baseline:
         result = {
@@ -268,7 +306,7 @@ def run_probe(timeout=240):
     else:
         context = multiprocessing.get_context("spawn")
         output = context.Queue(maxsize=1)
-        process = context.Process(target=_worker, args=(output,))
+        process = context.Process(target=_worker, args=(output, report_format))
         process.start()
         process.join(timeout)
         if process.is_alive():
@@ -301,6 +339,7 @@ def run_probe(timeout=240):
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "probe": "prototype11_stage10_document_workflow",
+        "report_format": report_format,
         "success": result["status"] == "passed",
         "user_documents_modified": False,
         "paths_or_contents_reported": False,
@@ -312,8 +351,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPORT_PATH)
     parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--report-format", choices=("word", "hwp"), default="word")
     args = parser.parse_args(argv)
-    report = run_probe(args.timeout)
+    report = run_probe(args.timeout, args.report_format)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",

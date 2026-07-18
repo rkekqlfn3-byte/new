@@ -1,4 +1,4 @@
-"""Stage 10: resumable Excel-to-Word-and-PowerPoint business workflows."""
+"""Stage 10: resumable Excel-to-report-and-PowerPoint business workflows."""
 
 from __future__ import annotations
 
@@ -37,6 +37,10 @@ MAX_INSIGHTS = 50
 MAX_CHARTS = 20
 MAX_WORK_PRODUCT_BYTES = 1_000_000
 SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xlsb", ".xls"})
+REPORT_FORMATS = {
+    "word": {"label": "Word", "suffix": ".docx"},
+    "hwp": {"label": "한글", "suffix": ".hwp"},
+}
 WORKFLOW_PREFERENCE_KEYS = frozenset({
     "summary_lines", "report_tone", "title_style", "number_format",
     "table_style", "ppt_slide_count", "preferred_output_dir",
@@ -185,6 +189,15 @@ def _reserve_output(directory: Path, stem: str, suffix: str, token: str) -> Path
     if not candidate.exists():
         return candidate
     return directory / f"{stem}_{token[:8]}{suffix}"
+
+
+def _report_format(value) -> str:
+    normalized = str(value or "word").strip().casefold()
+    aliases = {"docx": "word", "워드": "word", "한글": "hwp", "hwpx": "hwp"}
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in REPORT_FORMATS:
+        raise WorkflowError("보고서 형식은 Word 또는 한글 중 하나여야 합니다.")
+    return normalized
 
 
 def _format_number(value, style="plain") -> str:
@@ -660,6 +673,129 @@ class WordReportWriter:
                     lease.cleanup()
 
 
+class HwpReportWriter:
+    """Create one new HWP report in a Jarvis-owned HwpObject."""
+
+    def __init__(self, application_factory=None, com_runtime=None):
+        self._application_factory = application_factory
+        self._com_runtime = com_runtime
+
+    @staticmethod
+    def _formatting_plan(preferences=None) -> dict[str, Any]:
+        plan = WordReportWriter._formatting_plan(preferences)
+        alignments = {"justify": 0, "left": 1, "right": 2, "center": 3}
+        if "paragraph_align" in plan:
+            plan["hwp_paragraph_alignment"] = alignments[plan["paragraph_align"]]
+        return plan
+
+    @classmethod
+    def _apply_formatting_preferences(cls, hwp, preferences=None) -> dict[str, Any]:
+        plan = cls._formatting_plan(preferences)
+        if not plan:
+            return {}
+        hwp.HAction.Run("SelectAll")
+        if "bold" in plan or "font_size" in plan:
+            shape = hwp.HParameterSet.HCharShape
+            hwp.HAction.GetDefault("CharShape", shape.HSet)
+            if "bold" in plan:
+                shape.Bold = 1 if plan["bold"] else 0
+            if "font_size" in plan:
+                shape.Height = int(hwp.PointToHwpUnit(plan["font_size"]))
+            hwp.HAction.Execute("CharShape", shape.HSet)
+            hwp.HAction.GetDefault("CharShape", shape.HSet)
+            if "bold" in plan and bool(int(shape.Bold)) != bool(plan["bold"]):
+                raise WorkflowError("한글 보고서 굵기 기본값 검증에 실패했습니다.")
+            if "font_size" in plan:
+                expected_height = int(hwp.PointToHwpUnit(plan["font_size"]))
+                if int(shape.Height) != expected_height:
+                    raise WorkflowError("한글 보고서 글자 크기 기본값 검증에 실패했습니다.")
+        if "hwp_paragraph_alignment" in plan:
+            actions = {
+                "justify": "ParagraphShapeAlignJustify",
+                "left": "ParagraphShapeAlignLeft",
+                "right": "ParagraphShapeAlignRight",
+                "center": "ParagraphShapeAlignCenter",
+            }
+            hwp.HAction.Run(actions[plan["paragraph_align"]])
+            paragraph = hwp.HParameterSet.HParaShape
+            hwp.HAction.GetDefault("ParagraphShape", paragraph.HSet)
+            if int(paragraph.AlignType) != int(plan["hwp_paragraph_alignment"]):
+                raise WorkflowError("한글 보고서 문단 정렬 기본값 검증에 실패했습니다.")
+        return {
+            key: plan[key]
+            for key in ("emphasis_style", "font_scale", "paragraph_align")
+            if key in plan
+        }
+
+    def run(self, context: Mapping[str, Any], work_product: Mapping[str, Any]) -> dict[str, Any]:
+        from engine.app_actions.com_lifecycle import OfficeApplicationLease, com_apartment
+        from engine.app_actions.hwp_adapter import create_owned_hwp_application
+
+        output_path = Path(context["output_path"])
+        if output_path.exists():
+            raise WorkflowError("기존 한글 파일을 덮어쓰지 않습니다.")
+        if output_path.suffix.casefold() != ".hwp":
+            raise WorkflowError("한글 보고서 출력 경로는 .hwp 형식이어야 합니다.")
+        product = WorkProductData.from_value(work_product)
+        lease = None
+        hwp = None
+        with com_apartment(self._com_runtime):
+            try:
+                if self._application_factory is None:
+                    lease = create_owned_hwp_application()
+                else:
+                    application = self._application_factory("HWPFrame.HwpObject")
+                    lease = OfficeApplicationLease(application, True, "hwp")
+                hwp = lease.application
+                report_text = WordReportWriter._report_text(
+                    product, context.get("preferences")
+                )
+                parameter = hwp.HParameterSet.HInsertText
+                hwp.HAction.GetDefault("InsertText", parameter.HSet)
+                parameter.Text = report_text
+                hwp.HAction.Execute("InsertText", parameter.HSet)
+                applied_formatting = self._apply_formatting_preferences(
+                    hwp, context.get("preferences")
+                )
+                actual_text = str(hwp.GetTextFile("UNICODE", "") or "")
+                if product.title not in actual_text or len(actual_text) < len(product.title):
+                    raise WorkflowError("한글 보고서 내용 재읽기 검증에 실패했습니다.")
+                if not bool(hwp.SaveAs(str(output_path), "HWP", "")):
+                    raise WorkflowError("한글 보고서를 저장하지 못했습니다.")
+                if not output_path.is_file():
+                    raise WorkflowError("한글 보고서 저장 후 파일을 찾을 수 없습니다.")
+                return {
+                    "path": str(output_path),
+                    "fingerprint": file_fingerprint(output_path),
+                    "verification": {
+                        "exists": True,
+                        "format": "hwp",
+                        "content_readback": True,
+                        "title_present": True,
+                        "text_length": len(actual_text),
+                        "content_digest": hashlib.sha256(
+                            actual_text.encode("utf-8")
+                        ).hexdigest().upper(),
+                        "applied_formatting": applied_formatting,
+                    },
+                }
+            except Exception:
+                try:
+                    output_path.unlink()
+                except FileNotFoundError:
+                    pass
+                raise
+            finally:
+                if hwp is not None:
+                    try:
+                        hwp.Clear(1)
+                    except Exception:
+                        pass
+                hwp = None
+                if lease is not None:
+                    lease.cleanup()
+
+
 class PowerPointSummaryWriter:
     """Create exactly five summary slides in an owned PowerPoint instance."""
 
@@ -678,6 +814,7 @@ class PowerPointSummaryWriter:
         product: WorkProductData,
         preferences=None,
         slide_count=5,
+        report_label="Word",
     ) -> list[tuple[str, str]]:
         preferences = dict(preferences or {})
         number_style = str(preferences.get("number_format") or "plain")
@@ -704,7 +841,7 @@ class PowerPointSummaryWriter:
             insights += "\r\n" + f"• 원본 차트 {len(charts)}개 확인"
         conclusion = (
             ("• " + str(product.insights[0])) if product.insights else "• 원본 표 구조를 확인했습니다."
-        ) + "\r\n• 상세 수치와 표는 함께 생성된 Word 보고서를 확인하세요."
+        ) + f"\r\n• 상세 수치와 표는 함께 생성된 {report_label} 보고서를 확인하세요."
         base = [
             (product.title, f"Excel 분석 요약\r\n원본: {source}"),
             ("핵심 지표", metrics),
@@ -754,6 +891,7 @@ class PowerPointSummaryWriter:
                         product,
                         context.get("preferences"),
                         expected_slides,
+                        REPORT_FORMATS[_report_format(context.get("report_format"))]["label"],
                     ),
                     1,
                 ):
@@ -799,11 +937,13 @@ class WorkflowExecutor:
         *,
         analyzer=None,
         word_writer=None,
+        hwp_writer=None,
         powerpoint_writer=None,
     ):
         self.store_dir = Path(store_dir or (Path(USER_DATA_DIR) / "workflows"))
         self.analyzer = analyzer or ExcelSalesAnalyzer()
         self.word_writer = word_writer or WordReportWriter()
+        self.hwp_writer = hwp_writer or HwpReportWriter()
         self.powerpoint_writer = powerpoint_writer or PowerPointSummaryWriter()
 
     def _path(self, workflow_id: str) -> Path:
@@ -827,6 +967,7 @@ class WorkflowExecutor:
             state = copy.deepcopy(state)
             state["schema_version"] = WORKFLOW_SCHEMA_VERSION
             state["migrated_from_schema"] = 1
+        state.setdefault("report_format", "word")
         return state
 
     def prepare(
@@ -838,6 +979,7 @@ class WorkflowExecutor:
         preferences=None,
         slide_count=5,
         explicit_slide_count=False,
+        report_format="word",
     ) -> dict:
         source = Path(_absolute_path(source_path))
         if not source.is_file() or source.suffix.casefold() not in SUPPORTED_EXCEL_SUFFIXES:
@@ -849,13 +991,19 @@ class WorkflowExecutor:
             raise WorkflowError("PPT 장수는 숫자여야 합니다.") from error
         if not 3 <= slide_count <= 20:
             raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
+        report_format = _report_format(report_format)
         destination = Path(_absolute_path(output_dir or source.parent))
         if not destination.is_dir():
             raise WorkflowError("산출물 폴더를 찾을 수 없습니다.")
         workflow_id = uuid.uuid4().hex
         token = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + workflow_id
         source_stem = _safe_stem(source.stem)
-        report_path = _reserve_output(destination, f"{source_stem}_JARVIS_보고서", ".docx", token)
+        report_path = _reserve_output(
+            destination,
+            f"{source_stem}_JARVIS_보고서",
+            REPORT_FORMATS[report_format]["suffix"],
+            token,
+        )
         presentation_path = _reserve_output(
             destination,
             f"{source_stem}_JARVIS_{slide_count}장_요약",
@@ -882,6 +1030,7 @@ class WorkflowExecutor:
                 "report": str(report_path),
                 "presentation": str(presentation_path),
             },
+            "report_format": report_format,
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
             "applied_preferences": learned,
@@ -945,8 +1094,13 @@ class WorkflowExecutor:
         if not destination.is_dir():
             raise WorkflowError("승인 전에 산출물 폴더를 찾을 수 없게 됐습니다.")
 
+        report_format = _report_format(state.get("report_format") or "word")
+        state["report_format"] = report_format
         outputs = dict(state.get("output_paths") or {})
-        expected = {"report": ".docx", "presentation": ".pptx"}
+        expected = {
+            "report": REPORT_FORMATS[report_format]["suffix"],
+            "presentation": ".pptx",
+        }
         if set(outputs) != set(expected):
             raise WorkflowError("워크플로 산출물 계획이 불완전합니다.")
         normalized_outputs = {}
@@ -1074,6 +1228,7 @@ class WorkflowExecutor:
             "output_dir": state["output_dir"],
             "preferences": dict(state.get("applied_preferences") or {}),
             "slide_count": int(state.get("slide_count") or 5),
+            "report_format": _report_format(state.get("report_format") or "word"),
         }
         if name == "create_word_report":
             context["output_path"] = state["output_paths"]["report"]
@@ -1087,7 +1242,12 @@ class WorkflowExecutor:
             return WorkProductData.from_value(self.analyzer.run(context)).to_dict()
         product = WorkProductData.from_value(state.get("work_product") or {}).to_dict()
         if name == "create_word_report":
-            return dict(self.word_writer.run(context, product))
+            writer = (
+                self.hwp_writer
+                if context["report_format"] == "hwp"
+                else self.word_writer
+            )
+            return dict(writer.run(context, product))
         return dict(self.powerpoint_writer.run(context, product))
 
     def run(self, workflow_id: str) -> dict[str, Any]:
@@ -1167,6 +1327,7 @@ class WorkflowExecutor:
             "verification_results": dict(state.get("verification_results") or {}),
             "output_paths": dict(state.get("output_paths") or {}),
             "slide_count": int(state.get("slide_count") or 5),
+            "report_format": _report_format(state.get("report_format") or "word"),
             "applied_preferences": dict(state.get("applied_preferences") or {}),
             "work_product_summary": {
                 "title": str((state.get("work_product") or {}).get("title") or ""),

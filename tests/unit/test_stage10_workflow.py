@@ -5,12 +5,14 @@ from types import SimpleNamespace
 
 from engine.workflows import (
     ExcelSalesAnalyzer,
+    HwpReportWriter,
     PowerPointSummaryWriter,
     WordReportWriter,
     WorkProductData,
     WorkflowExecutionError,
     WorkflowExecutor,
 )
+from engine.edit_mode.stage10 import Stage10EditError, StructuredWorkflowIntentAnalyzer
 
 
 def product(source):
@@ -139,6 +141,81 @@ class FakeWorkbook:
         self.Worksheets = FakeWorksheets(worksheets)
 
 
+class FakeHwpParameter:
+    def __init__(self, **values):
+        self.HSet = self
+        for key, value in values.items():
+            setattr(self, key, value)
+
+
+class FakeHwpAction:
+    def __init__(self, hwp):
+        self.hwp = hwp
+
+    def GetDefault(self, name, parameter):
+        if name == "CharShape":
+            parameter.Bold = self.hwp.bold
+            parameter.Height = self.hwp.height
+        elif name == "ParagraphShape":
+            parameter.AlignType = self.hwp.alignment
+        return True
+
+    def Execute(self, name, parameter):
+        if name == "InsertText":
+            self.hwp.text += str(parameter.Text)
+            return True
+        if name == "CharShape":
+            self.hwp.bold = int(parameter.Bold)
+            self.hwp.height = int(parameter.Height)
+            return True
+        return False
+
+    def Run(self, name):
+        alignments = {
+            "ParagraphShapeAlignJustify": 0,
+            "ParagraphShapeAlignLeft": 1,
+            "ParagraphShapeAlignRight": 2,
+            "ParagraphShapeAlignCenter": 3,
+        }
+        if name in alignments:
+            self.hwp.alignment = alignments[name]
+        return True
+
+
+class FakeHwpApplication:
+    def __init__(self):
+        self.text = ""
+        self.bold = 0
+        self.height = 1000
+        self.alignment = 1
+        self.cleared = False
+        self.quit_called = False
+        self.HParameterSet = SimpleNamespace(
+            HInsertText=FakeHwpParameter(Text=""),
+            HCharShape=FakeHwpParameter(Bold=0, Height=1000),
+            HParaShape=FakeHwpParameter(AlignType=1),
+        )
+        self.HAction = FakeHwpAction(self)
+
+    def PointToHwpUnit(self, value):
+        return int(round(float(value) * 100))
+
+    def GetTextFile(self, _format, _option):
+        return self.text
+
+    def SaveAs(self, path, format_name, _options):
+        if format_name != "HWP":
+            return False
+        Path(path).write_bytes(b"owned-hwp-report")
+        return True
+
+    def Clear(self, _option):
+        self.cleared = True
+
+    def Quit(self):
+        self.quit_called = True
+
+
 class Stage10WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -147,11 +224,13 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.source.write_bytes(b"owned-excel-fixture")
         self.analyzer = FakeAnalyzer()
         self.word = FakeWriter("word")
+        self.hwp = FakeWriter("hwp")
         self.ppt = FakeWriter("ppt", fail_times=1, slides=5)
         self.executor = WorkflowExecutor(
             self.root / "state",
             analyzer=self.analyzer,
             word_writer=self.word,
+            hwp_writer=self.hwp,
             powerpoint_writer=self.ppt,
         )
 
@@ -278,6 +357,77 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertFalse(Path(state["output_paths"]["report"]).exists())
         self.assertFalse(Path(state["output_paths"]["presentation"]).exists())
 
+    def test_hwp_report_plan_uses_hwp_writer_without_calling_word(self):
+        analyzer = FakeAnalyzer()
+        word = FakeWriter("word")
+        hwp = FakeWriter("hwp")
+        powerpoint = FakeWriter("ppt", slides=5)
+        executor = WorkflowExecutor(
+            self.root / "hwp-state",
+            analyzer=analyzer,
+            word_writer=word,
+            hwp_writer=hwp,
+            powerpoint_writer=powerpoint,
+        )
+        state = executor.prepare(self.source, report_format="hwp")
+
+        self.assertEqual("hwp", state["report_format"])
+        self.assertEqual(".hwp", Path(state["output_paths"]["report"]).suffix)
+        result = executor.start(state)
+
+        self.assertTrue(result["verified"])
+        self.assertEqual("hwp", result["report_format"])
+        self.assertEqual(0, word.calls)
+        self.assertEqual(1, hwp.calls)
+        self.assertEqual(1, powerpoint.calls)
+
+    def test_hwp_writer_inserts_formats_reads_and_saves_owned_report(self):
+        application = FakeHwpApplication()
+        writer = HwpReportWriter(
+            application_factory=lambda program_id: application,
+            com_runtime=FakeComRuntime(),
+        )
+        output = self.root / "분석_보고서.hwp"
+
+        artifact = writer.run({
+            "output_path": str(output),
+            "preferences": {
+                "emphasis_style": "bold",
+                "font_scale": "larger",
+                "paragraph_align": "center",
+            },
+        }, product(self.source))
+
+        self.assertTrue(output.is_file())
+        self.assertEqual("hwp", artifact["verification"]["format"])
+        self.assertTrue(artifact["verification"]["content_readback"])
+        self.assertEqual(1, application.bold)
+        self.assertEqual(1400, application.height)
+        self.assertEqual(3, application.alignment)
+        self.assertTrue(application.cleared)
+        self.assertTrue(application.quit_called)
+
+    def test_workflow_intent_selects_explicit_hwp_and_rejects_two_report_formats(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        intent = analyzer.analyze(
+            "이 엑셀 분석해서 한글 보고서와 6장짜리 PPT 만들어줘",
+            {"app_type": "excel"},
+        )
+
+        self.assertEqual("hwp", intent.params["report_format"])
+        self.assertEqual(6, intent.params["slide_count"])
+        self.assertIn("한글 보고서", intent.description)
+        generic = analyzer.analyze(
+            "이 엑셀 분석해서 보고서와 PPT 만들어줘",
+            {"app_type": "excel"},
+        )
+        self.assertEqual("word", generic.params["report_format"])
+        with self.assertRaisesRegex(Stage10EditError, "하나만 선택"):
+            analyzer.analyze(
+                "이 엑셀 분석해서 Word와 한글 보고서랑 PPT 만들어줘",
+                {"app_type": "excel"},
+            )
+
     def test_failure_resumes_only_failed_step_without_duplicate_artifacts(self):
         state = self.executor.prepare(self.source)
         with self.assertRaises(WorkflowExecutionError) as captured:
@@ -364,6 +514,18 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual(b"user-created-after-preview", collision.read_bytes())
         self.assertFalse(self.executor._path(state["workflow_id"]).exists())
 
+    def test_approval_rejects_tampered_report_format_before_any_step(self):
+        state = self.executor.prepare(self.source, report_format="word")
+        state["report_format"] = "hwp"
+
+        with self.assertRaisesRegex(Exception, "산출물 경로가 바뀌거나"):
+            self.executor.start(state)
+
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
+        self.assertFalse(self.executor._path(state["workflow_id"]).exists())
+
     def test_legacy_preview_is_never_resumable_and_retention_removes_it(self):
         state = self.executor.prepare(self.source)
         self.executor._save(state)
@@ -388,6 +550,10 @@ class Stage10WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(7, len(slides))
         self.assertEqual("결론 및 다음 단계", slides[-1][0])
+        hwp_slides = PowerPointSummaryWriter._slide_content(
+            value, slide_count=5, report_label="한글"
+        )
+        self.assertIn("한글 보고서", hwp_slides[-1][1])
 
     def test_approved_word_formatting_defaults_are_applied_and_read_back(self):
         content = SimpleNamespace(

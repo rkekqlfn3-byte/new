@@ -2,6 +2,7 @@
 
 from engine.workflows.business_workflow import (
     ExcelSalesAnalyzer,
+    HwpReportWriter,
     PowerPointSummaryWriter,
     WordReportWriter,
     WorkProductData,
@@ -12,6 +13,7 @@ from engine.workflows.business_workflow import (
 
 __all__ = [
     "ExcelSalesAnalyzer",
+    "HwpReportWriter",
     "PowerPointSummaryWriter",
     "WordReportWriter",
     "WorkProductData",

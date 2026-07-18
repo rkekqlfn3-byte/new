@@ -123,11 +123,13 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.source.write_bytes(b"stage10-excel-fixture")
         self.analyzer = Analyzer()
         self.word = Writer()
+        self.hwp = Writer()
         self.ppt = Writer(fail_times=1, slide_count=5)
         executor = WorkflowExecutor(
             self.root / "workflow-state",
             analyzer=self.analyzer,
             word_writer=self.word,
+            hwp_writer=self.hwp,
             powerpoint_writer=self.ppt,
         )
         self.executor = executor
@@ -237,6 +239,26 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(2, self.ppt.calls)
         self.assertFalse(completed["data"]["undo_available"])
         self.assertEqual("ready", self.controller.status()["session"]["state"])
+
+    def test_explicit_hwp_report_is_previewed_and_completed_without_word(self):
+        self.ppt.fail_times = 0
+        preview = self.command(
+            "이 엑셀을 분석해서 한글 보고서와 5장짜리 PPT 만들어줘.",
+            "stage10-hwp-create",
+        )
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("한글", preview["message"])
+        completed = self.approve(preview)
+
+        self.assertTrue(completed["success"])
+        observations = completed["data"]["observations"]
+        self.assertEqual("hwp", observations["report_format"])
+        self.assertEqual(".hwp", Path(observations["output_paths"]["report"]).suffix)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(1, self.hwp.calls)
+        self.assertEqual(1, self.ppt.calls)
+        self.assertIn("한글 보고서", completed["message"])
 
 
 if __name__ == "__main__":

@@ -32,7 +32,9 @@ class WorkflowIntent:
 class StructuredWorkflowIntentAnalyzer:
     """Recognize only the Stage 10 Excel-to-report-and-slides commands."""
 
-    CREATE_REPORT_TERMS = ("보고서", "리포트", "report", "word", "워드")
+    CREATE_REPORT_TERMS = (
+        "보고서", "리포트", "report", "word", "워드", "한글", "hwp", "hwpx"
+    )
     CREATE_SLIDE_TERMS = ("ppt", "파워포인트", "프레젠테이션", "발표자료", "슬라이드")
     RESUME_TERMS = (
         "실패한 워크플로 이어서",
@@ -58,6 +60,15 @@ class StructuredWorkflowIntentAnalyzer:
         has_report = any(term in command for term in self.CREATE_REPORT_TERMS)
         has_slides = any(term in command for term in self.CREATE_SLIDE_TERMS)
         if has_analysis and has_report and has_slides:
+            word_explicit = any(term in command for term in ("word", "워드"))
+            hwp_explicit = any(term in command for term in ("한글", "hwp", "hwpx"))
+            if word_explicit and hwp_explicit:
+                raise Stage10EditError(
+                    "보고서는 Word와 한글 중 하나만 선택해주세요. 두 형식 동시 생성은 "
+                    "아직 지원하지 않습니다."
+                )
+            report_format = "hwp" if hwp_explicit else "word"
+            report_label = "한글" if report_format == "hwp" else "Word"
             slide_count = None
             for pattern in (
                 r"(?:ppt|파워포인트|프레젠테이션|슬라이드).*?(\d{1,2})\s*장",
@@ -70,18 +81,25 @@ class StructuredWorkflowIntentAnalyzer:
             return WorkflowIntent(
                 "create_business_workflow",
                 (
-                    "Excel 읽기 전용 분석 → Word 보고서 → "
+                    f"Excel 읽기 전용 분석 → {report_label} 보고서 → "
                     f"PowerPoint {slide_count}장 요약 생성"
                     if slide_count is not None
-                    else "Excel 읽기 전용 분석 → Word 보고서 → PowerPoint 요약 생성"
+                    else (
+                        f"Excel 읽기 전용 분석 → {report_label} 보고서 → "
+                        "PowerPoint 요약 생성"
+                    )
                 ),
-                {"slide_count": slide_count, "explicit_slide_count": slide_count is not None},
+                {
+                    "slide_count": slide_count,
+                    "explicit_slide_count": slide_count is not None,
+                    "report_format": report_format,
+                },
             )
         return None
 
 
 class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
-    """Stage 9 plus one persistent Excel-to-Word-and-PowerPoint workflow."""
+    """Stage 9 plus one persistent Excel-to-report-and-PowerPoint workflow."""
 
     supported_operations = Stage9NativeEditAdapter.supported_operations | WORKFLOW_OPERATIONS
 
@@ -167,6 +185,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 preferences=preferences,
                 slide_count=slide_count,
                 explicit_slide_count=bool(intent.params.get("explicit_slide_count")),
+                report_format=intent.params.get("report_format") or "word",
             )
         state = self.workflow_executor.latest_for_source(source_path)
         if state is None:
@@ -192,8 +211,10 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             f"상태 {state.get('status')}"
             + (f" · 실패 단계 {failed_step}" if failed_step else "")
         )
+        report_format = str(state.get("report_format") or "word")
+        report_label = "한글" if report_format == "hwp" else "Word"
         after = (
-            f"Word: {outputs.get('report', '')}\n"
+            f"{report_label}: {outputs.get('report', '')}\n"
             f"PowerPoint({state.get('slide_count', 5)}장): {outputs.get('presentation', '')}"
         )
         applied_preferences, preference_summary = self._preference_preview(
@@ -216,6 +237,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "output_paths": outputs,
             "preview": preview,
             "read_only_source": True,
+            "report_format": report_format,
         }
         if intent.operation == "create_business_workflow":
             arguments["workflow_plan"] = state
