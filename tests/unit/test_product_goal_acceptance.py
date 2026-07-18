@@ -118,6 +118,16 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             ),
         )
 
+    def test_user_learning_probe_requires_conflict_resolution_evidence(self):
+        spec = PROBE_SPECS["user_learning"]
+        report = probe_report(spec)
+        del report["result"]["checks"]["replacement_candidate_explained"]
+
+        self.assertIn(
+            "required_probe_check_missing_or_failed",
+            validate_probe_report(report, spec, now=NOW, max_age_hours=168),
+        )
+
     def test_automated_evidence_never_claims_manual_acceptance(self):
         self._write_all_probes()
         report = evaluate_acceptance(

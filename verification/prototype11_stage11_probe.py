@@ -91,6 +91,57 @@ def _owned_probe():
         preference_persisted = bool(
             resolved and resolved.get("value") == 7 and resolved.get("user_confirmed")
         )
+
+        stage = "verify_conflicting_preference_resolution"
+        tone_candidate = None
+        for index in range(1, 4):
+            tone_candidate = reloaded.record_evidence(
+                "report_tone",
+                "formal",
+                scope_kind="workflow",
+                scope_id="business_report",
+                evidence_id=f"stage11-tone-formal-{index}",
+            )
+        reloaded.activate(tone_candidate["candidate_id"], expected_value="formal")
+        replacement = None
+        for index in range(1, 10):
+            replacement = reloaded.record_evidence(
+                "report_tone",
+                "friendly",
+                scope_kind="workflow",
+                scope_id="business_report",
+                evidence_id=f"stage11-tone-friendly-{index}",
+            )
+        active_before_replacement = reloaded.resolve(
+            "report_tone", workflow_id="business_report"
+        )
+        replacement_explained = bool(
+            replacement
+            and replacement.get("needs_confirmation")
+            and replacement.get("conflict_state") == "replacement_candidate"
+            and replacement.get("current_active_value") == "formal"
+            and replacement.get("proposed_value") == "friendly"
+        )
+        replacement_dismissed = reloaded.dismiss(replacement["candidate_id"])
+        active_after_dismissal = reloaded.resolve(
+            "report_tone", workflow_id="business_report"
+        )
+        renewed = None
+        for index in range(10, 13):
+            renewed = reloaded.record_evidence(
+                "report_tone",
+                "friendly",
+                scope_kind="workflow",
+                scope_id="business_report",
+                evidence_id=f"stage11-tone-friendly-{index}",
+            )
+        replacement_activation = reloaded.activate(
+            renewed["candidate_id"], expected_value="friendly"
+        )
+        active_after_replacement = reloaded.resolve(
+            "report_tone", workflow_id="business_report"
+        )
+
         word_preferences = {}
         for preference, value in (
             ("emphasis_style", "bold"),
@@ -150,6 +201,25 @@ def _owned_probe():
             "inactive_before_user_approval": inactive_before_approval,
             "approved_preference_persisted": preference_persisted,
             "approved_scope_recorded": resolved.get("resolved_scope") == "app",
+            "conflicting_default_stayed_active_before_approval": (
+                active_before_replacement
+                and active_before_replacement.get("value") == "formal"
+            ),
+            "replacement_candidate_explained": replacement_explained,
+            "replacement_cancel_kept_existing_default": bool(
+                replacement_dismissed
+                and active_after_dismissal
+                and active_after_dismissal.get("value") == "formal"
+            ),
+            "replacement_needed_new_evidence_after_cancel": bool(
+                renewed and renewed.get("needs_confirmation")
+            ),
+            "approved_replacement_recorded_previous_value": bool(
+                replacement_activation.get("replaced_previous")
+                and replacement_activation.get("replaced_previous_value") == "formal"
+                and active_after_replacement
+                and active_after_replacement.get("value") == "friendly"
+            ),
             "word_report_reopened_with_approved_formatting": word_verified,
             "preferred_seven_slides_created": slide_count == 7,
             "applied_preference_audited": (

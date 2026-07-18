@@ -130,7 +130,7 @@ python -m verification.prototype11_stage10_probe --report-format both --timeout 
 중인 대상 앱 프로세스가 있으면 probe는 실행하지 않는다. 시간 초과 시에는 마지막
 진행 단계를 보고하고 해당 probe가 만든 프로세스만 정리한다.
 
-같은 날 최신 전체 자동 회귀는 834개 중 831개 통과(unit 307·integration 321·
+같은 날 최신 전체 자동 회귀는 840개 중 837개 통과(unit 311·integration 323·
 windows 203), 외부 AI 자격 증명이 필요한 3개 skip, 실패 0개였다.
 
 ## 현재 범위

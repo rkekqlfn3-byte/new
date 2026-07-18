@@ -81,6 +81,11 @@ PROBE_SPECS = {
     "user_learning": {
         "file": "prototype11_stage11_report.json",
         "probe": "prototype11_stage11_user_preference_learning",
+        "required_checks": (
+            "replacement_candidate_explained",
+            "replacement_cancel_kept_existing_default",
+            "approved_replacement_recorded_previous_value",
+        ),
     },
     "failure_diagnosis": {
         "file": "prototype11_stage12_report.json",

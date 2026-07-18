@@ -69,6 +69,90 @@ class Stage11UserLearningManagerTests(unittest.TestCase):
         self.assertEqual("observing", result["status"])
         self.assertEqual(0.5, result["confidence"])
 
+    def test_active_default_survives_conflict_until_replacement_is_approved(self):
+        for index in range(1, 4):
+            active_candidate = self.record(value=5, index=index)
+        self.manager.activate(active_candidate["candidate_id"])
+
+        first_conflict = self.record(value=7, index=10)
+        self.assertEqual("active", first_conflict["status"])
+        self.assertEqual("active_challenged", first_conflict["conflict_state"])
+        self.assertEqual(5, first_conflict["current_active_value"])
+        self.assertEqual(1, first_conflict["conflicting_evidence_count"])
+        self.assertFalse(first_conflict["needs_confirmation"])
+        self.assertEqual(
+            5,
+            self.manager.resolve(
+                "summary_lines", workflow_id="business_report"
+            )["value"],
+        )
+
+        for index in range(11, 19):
+            replacement = self.record(value=7, index=index)
+        self.assertEqual("candidate", replacement["status"])
+        self.assertEqual("replacement_candidate", replacement["conflict_state"])
+        self.assertTrue(replacement["replacement_candidate"])
+        self.assertTrue(replacement["needs_confirmation"])
+        self.assertEqual(7, replacement["proposed_value"])
+        self.assertEqual(
+            5,
+            self.manager.resolve(
+                "summary_lines", workflow_id="business_report"
+            )["value"],
+        )
+
+        activated = self.manager.activate(
+            replacement["candidate_id"], expected_value=7
+        )
+        self.assertTrue(activated["replaced_previous"])
+        self.assertEqual(5, activated["replaced_previous_value"])
+        self.assertEqual(
+            7,
+            self.manager.resolve(
+                "summary_lines", workflow_id="business_report"
+            )["value"],
+        )
+
+    def test_opposite_observation_cannot_approve_a_waiting_replacement(self):
+        for index in range(1, 4):
+            active_candidate = self.record(value=5, index=index)
+        self.manager.activate(active_candidate["candidate_id"])
+        for index in range(10, 22):
+            replacement = self.record(value=7, index=index)
+        self.assertTrue(replacement["needs_confirmation"])
+
+        opposite = self.record(value=5, index=30)
+
+        self.assertEqual("candidate", opposite["status"])
+        self.assertEqual(7, opposite["proposed_value"])
+        self.assertEqual(5, opposite["observed_value"])
+        self.assertFalse(opposite["observed_conflicts_with_active"])
+        self.assertFalse(opposite["needs_confirmation"])
+        self.assertEqual(
+            5,
+            self.manager.resolve(
+                "summary_lines", workflow_id="business_report"
+            )["value"],
+        )
+
+    def test_dismissing_replacement_keeps_confirmed_active_default(self):
+        for index in range(1, 4):
+            active_candidate = self.record(value=5, index=index)
+        self.manager.activate(active_candidate["candidate_id"])
+        for index in range(10, 19):
+            replacement = self.record(value=7, index=index)
+
+        self.assertTrue(self.manager.dismiss(replacement["candidate_id"]))
+        self.assertEqual(
+            5,
+            self.manager.resolve(
+                "summary_lines", workflow_id="business_report"
+            )["value"],
+        )
+        dismissed = self.manager.get_candidate(replacement["candidate_id"])
+        self.assertEqual("dismissed", dismissed["status"])
+        self.assertEqual("active_challenged", dismissed["conflict_state"])
+
     def test_scope_precedence_is_file_workflow_app_global(self):
         source = Path(self.temp_dir.name) / "sales.xlsx"
         source.write_bytes(b"fixture")

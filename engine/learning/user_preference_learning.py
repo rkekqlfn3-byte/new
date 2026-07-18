@@ -303,10 +303,70 @@ class UserPreferenceLearningManager:
         with self._lock:
             return copy.deepcopy(self._data)
 
+    def _decorate_candidate_locked(
+        self,
+        record: Mapping[str, Any],
+        *,
+        observed_value=None,
+    ) -> dict[str, Any]:
+        """Add an explainable, non-persistent view of active-value conflicts."""
+        result = copy.deepcopy(dict(record))
+        identifier = str(record.get("candidate_id") or "")
+        active = self._data["active_preferences"].get(identifier)
+        active_value = copy.deepcopy(active.get("value")) if active else None
+        counts = dict(record.get("value_counts") or {})
+        values = dict(record.get("values") or {})
+        active_count = (
+            int(counts.get(_canonical(active_value), 0))
+            if active is not None
+            else 0
+        )
+        alternatives = [
+            (key, int(count))
+            for key, count in counts.items()
+            if active is not None and key != _canonical(active_value) and int(count) > 0
+        ]
+        alternatives.sort(key=lambda item: (-item[1], item[0]))
+        conflicting_count = sum(count for _, count in alternatives)
+        leading_key, leading_count = alternatives[0] if alternatives else (None, 0)
+        leading_value = (
+            copy.deepcopy(values.get(leading_key))
+            if leading_key is not None
+            else None
+        )
+        replacement = bool(
+            active is not None
+            and record.get("status") == "candidate"
+            and record.get("proposed_value") != active_value
+        )
+        if active is None:
+            conflict_state = "none"
+        elif replacement:
+            conflict_state = "replacement_candidate"
+        elif conflicting_count:
+            conflict_state = "active_challenged"
+        else:
+            conflict_state = "active_reinforced"
+        result.update({
+            "current_active_value": active_value,
+            "active_evidence_count": active_count,
+            "conflicting_evidence_count": conflicting_count,
+            "leading_conflicting_value": leading_value,
+            "leading_conflicting_count": leading_count,
+            "conflict_state": conflict_state,
+            "replacement_candidate": replacement,
+        })
+        if observed_value is not None:
+            result["observed_value"] = copy.deepcopy(observed_value)
+            result["observed_conflicts_with_active"] = bool(
+                active is not None and observed_value != active_value
+            )
+        return result
+
     def get_candidate(self, candidate_id) -> dict[str, Any] | None:
         with self._lock:
             value = self._data["candidates"].get(str(candidate_id or ""))
-            return copy.deepcopy(value) if value else None
+            return self._decorate_candidate_locked(value) if value else None
 
     def record_evidence(
         self,
@@ -349,9 +409,15 @@ class UserPreferenceLearningManager:
                 }
                 self._data["candidates"][identifier] = record
             if clean_evidence_id in record["evidence_ids"]:
-                result = copy.deepcopy(record)
+                result = self._decorate_candidate_locked(
+                    record,
+                    observed_value=parsed_value,
+                )
                 result["duplicate_evidence"] = True
-                result["needs_confirmation"] = record["status"] == "candidate"
+                result["needs_confirmation"] = bool(
+                    record["status"] == "candidate"
+                    and record.get("proposed_value") == parsed_value
+                )
                 return result
             key = _canonical(parsed_value)
             record["values"][key] = parsed_value
@@ -370,25 +436,35 @@ class UserPreferenceLearningManager:
             record["confidence"] = round(highest / record["evidence_count"], 4)
             record["last_observed_at"] = now
             active = self._data["active_preferences"].get(identifier)
+            new_since_dismissal = record["evidence_count"] - int(
+                record.get("dismissed_at_count") or 0
+            )
+            eligible = (
+                highest >= self.candidate_after
+                and record["confidence"] >= self.candidate_confidence
+                and new_since_dismissal >= self.candidate_after
+            )
             if active and active.get("value") == record["proposed_value"]:
                 record["status"] = "active"
                 active["evidence_count"] = record["evidence_count"]
+            elif active:
+                record["status"] = "candidate" if eligible else (
+                    "dismissed" if record.get("dismissed_at") else "active"
+                )
             else:
-                new_since_dismissal = record["evidence_count"] - int(
-                    record.get("dismissed_at_count") or 0
-                )
-                eligible = (
-                    highest >= self.candidate_after
-                    and record["confidence"] >= self.candidate_confidence
-                    and new_since_dismissal >= self.candidate_after
-                )
                 record["status"] = "candidate" if eligible else (
                     "dismissed" if record.get("dismissed_at") else "observing"
                 )
             self._save_locked()
-            result = copy.deepcopy(record)
+            result = self._decorate_candidate_locked(
+                record,
+                observed_value=parsed_value,
+            )
             result["duplicate_evidence"] = False
-            result["needs_confirmation"] = record["status"] == "candidate"
+            result["needs_confirmation"] = bool(
+                record["status"] == "candidate"
+                and record.get("proposed_value") == parsed_value
+            )
             return result
 
     def activate(self, candidate_id, *, expected_value=None) -> dict[str, Any]:
@@ -403,6 +479,7 @@ class UserPreferenceLearningManager:
                 if expected != value:
                     raise UserPreferenceLearningError("승인한 선호 값이 현재 후보와 다릅니다.")
             now = _timestamp()
+            previous = self._data["active_preferences"].get(identifier)
             active = {
                 "candidate_id": identifier,
                 "preference": record["preference"],
@@ -419,7 +496,13 @@ class UserPreferenceLearningManager:
             record["dismissed_at"] = None
             record["dismissed_at_count"] = 0
             self._save_locked()
-            return copy.deepcopy(active)
+            result = copy.deepcopy(active)
+            previous_value = copy.deepcopy(previous.get("value")) if previous else None
+            result["replaced_previous_value"] = previous_value
+            result["replaced_previous"] = bool(
+                previous is not None and previous_value != value
+            )
+            return result
 
     def dismiss(self, candidate_id) -> bool:
         identifier = str(candidate_id or "")
@@ -482,7 +565,7 @@ class UserPreferenceLearningManager:
                     "candidate", "active"
                 }:
                     continue
-                values.append(copy.deepcopy(record))
+                values.append(self._decorate_candidate_locked(record))
             return sorted(
                 values,
                 key=lambda item: (

@@ -17,6 +17,9 @@
 Stage 6도 Word와 PowerPoint 대상이 모두 있어야 하며, Word 결과에는 접힌
 Range→동일 Range 재선택 뒤 직접 서식 교정, PowerPoint 결과에는 단일 Shape
 직접 서식 교정의 구조화 증거 기록 검사가 각각 포함돼야 한다.
+Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 않는지, 교체
+미리보기가 현재값·후보값을 설명하는지, 취소 시 기존값 유지와 승인 시 이전값
+기록이 모두 성립하는지도 필수로 검사한다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

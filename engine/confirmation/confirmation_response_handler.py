@@ -228,6 +228,20 @@ class ConfirmationResponseHandler:
         if selected.get("cancel"):
             payload = consumed.get("payload", {})
             preference_feedback = None
+            prepared_payload = (
+                dict(payload.get("prepared_action") or {})
+                if isinstance(payload, dict)
+                else {}
+            )
+            prepared_metadata = (
+                dict(prepared_payload.get("metadata") or {})
+                if isinstance(prepared_payload, dict)
+                else {}
+            )
+            replacement_cancelled = bool(
+                prepared_payload.get("operation") == "activate_user_preference"
+                and prepared_metadata.get("replacement_candidate")
+            )
             if payload.get("kind") == "prepared_edit_action":
                 cancel_edit = getattr(
                     getattr(self.owner, "edit_mode_controller", None),
@@ -243,7 +257,17 @@ class ConfirmationResponseHandler:
             data = {"confirmation_id": consumed["confirmation_id"]}
             if isinstance(preference_feedback, dict):
                 data["preference_feedback"] = preference_feedback
+            if replacement_cancelled:
+                data["preference_resolution"] = {
+                    "status": "kept_existing",
+                    "replacement_candidate_dismissed": True,
+                }
             cancel_message = "확인 요청을 취소했습니다. 외부 변경은 실행하지 않았습니다."
+            if replacement_cancelled:
+                cancel_message += (
+                    "\n새 기본값 후보만 취소했고 기존에 승인한 기본값은 그대로 "
+                    "유지했습니다."
+                )
             if (
                 isinstance(preference_feedback, dict)
                 and preference_feedback.get("recorded")

@@ -707,13 +707,22 @@ class Stage5NativeEditAdapter:
 def edit_preview_message(prepared: EditPreparedAction) -> str:
     preview = dict(prepared.metadata.get("preview") or {})
     if prepared.operation == "activate_user_preference":
-        return (
-            f"최근 같은 선호를 {prepared.arguments.get('evidence_count', 0)}회 확인했습니다.\n"
-            f"{preview.get('description') or '이 사용자 선호'}을(를) 앞으로의 기본값으로 "
-            "활성화할까요?\n"
-            f"적용 범위: {prepared.arguments.get('scope_kind', '')} · "
-            f"값: {prepared.arguments.get('value')}"
-        )
+        lines = [
+            f"최근 같은 선호를 {prepared.arguments.get('evidence_count', 0)}회 확인했습니다.",
+            f"대상: {preview.get('target') or '사용자 선호'}",
+            f"작업: {preview.get('description') or '앞으로의 기본값 활성화'}",
+        ]
+        if preview.get("before"):
+            lines.append(f"변경 전: {preview['before']}")
+        if preview.get("after"):
+            lines.append(f"변경 후: {preview['after']}")
+        if preview.get("replacement_candidate"):
+            lines.append(
+                "승인하면 기존 기본값을 교체하고, 취소하면 기존 기본값을 유지합니다."
+            )
+        else:
+            lines.append("이 기본값을 활성화할까요?")
+        return "\n".join(lines)
     target = preview.get("target") or prepared.target.get("selection_reference") or "현재 선택"
     lines = [
         f"대상: {target}",
@@ -741,6 +750,12 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
         )
     if prepared.operation == "activate_user_preference":
         observations = result.observations
+        if observations.get("replaced_previous"):
+            return (
+                f"{preview.get('description') or '사용자 선호'}을(를) 사용자 승인으로 "
+                "교체했습니다. 이전 승인 기본값은 더 이상 적용하지 않고 새 값을 "
+                f"사용합니다. 적용 범위: {observations.get('scope_kind', '')}."
+            )
         return (
             f"{preview.get('description') or '사용자 선호'}을(를) 사용자 승인으로 "
             f"활성화했습니다. 적용 범위: {observations.get('scope_kind', '')}."

@@ -450,19 +450,67 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
         count = int(record.get("proposed_count") or 0)
         evidence = int(record.get("evidence_count") or 0)
         confidence = float(record.get("confidence") or 0.0)
-        return {
-            "description": intent.description,
-            "before": (
-                f"{self._scope_label(intent.scope_kind, intent.scope_id)} 범위 · "
-                f"동일 값 {count}회 / 전체 증거 {evidence}회"
-            ),
-            "after": (
+        active_value = record.get("current_active_value")
+        proposed_value = record.get("proposed_value")
+        observed_conflict = bool(record.get("observed_conflicts_with_active"))
+        replacement = bool(
+            record.get("replacement_candidate")
+            and record.get("needs_confirmation")
+        )
+        scope = self._scope_label(intent.scope_kind, intent.scope_id)
+        if replacement:
+            before = (
+                f"{scope} 범위의 현재 승인 기본값: {_value_label(active_value)} · "
+                f"새 값 동일 {count}회 / 전체 증거 {evidence}회"
+            )
+            after = (
+                f"승인 시 새 기본값: {_value_label(proposed_value)} · "
+                f"기존 기본값 교체 · 신뢰도 {confidence:.0%}"
+            )
+            description = (
+                f"{PREFERENCE_LABELS[intent.preference]} 기본값 교체 후보"
+            )
+            resolution = "replace_on_approval"
+        elif active_value is not None:
+            before = (
+                f"{scope} 범위의 현재 승인 기본값: {_value_label(active_value)} · "
+                f"전체 증거 {evidence}회"
+            )
+            if observed_conflict:
+                after = (
+                    f"현재 기본값 유지 · 다른 값 증거 "
+                    f"{int(record.get('conflicting_evidence_count') or 0)}회 · "
+                    "교체 조건 미충족"
+                )
+                resolution = "keep_active_until_repeated_and_approved"
+            else:
+                after = "현재 승인 기본값 유지"
+                resolution = "reinforce_active"
+            description = intent.description
+        else:
+            before = (
+                f"{scope} 범위 · 동일 값 {count}회 / 전체 증거 {evidence}회"
+            )
+            after = (
                 f"활성 기본값: {_value_label(intent.value)} · "
                 f"신뢰도 {confidence:.0%}"
-            ),
+            )
+            description = intent.description
+            resolution = (
+                "activate_on_approval"
+                if record.get("needs_confirmation")
+                else "observe_only"
+            )
+        return {
+            "description": description,
+            "before": before,
+            "after": after,
             "target": PREFERENCE_LABELS[intent.preference],
             "estimated_changes": 1,
             "noop": False,
+            "preference_conflict": observed_conflict or replacement,
+            "replacement_candidate": replacement,
+            "resolution": resolution,
         }
 
     def _apply_vba_preference(
@@ -761,6 +809,11 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
                 else "record_user_preference_evidence"
             )
             preview = self._learning_preview(intent, record)
+        action_value = (
+            record.get("proposed_value")
+            if operation == "activate_user_preference"
+            else intent.value
+        )
         return EditPreparedAction(
             action_id=f"edit-learning-{uuid.uuid4().hex}",
             request_id=request.request_id,
@@ -774,12 +827,17 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             },
             arguments={
                 "preference": intent.preference,
-                "value": intent.value,
+                "value": action_value,
                 "scope_kind": intent.scope_kind,
                 "scope_id": intent.scope_id,
                 "candidate_id": candidate_id,
                 "evidence_count": int(record.get("evidence_count") or 0),
                 "confidence": float(record.get("confidence") or 0.0),
+                "conflict_state": record.get("conflict_state", "none"),
+                "replacement_candidate": bool(
+                    record.get("replacement_candidate")
+                    and requires_approval
+                ),
                 "preview": preview,
                 "read_only_document": True,
             },
@@ -798,6 +856,10 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
                 "user_preference": True,
                 "candidate_id": candidate_id,
                 "preference": intent.preference,
+                "preference_conflict": bool(preview.get("preference_conflict")),
+                "replacement_candidate": bool(
+                    preview.get("replacement_candidate")
+                ),
                 "rewrite_supported": False,
             },
         )
@@ -826,6 +888,13 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             )
             active = None
             status = str((candidate or {}).get("status") or "observing")
+        candidate = (
+            self.user_learning_manager.get_candidate(
+                arguments.get("candidate_id")
+            )
+            if arguments.get("candidate_id")
+            else None
+        )
         return {
             "changed": False,
             "verified": True,
@@ -837,6 +906,20 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             "candidate_id": arguments.get("candidate_id"),
             "evidence_count": arguments.get("evidence_count"),
             "active_preference": active,
+            "conflict_state": (
+                "replaced_active"
+                if active and active.get("replaced_previous")
+                else str((candidate or {}).get("conflict_state") or "none")
+            ),
+            "replacement_candidate": bool(
+                arguments.get("replacement_candidate")
+            ),
+            "replaced_previous": bool(
+                active and active.get("replaced_previous")
+            ),
+            "replaced_previous_value": (
+                active.get("replaced_previous_value") if active else None
+            ),
         }
 
     def verify(self, prepared_action, result) -> bool:

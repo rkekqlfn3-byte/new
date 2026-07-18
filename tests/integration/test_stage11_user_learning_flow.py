@@ -223,6 +223,68 @@ class Stage11UserLearningFlowTests(unittest.TestCase):
         candidates = self.learning.list_candidates(include_observing=True)
         self.assertEqual("dismissed", candidates[0]["status"])
 
+    def test_conflicting_active_default_is_explained_and_replaced_only_after_approval(self):
+        _, _, initial = self.learn_ppt_count(value=7, prefix="initial-seven")
+        self.resolve(initial)
+
+        responses = [
+            self.command(
+                "PPT는 항상 5장으로 만들어줘",
+                f"replacement-five-{index}",
+            )
+            for index in range(1, 10)
+        ]
+
+        self.assertTrue(all(item["success"] for item in responses[:-1]))
+        replacement = responses[-1]
+        self.assertEqual("confirmation_required", replacement["status"])
+        self.assertIn("현재 승인 기본값: 7", replacement["message"])
+        self.assertIn("승인 시 새 기본값: 5", replacement["message"])
+        self.assertIn("기존 기본값을 교체", replacement["message"])
+        self.assertEqual(
+            7,
+            self.learning.resolve(
+                "ppt_slide_count", app_id="powerpoint"
+            )["value"],
+        )
+
+        completed = self.resolve(replacement)
+
+        self.assertTrue(completed["success"])
+        self.assertIn("사용자 승인으로 교체했습니다", completed["message"])
+        self.assertEqual(
+            5,
+            self.learning.resolve(
+                "ppt_slide_count", app_id="powerpoint"
+            )["value"],
+        )
+
+    def test_cancelling_replacement_explains_that_existing_default_was_kept(self):
+        _, _, initial = self.learn_ppt_count(value=7, prefix="keep-seven")
+        self.resolve(initial)
+        replacement = None
+        for index in range(1, 10):
+            replacement = self.command(
+                "PPT는 항상 5장으로 만들어줘",
+                f"cancel-five-{index}",
+            )
+        self.assertEqual("confirmation_required", replacement["status"])
+
+        cancelled = self.resolve(replacement, option_id="cancel")
+
+        self.assertFalse(cancelled["success"])
+        self.assertIn("기존에 승인한 기본값은 그대로 유지", cancelled["message"])
+        self.assertEqual(
+            "kept_existing",
+            cancelled["data"]["preference_resolution"]["status"],
+        )
+        self.assertEqual(
+            7,
+            self.learning.resolve(
+                "ppt_slide_count", app_id="powerpoint"
+            )["value"],
+        )
+
 
 class Stage11VbaPreferenceFlowTests(unittest.TestCase):
     def test_confirmed_vba_pattern_fills_only_an_omitted_change_kind(self):
