@@ -244,7 +244,8 @@ class StructuredWorkflowIntentAnalyzer:
             if join_type_text in {"내부", "이너", "inner"}
             else "left"
         )
-        aggregations = []
+        left_aggregations = []
+        right_aggregations = []
         if "집계" in raw:
             aggregation_matches = list(
                 re.finditer(
@@ -262,10 +263,11 @@ class StructuredWorkflowIntentAnalyzer:
                     "join_plan": None,
                     "join_error": (
                         "집계 조인은 '주문 시트의 매출을 합계 집계해서'처럼 "
-                        "오른쪽 시트·열·집계 함수를 정확히 지정해주세요. "
-                        "여러 열은 각 집계마다 오른쪽 시트명을 반복해주세요."
+                        "시트·열·집계 함수를 정확히 지정해주세요. 여러 열은 "
+                        "각 집계마다 해당 시트명을 반복해주세요."
                     ),
                 }
+            left_sheet = cls._join_token(pair.group("left"))
             right_sheet = cls._join_token(pair.group("right"))
             function_names = {
                 "합계": "sum",
@@ -284,17 +286,21 @@ class StructuredWorkflowIntentAnalyzer:
                 aggregation_sheet = cls._join_token(
                     aggregation_match.group("sheet")
                 )
-                if aggregation_sheet.casefold() != right_sheet.casefold():
+                if aggregation_sheet.casefold() == left_sheet.casefold():
+                    target = left_aggregations
+                elif aggregation_sheet.casefold() == right_sheet.casefold():
+                    target = right_aggregations
+                else:
                     return {
                         "join_requested": True,
                         "join_plan": None,
                         "join_error": (
-                            "현재 집계 조인은 오른쪽 시트의 명시한 열만 "
-                            "지원합니다. 각 집계의 오른쪽 시트명을 다시 "
+                            "집계 시트는 조인에 지정한 왼쪽 또는 오른쪽 시트와 "
+                            "정확히 같아야 합니다. 각 집계의 시트명을 다시 "
                             "확인해주세요."
                         ),
                     }
-                aggregations.append({
+                target.append({
                     "column": cls._join_token(
                         aggregation_match.group("column")
                     ),
@@ -302,12 +308,13 @@ class StructuredWorkflowIntentAnalyzer:
                         aggregation_match.group("function").casefold()
                     ],
                 })
-            if len(aggregations) > 5:
+            if len(left_aggregations) > 5 or len(right_aggregations) > 5:
                 return {
                     "join_requested": True,
                     "join_plan": None,
                     "join_error": (
-                        "한 요청에서 오른쪽 집계는 5개까지 지정할 수 있습니다."
+                        "한 요청에서 왼쪽과 오른쪽 집계는 각각 5개까지 "
+                        "지정할 수 있습니다."
                     ),
                 }
         plan = {
@@ -317,9 +324,17 @@ class StructuredWorkflowIntentAnalyzer:
             "right_key": right_key,
             "join_type": join_type,
         }
-        if aggregations:
+        if left_aggregations:
+            plan["left_aggregation"] = (
+                left_aggregations[0]
+                if len(left_aggregations) == 1
+                else left_aggregations
+            )
+        if right_aggregations:
             plan["right_aggregation"] = (
-                aggregations[0] if len(aggregations) == 1 else aggregations
+                right_aggregations[0]
+                if len(right_aggregations) == 1
+                else right_aggregations
             )
         return {
             "join_requested": True,
@@ -530,16 +545,20 @@ class StructuredWorkflowIntentAnalyzer:
                         f"{join_plan['left_key']} ↔ "
                         f"{join_plan['right_key']} 키 매핑으로"
                     )
-                aggregations = self._aggregation_items(
-                    join_plan.get("right_aggregation")
-                )
-                aggregation_description = ""
-                if aggregations:
-                    aggregation_parts = [
-                        f"{join_plan['right_sheet']}/{item['column']} "
+                aggregation_parts = []
+                for field, sheet in (
+                    ("left_aggregation", join_plan["left_sheet"]),
+                    ("right_aggregation", join_plan["right_sheet"]),
+                ):
+                    aggregation_parts.extend(
+                        f"{sheet}/{item['column']} "
                         f"{self._aggregation_function_label(item['function'])}"
-                        for item in aggregations
-                    ]
+                        for item in self._aggregation_items(
+                            join_plan.get(field)
+                        )
+                    )
+                aggregation_description = ""
+                if aggregation_parts:
                     aggregation_description = (
                         f"{' · '.join(aggregation_parts)} 집계 후 "
                     )
@@ -921,23 +940,34 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             key_label = str(join_plan.get("left_key") or "")
             if join_plan.get("left_key") != join_plan.get("right_key"):
                 key_label += f" ↔ {join_plan.get('right_key')}"
-            aggregations = StructuredWorkflowIntentAnalyzer._aggregation_items(
-                join_plan.get("right_aggregation")
-            )
-            aggregation_label = ""
-            if aggregations:
-                aggregation_parts = [
-                    "{}/{} {}".format(
-                        join_plan.get("right_sheet"),
-                        item.get("column"),
-                        StructuredWorkflowIntentAnalyzer
-                        ._aggregation_function_label(item.get("function")),
+            aggregation_labels = []
+            for side_label, field, sheet in (
+                ("왼쪽", "left_aggregation", join_plan.get("left_sheet")),
+                ("오른쪽", "right_aggregation", join_plan.get("right_sheet")),
+            ):
+                aggregations = (
+                    StructuredWorkflowIntentAnalyzer._aggregation_items(
+                        join_plan.get(field)
                     )
-                    for item in aggregations
-                ]
-                aggregation_label = (
-                    f" · 오른쪽 집계 {' · '.join(aggregation_parts)}"
                 )
+                if aggregations:
+                    aggregation_parts = [
+                        "{}/{} {}".format(
+                            sheet,
+                            item.get("column"),
+                            StructuredWorkflowIntentAnalyzer
+                            ._aggregation_function_label(item.get("function")),
+                        )
+                        for item in aggregations
+                    ]
+                    aggregation_labels.append(
+                        f"{side_label} 집계 {' · '.join(aggregation_parts)}"
+                    )
+            aggregation_label = (
+                f" · {' · '.join(aggregation_labels)}"
+                if aggregation_labels
+                else ""
+            )
             after += (
                 f"\n읽기 전용 {join_label} 조인: "
                 f"{join_plan.get('left_sheet')} ↔ {join_plan.get('right_sheet')} "

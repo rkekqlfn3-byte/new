@@ -87,6 +87,7 @@ PROBE_SPECS = {
             "bounded_pivot_summaries_created",
             "explicit_join_verified",
             "mapped_join_keys_verified",
+            "left_preaggregation_verified",
             "aggregated_join_verified",
             "multi_aggregation_join_verified",
             "explicit_selection_scope_verified",

@@ -71,12 +71,13 @@ def _create_source(path):
         workbook = application.Workbooks.Add()
         sheet = workbook.Worksheets.Item(1)
         sheet.Name = "매출"
-        sheet.Range("A1:E5").Value2 = (
+        sheet.Range("A1:E6").Value2 = (
             ("항목ID", "지역", "담당자", "수량", "매출"),
             (1, "서울", "김", 10, 1200000),
             (2, "부산", "이", 7, 900000),
             (3, "서울", "박", 12, 1500000),
             (4, "대전", "최", 5, 600000),
+            (1, "서울", "정", 2, 300000),
         )
         cost_sheet = workbook.Worksheets.Add(After=sheet)
         cost_sheet.Name = "비용"
@@ -311,6 +312,13 @@ def _owned_probe(report_format="word", progress=None):
                 "left_key": "항목ID",
                 "right_key": "참조항목ID",
                 "join_type": "inner",
+                "left_aggregation": [
+                    {"column": "매출", "function": "sum"},
+                    {"column": "수량", "function": "average"},
+                    {"column": "담당자", "function": "count"},
+                    {"column": "매출", "function": "minimum"},
+                    {"column": "매출", "function": "maximum"},
+                ],
                 "right_aggregation": [
                     {"column": "비용", "function": "sum"},
                     {"column": "비용", "function": "average"},
@@ -409,6 +417,12 @@ def _owned_probe(report_format="word", progress=None):
             else {}
         )
         join_summary = dict(join_table.get("join") or {})
+        raw_left_aggregations = join_summary.get("left_aggregation") or []
+        left_aggregation_summaries = (
+            [dict(raw_left_aggregations)]
+            if isinstance(raw_left_aggregations, dict)
+            else [dict(item) for item in raw_left_aggregations]
+        )
         raw_aggregations = join_summary.get("right_aggregation") or []
         aggregation_summaries = (
             [dict(raw_aggregations)]
@@ -442,6 +456,53 @@ def _owned_probe(report_format="word", progress=None):
                 and join_summary.get("right_key") == "참조항목ID"
                 and join_summary.get("left_key")
                 != join_summary.get("right_key")
+            ),
+            "left_preaggregation_verified": (
+                left_aggregation_summaries == [
+                    {
+                        "column": "매출",
+                        "function": "sum",
+                        "input_rows": 5,
+                        "groups": 4,
+                    },
+                    {
+                        "column": "수량",
+                        "function": "average",
+                        "input_rows": 5,
+                        "groups": 4,
+                    },
+                    {
+                        "column": "담당자",
+                        "function": "count",
+                        "input_rows": 5,
+                        "groups": 4,
+                    },
+                    {
+                        "column": "매출",
+                        "function": "minimum",
+                        "input_rows": 5,
+                        "groups": 4,
+                    },
+                    {
+                        "column": "매출",
+                        "function": "maximum",
+                        "input_rows": 5,
+                        "groups": 4,
+                    },
+                ]
+                and join_table.get("headers", [])[:6] == [
+                    "매출/항목ID",
+                    "매출/매출 합계",
+                    "매출/수량 평균",
+                    "매출/담당자 건수",
+                    "매출/매출 최솟값",
+                    "매출/매출 최댓값",
+                ]
+                and [row[:6] for row in join_table.get("rows", [])] == [
+                    [1, 1500000, 6, 2, 300000, 1200000],
+                    [3, 1500000, 12, 1, 1500000, 1500000],
+                    [4, 600000, 5, 1, 600000, 600000],
+                ]
             ),
             "aggregated_join_verified": (
                 aggregation_summaries

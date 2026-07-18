@@ -674,10 +674,11 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertIn("시트명과 키는 재사용 스킬로 저장하지 않았습니다", completed["message"])
         self.assertIsNone(self.workflow_skills.latest_candidate())
 
-    def test_explicit_right_sum_aggregation_is_previewed_and_executed(self):
+    def test_explicit_both_side_aggregation_is_previewed_and_executed(self):
         self.ppt.fail_times = 0
         preview = self.command(
-            "고객 시트의 고객ID와 주문 시트의 구매자ID로 주문 시트의 "
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 고객 시트의 "
+            "구매액을 합계 집계하고 주문 시트의 "
             "매출을 합계 집계해서 왼쪽 조인해서 Word 보고서와 "
             "5장짜리 PPT 만들어줘",
             "join-aggregate",
@@ -689,9 +690,14 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
 
         self.assertEqual("confirmation_required", preview["status"])
         self.assertEqual(
+            {"column": "구매액", "function": "sum"},
+            plan["join_plan"]["left_aggregation"],
+        )
+        self.assertEqual(
             {"column": "매출", "function": "sum"},
             plan["join_plan"]["right_aggregation"],
         )
+        self.assertIn("왼쪽 집계 고객/구매액 합계", preview["message"])
         self.assertIn("오른쪽 집계 주문/매출 합계", preview["message"])
 
         completed = self.approve(preview)
@@ -700,6 +706,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(
             plan["join_plan"], self.analyzer.contexts[-1]["join_plan"]
         )
+        self.assertIn("고객/구매액 합계", completed["message"])
         self.assertIn("주문/매출 합계 집계", completed["message"])
         self.assertIsNone(self.workflow_skills.latest_candidate())
 
