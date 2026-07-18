@@ -119,7 +119,7 @@ python -m verification.prototype11_stage10_probe --report-format hwp --timeout 2
 3단계 상태 저장, 생성 Office/HWP 프로세스 정리를 통과했다. 사용자 문서나 이미
 실행 중인 대상 앱 프로세스가 있으면 probe는 실행하지 않는다.
 
-같은 날 최신 전체 자동 회귀는 806개 중 803개 통과(unit 282·integration 318·
+같은 날 최신 전체 자동 회귀는 811개 중 808개 통과(unit 287·integration 318·
 windows 203), 외부 AI 자격 증명이 필요한 3개 skip, 실패 0개였다.
 
 ## 현재 범위

@@ -28,6 +28,7 @@ runtime_data/
 # Generated verification output
 verification/*_report.json
 verification/*_progress.txt
+verification/product_goal_manual_acceptance.json
 outputs/
 
 # Local editor and OS files

@@ -2,6 +2,8 @@
 
 제품의 장기 방향과 기능별 수용 기준은
 [JARVIS 제품 Goal](docs/JARVIS_PRODUCT_GOAL.md)에 고정해 두었습니다.
+자동 증거와 수동 수용 항목의 구분은
+[제품 Goal 수용 게이트](docs/PRODUCT_GOAL_ACCEPTANCE.md)를 따릅니다.
 
 Windows에서 한국어 명령으로 앱, 웹, Excel, 한글, Word, PowerPoint를 제어하고
 AI 질문·대화를 지원하는 개인용 데스크톱 도우미입니다. 현재 개발 소스 버전은
@@ -210,10 +212,11 @@ handle만 갱신하고 동일 문서 fingerprint를 재확인한 뒤 계속합�
 .venv\Scripts\python.exe -m tests.test_runner windows
 .venv\Scripts\python.exe -m tests.test_runner live
 .venv\Scripts\python.exe -m tests.test_runner all
+.venv\Scripts\python.exe -m verification.product_goal_acceptance --automated-only
 ```
 
 2026-07-18 한글 보고서 워크플로 보강 기준으로 전체 자동 테스트
-806개 중 803개가 통과했고(unit 282·integration 318·windows 203), 실제 외부
+811개 중 808개가 통과했고(unit 287·integration 318·windows 203), 실제 외부
 AI 자격 증명과 호출 승인이 필요한 라이브 테스트 3개만 건너뛰었으며 실패는
 0개입니다. 8단계는 Excel·한글·Word·PowerPoint 각각
 100/100회와 적용·검증·Undo를 통과했습니다. 9단계 소유 `.xlsm`은 프로젝트
