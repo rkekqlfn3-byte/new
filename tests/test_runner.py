@@ -22,6 +22,7 @@ TEST_GROUPS = {
         "tests.unit.test_browser_launcher",
         "tests.unit.test_edit_context",
         "tests.unit.test_edit_mode_contracts",
+        "tests.unit.test_edit_target_identity",
         "tests.unit.test_edit_session",
         "tests.unit.test_learning_quality",
         "tests.unit.test_learning_schema",
@@ -44,7 +45,10 @@ TEST_GROUPS = {
         "tests.unit.test_stage10_workflow",
         "tests.unit.test_stage11_user_learning",
         "tests.unit.test_stage12_self_diagnosis",
+        "tests.unit.test_failure_triage",
         "tests.unit.test_restart",
+        "tests.unit.test_recovery_contract",
+        "tests.unit.test_selection_overlay",
         "tests.unit.test_ui_persistence_refresh",
     ),
     "integration": (
