@@ -60,6 +60,15 @@ PROBE_SPECS = {
         "file": "prototype11_stage9_report.json",
         "probe": "prototype11_stage9_excel_vba",
     },
+    "hwp_workflow_watchdog": {
+        "file": "prototype11_hwp_watchdog_report.json",
+        "probe": "prototype11_hwp_workflow_watchdog",
+        "required_checks": (
+            "bounded_timeout_or_generation",
+            "generation_readback_or_typed_timeout",
+            "partial_output_removed_on_timeout",
+        ),
+    },
     "workflow_word": {
         "file": "prototype11_stage10_word_report.json",
         "probe": "prototype11_stage10_document_workflow",
@@ -112,6 +121,7 @@ GOAL_AXES = {
             "native_word_powerpoint",
             "four_app_stability",
             "excel_vba",
+            "hwp_workflow_watchdog",
         ),
     },
     "successful_work_reuse": {"probes": ("user_learning",)},
@@ -119,7 +129,9 @@ GOAL_AXES = {
         "probes": ("workflow_word", "workflow_hwp", "workflow_both")
     },
     "user_preference_learning": {"probes": ("user_learning",)},
-    "failure_classification": {"probes": ("failure_diagnosis",)},
+    "failure_classification": {
+        "probes": ("failure_diagnosis", "hwp_workflow_watchdog"),
+    },
     "novice_accessibility": {"probes": ()},
 }
 PROBE_COMMANDS = (
@@ -127,6 +139,7 @@ PROBE_COMMANDS = (
     ("prototype1_stage6_probe", (), False),
     ("prototype1_stage8_probe", (), True),
     ("prototype11_stage9_probe", (), True),
+    ("prototype11_hwp_watchdog_probe", (), True),
     (
         "prototype11_stage10_probe",
         (

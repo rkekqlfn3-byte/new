@@ -6,7 +6,9 @@ import copy
 import hashlib
 import json
 import math
+import multiprocessing
 import os
+import queue
 import re
 import time
 import uuid
@@ -62,20 +64,46 @@ class WorkflowExecutionError(WorkflowError):
     status = "failed"
     retryable = True
 
-    def __init__(self, workflow_id: str, step: str, message: str):
+    def __init__(
+        self,
+        workflow_id: str,
+        step: str,
+        message: str,
+        *,
+        cause=None,
+    ):
         self.workflow_id = str(workflow_id)
         self.step = str(step)
         self.failed_step = self.step
+        cause_error_type = str(
+            getattr(cause, "error_type", "") or ""
+        ).strip()
+        if cause_error_type:
+            self.error_type = cause_error_type
+        cause_status = str(getattr(cause, "status", "") or "").strip()
+        if cause_status:
+            self.status = cause_status
+        if hasattr(cause, "retryable"):
+            self.retryable = bool(cause.retryable)
         self.diagnostic_context = {
             "workflow_hash": hashlib.sha256(
                 self.workflow_id.encode("utf-8")
             ).hexdigest().upper(),
             "failed_step": self.failed_step,
+            "cause_error_type": self.error_type,
         }
         super().__init__(
             f"워크플로 {self.workflow_id}의 {self.step} 단계에서 실패했습니다: {message} "
             "같은 Excel 문서에서 '실패한 워크플로 이어서'라고 요청하면 이 단계부터 다시 시도합니다."
         )
+
+
+class HwpWorkflowTimeout(WorkflowError):
+    """A Jarvis-owned HWP worker exceeded its bounded execution window."""
+
+    error_type = "timeout"
+    status = "failed"
+    retryable = True
 
 
 def _timestamp() -> str:
@@ -720,12 +748,95 @@ class WordReportWriter:
                     lease.cleanup()
 
 
+HWP_PROCESS_NAMES = frozenset({"hwp.exe", "hwp64.exe"})
+DEFAULT_HWP_WORKFLOW_TIMEOUT_SECONDS = 60.0
+
+
+def _hwp_process_ids() -> set[int]:
+    try:
+        import psutil
+    except ImportError:
+        return set()
+    result = set()
+    for process in psutil.process_iter(["pid", "name"]):
+        try:
+            if str(process.info.get("name") or "").casefold() in HWP_PROCESS_NAMES:
+                result.add(int(process.info["pid"]))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return result
+
+
+def _stop_owned_hwp_process(process_id: int, baseline: set[int]) -> bool:
+    process_id = int(process_id or 0)
+    if process_id <= 0 or process_id in set(baseline or set()):
+        return False
+    try:
+        import psutil
+
+        process = psutil.Process(process_id)
+        if str(process.name() or "").casefold() not in HWP_PROCESS_NAMES:
+            return False
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except psutil.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+        return True
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+        return False
+
+
+def _queue_latest_nowait(values):
+    latest = None
+    while True:
+        try:
+            latest = values.get_nowait()
+        except queue.Empty:
+            return latest
+
+
 class HwpReportWriter:
     """Create one new HWP report in a Jarvis-owned HwpObject."""
 
-    def __init__(self, application_factory=None, com_runtime=None):
+    def __init__(
+        self,
+        application_factory=None,
+        com_runtime=None,
+        *,
+        timeout_seconds=None,
+        process_context_factory=None,
+        process_ids=None,
+        process_stopper=None,
+        _worker_mode=False,
+        _ownership_reporter=None,
+    ):
         self._application_factory = application_factory
         self._com_runtime = com_runtime
+        configured_timeout = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else os.environ.get(
+                "JARVIS_HWP_WORKFLOW_TIMEOUT_SECONDS",
+                DEFAULT_HWP_WORKFLOW_TIMEOUT_SECONDS,
+            )
+        )
+        try:
+            configured_timeout = float(configured_timeout)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "한글 보고서 생성 제한 시간은 숫자여야 합니다."
+            ) from error
+        self._timeout_seconds = max(5.0, min(configured_timeout, 300.0))
+        self._process_context_factory = (
+            process_context_factory
+            or (lambda: multiprocessing.get_context("spawn"))
+        )
+        self._process_ids = process_ids or _hwp_process_ids
+        self._process_stopper = process_stopper or _stop_owned_hwp_process
+        self._worker_mode = bool(_worker_mode)
+        self._ownership_reporter = _ownership_reporter
 
     @staticmethod
     def _formatting_plan(preferences=None) -> dict[str, Any]:
@@ -774,15 +885,109 @@ class HwpReportWriter:
             if key in plan
         }
 
-    def run(self, context: Mapping[str, Any], work_product: Mapping[str, Any]) -> dict[str, Any]:
-        from engine.app_actions.com_lifecycle import OfficeApplicationLease, com_apartment
-        from engine.app_actions.hwp_adapter import create_owned_hwp_application
-
+    @staticmethod
+    def _validated_output_path(context: Mapping[str, Any]) -> Path:
         output_path = Path(context["output_path"])
         if output_path.exists():
             raise WorkflowError("기존 한글 파일을 덮어쓰지 않습니다.")
         if output_path.suffix.casefold() != ".hwp":
             raise WorkflowError("한글 보고서 출력 경로는 .hwp 형식이어야 합니다.")
+        return output_path
+
+    def run(
+        self,
+        context: Mapping[str, Any],
+        work_product: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        output_path = self._validated_output_path(context)
+        product = WorkProductData.from_value(work_product).to_dict()
+        if (
+            self._worker_mode
+            or self._application_factory is not None
+            or self._com_runtime is not None
+        ):
+            return self._run_inline(context, product)
+        return self._run_isolated(context, product, output_path)
+
+    def _run_isolated(
+        self,
+        context: Mapping[str, Any],
+        work_product: Mapping[str, Any],
+        output_path: Path,
+    ) -> dict[str, Any]:
+        baseline = set(self._process_ids())
+        process_context = self._process_context_factory()
+        result_queue = process_context.Queue(maxsize=1)
+        ownership_queue = process_context.Queue(maxsize=2)
+        process = process_context.Process(
+            target=_hwp_report_worker,
+            args=(
+                dict(context),
+                dict(work_product),
+                tuple(sorted(baseline)),
+                result_queue,
+                ownership_queue,
+            ),
+        )
+        process.start()
+        process.join(self._timeout_seconds)
+        owned_process_id = _queue_latest_nowait(ownership_queue)
+        try:
+            if process.is_alive():
+                process.terminate()
+                process.join(5)
+                if process.is_alive():
+                    process.kill()
+                    process.join(5)
+                if owned_process_id:
+                    self._process_stopper(
+                        int(owned_process_id),
+                        baseline,
+                    )
+                try:
+                    output_path.unlink()
+                except FileNotFoundError:
+                    pass
+                raise HwpWorkflowTimeout(
+                    "한글 보고서 저장 응답이 "
+                    f"{self._timeout_seconds:g}초 안에 끝나지 않았습니다. "
+                    "한글의 파일 접근 확인 창 또는 보안 모듈 상태를 확인한 뒤 "
+                    "'실패한 워크플로 이어서'로 다시 시도해주세요."
+                )
+            try:
+                payload = result_queue.get(timeout=2)
+            except queue.Empty as error:
+                raise WorkflowError(
+                    "한글 보고서 생성 프로세스가 결과 없이 종료되었습니다."
+                ) from error
+            if owned_process_id:
+                self._process_stopper(int(owned_process_id), baseline)
+            if payload.get("success"):
+                return dict(payload["result"])
+            message = str(
+                payload.get("message")
+                or "한글 보고서 생성 프로세스가 실패했습니다."
+            )
+            if payload.get("error_type") == "timeout":
+                raise HwpWorkflowTimeout(message)
+            raise WorkflowError(message)
+        finally:
+            for values in (result_queue, ownership_queue):
+                try:
+                    values.close()
+                    values.join_thread()
+                except Exception:
+                    pass
+
+    def _run_inline(
+        self,
+        context: Mapping[str, Any],
+        work_product: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        from engine.app_actions.com_lifecycle import OfficeApplicationLease, com_apartment
+        from engine.app_actions.hwp_adapter import create_owned_hwp_application
+
+        output_path = self._validated_output_path(context)
         product = WorkProductData.from_value(work_product)
         lease = None
         hwp = None
@@ -794,6 +999,8 @@ class HwpReportWriter:
                     application = self._application_factory("HWPFrame.HwpObject")
                     lease = OfficeApplicationLease(application, True, "hwp")
                 hwp = lease.application
+                if callable(self._ownership_reporter):
+                    self._ownership_reporter()
                 report_text = WordReportWriter._report_text(
                     product, context.get("preferences")
                 )
@@ -841,6 +1048,40 @@ class HwpReportWriter:
                 hwp = None
                 if lease is not None:
                     lease.cleanup()
+
+
+def _hwp_report_worker(
+    context,
+    work_product,
+    baseline_process_ids,
+    result_queue,
+    ownership_queue,
+):
+    """Generate one HWP artifact in an isolated process and return JSON data."""
+    baseline = set(int(value) for value in baseline_process_ids)
+
+    def report_owned_process():
+        created = _hwp_process_ids() - baseline
+        if len(created) == 1:
+            ownership_queue.put_nowait(next(iter(created)))
+
+    writer = HwpReportWriter(
+        _worker_mode=True,
+        _ownership_reporter=report_owned_process,
+    )
+    try:
+        result_queue.put({
+            "success": True,
+            "result": writer.run(context, work_product),
+        })
+    except BaseException as error:
+        result_queue.put({
+            "success": False,
+            "error_type": str(
+                getattr(error, "error_type", "execution_error")
+            ),
+            "message": str(error)[:2_000],
+        })
 
 
 class PowerPointSummaryWriter:
@@ -1616,7 +1857,12 @@ class WorkflowExecutor:
                 state["failed_step"] = name
                 state["current_step"] = name
                 self._save(state)
-                raise WorkflowExecutionError(state["workflow_id"], name, str(error)) from error
+                raise WorkflowExecutionError(
+                    state["workflow_id"],
+                    name,
+                    str(error),
+                    cause=error,
+                ) from error
         state["status"] = "completed"
         state["current_step"] = None
         state["failed_step"] = None

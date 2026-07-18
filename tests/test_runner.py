@@ -40,6 +40,7 @@ TEST_GROUPS = {
         "tests.unit.test_prototype11_stage10_probe",
         "tests.unit.test_prototype11_stage11_probe",
         "tests.unit.test_prototype11_stage12_probe",
+        "tests.unit.test_prototype11_hwp_watchdog_probe",
         "tests.unit.test_product_goal_acceptance",
         "tests.unit.test_stage5_editing",
         "tests.unit.test_stage6_editing",

@@ -1,11 +1,13 @@
 import tempfile
 import unittest
+import queue
 from pathlib import Path
 from types import SimpleNamespace
 
 from engine.workflows import (
     ExcelSalesAnalyzer,
     HwpReportWriter,
+    HwpWorkflowTimeout,
     PowerPointSummaryWriter,
     WordReportWriter,
     WorkProductData,
@@ -407,6 +409,89 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual(3, application.alignment)
         self.assertTrue(application.cleared)
         self.assertTrue(application.quit_called)
+
+    def test_default_hwp_writer_times_out_and_cleans_only_reported_process(self):
+        output = self.root / "시간초과_보고서.hwp"
+        stop_calls = []
+
+        class FakeProcess:
+            def __init__(self, args):
+                self.args = args
+                self.alive = True
+                self.terminated = False
+
+            def start(self):
+                Path(self.args[0]["output_path"]).write_bytes(b"partial")
+                self.args[4].put_nowait(222)
+
+            def join(self, _timeout=None):
+                return None
+
+            def is_alive(self):
+                return self.alive
+
+            def terminate(self):
+                self.terminated = True
+                self.alive = False
+
+            def kill(self):
+                self.alive = False
+
+        class FakeProcessContext:
+            def Queue(self, maxsize=0):
+                return queue.Queue(maxsize=maxsize)
+
+            def Process(self, target, args):
+                self.target = target
+                self.process = FakeProcess(args)
+                return self.process
+
+        process_context = FakeProcessContext()
+        writer = HwpReportWriter(
+            timeout_seconds=5,
+            process_context_factory=lambda: process_context,
+            process_ids=lambda: {111},
+            process_stopper=lambda process_id, baseline: stop_calls.append(
+                (process_id, set(baseline))
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            HwpWorkflowTimeout,
+            "파일 접근 확인 창 또는 보안 모듈",
+        ):
+            writer.run(
+                {"output_path": str(output), "preferences": {}},
+                product(self.source),
+            )
+
+        self.assertTrue(process_context.process.terminated)
+        self.assertEqual([(222, {111})], stop_calls)
+        self.assertFalse(output.exists())
+
+    def test_hwp_timeout_keeps_resume_state_and_timeout_diagnosis(self):
+        class TimeoutWriter:
+            def run(self, context, work_product):
+                raise HwpWorkflowTimeout("simulated HWP save timeout")
+
+        executor = WorkflowExecutor(
+            self.root / "hwp-timeout-state",
+            analyzer=FakeAnalyzer(),
+            word_writer=FakeWriter("word"),
+            hwp_writer=TimeoutWriter(),
+            powerpoint_writer=FakeWriter("ppt", slides=5),
+        )
+        state = executor.prepare(self.source, report_format="hwp")
+
+        with self.assertRaises(WorkflowExecutionError) as raised:
+            executor.start(state)
+
+        self.assertEqual("timeout", raised.exception.error_type)
+        self.assertTrue(raised.exception.retryable)
+        stored = executor.load(state["workflow_id"])
+        self.assertEqual("failed", stored["status"])
+        self.assertEqual("create_hwp_report", stored["failed_step"])
+        self.assertEqual(["analyze_excel"], stored["successful_steps"])
 
     def test_workflow_intent_selects_hwp_word_default_and_both_formats(self):
         analyzer = StructuredWorkflowIntentAnalyzer()

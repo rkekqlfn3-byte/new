@@ -363,7 +363,10 @@ def _owned_probe(report_format="word", progress=None):
         return {
             "status": "unavailable" if isinstance(error, (ImportError, ModuleNotFoundError)) else "failed",
             "stage": stage,
-            "error_type": type(error).__name__,
+            "error_type": str(
+                getattr(error, "error_type", type(error).__name__)
+            ),
+            "exception_type": type(error).__name__,
             "message": str(error),
             "user_process_protected": True,
         }
