@@ -763,6 +763,7 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
                 "resume_business_workflow",
             }
             or workflow_intent.params.get("reuse_approved_skill")
+            or workflow_intent.params.get("contextual_current_document")
         ):
             # A remembered-workflow command may also contain ``PPT 7장``.
             # The explicit number belongs to this replay, not to long-term

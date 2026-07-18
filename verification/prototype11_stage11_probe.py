@@ -13,6 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
+from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 from engine.learning import (
     BusinessWorkflowSkillManager,
     UserPreferenceLearningManager,
@@ -221,6 +222,10 @@ def _owned_probe():
             workflow_candidate["candidate_id"]
         )
         workflow_template = active_workflow_skill["template"]
+        contextual_intent = StructuredWorkflowIntentAnalyzer().analyze(
+            "이거 보고서랑 7장짜리 발표자료 만들어줘",
+            {"app_type": "excel"},
+        )
         replay_plan = executor.prepare(
             source,
             title="Stage 11 재사용 스킬 검증",
@@ -295,6 +300,12 @@ def _owned_probe():
                 file_fingerprint(report_path) == first_report_fingerprint
                 and file_fingerprint(presentation_path)
                 == first_presentation_fingerprint
+            ),
+            "contextual_current_excel_workflow_routed": bool(
+                contextual_intent
+                and contextual_intent.operation == "create_business_workflow"
+                and contextual_intent.params.get("contextual_current_document")
+                and contextual_intent.params.get("slide_count") == 7
             ),
             "word_report_reopened_with_approved_formatting": word_verified,
             "preferred_seven_slides_created": slide_count == 7,

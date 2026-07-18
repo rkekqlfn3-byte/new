@@ -88,6 +88,7 @@ PROBE_SPECS = {
             "workflow_skill_content_free_store",
             "workflow_skill_fresh_output_plan",
             "workflow_skill_actual_replay_verified",
+            "contextual_current_excel_workflow_routed",
         ),
     },
     "failure_diagnosis": {

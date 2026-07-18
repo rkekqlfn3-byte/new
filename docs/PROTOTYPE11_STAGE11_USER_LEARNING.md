@@ -201,7 +201,7 @@ python -m verification.prototype11_stage11_probe --timeout 240
 Excel 원본 불변, Office 프로세스 정리가 모두 통과했다. 사용자 문서와 실제
 사용자 선호 저장소는 변경하지 않았다.
 
-같은 날 최신 전체 자동 회귀는 848개 중 845개 통과(unit 316·integration 326·
+같은 날 최신 전체 자동 회귀는 850개 중 847개 통과(unit 317·integration 327·
 windows 203), 외부 AI 자격 증명이 필요한 3개 skip, 실패 0개였다.
 
 ## 현재 제한

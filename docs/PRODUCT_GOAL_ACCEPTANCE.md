@@ -22,7 +22,9 @@ Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 �
 기록이 모두 성립하는지도 필수로 검사한다.
 또한 검증된 복합 업무를 경로·내용 없이 구조만 저장하는지, 재생 계획이 새
 산출물 경로를 쓰는지, 실제 Word·PowerPoint 재생과 기존 산출물 보존이
-성립하는지도 요구한다.
+성립하는지도 요구한다. Excel 편집 문맥의 `이거 보고서랑 발표자료 만들어줘`가
+현재 연결 Excel 전체 업무로 라우팅되고 일회성 PPT 장수가 장기 선호로 새지
+않는 검사도 필수다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

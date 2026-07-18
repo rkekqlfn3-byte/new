@@ -72,6 +72,23 @@ class StructuredWorkflowIntentAnalyzer:
         "지난번 방식 잊어",
         "워크플로 스킬 해제",
     )
+    CURRENT_DOCUMENT_TERMS = (
+        "이거",
+        "이 자료",
+        "이 파일",
+        "이 데이터",
+        "현재 자료",
+        "현재 엑셀",
+        "현재 파일",
+        "여기 데이터",
+    )
+    CREATE_ACTION_TERMS = (
+        "만들",
+        "작성",
+        "생성",
+        "정리",
+        "변환",
+    )
 
     @classmethod
     def _creation_params(
@@ -92,8 +109,8 @@ class StructuredWorkflowIntentAnalyzer:
             report_format = default_report_format
         slide_count = None
         for pattern in (
-            r"(?:ppt|파워포인트|프레젠테이션|슬라이드).*?(\d{1,2})\s*장",
-            r"(\d{1,2})\s*장(?:짜리)?\s*(?:ppt|파워포인트|프레젠테이션|슬라이드)",
+            r"(?:ppt|파워포인트|프레젠테이션|발표자료|슬라이드).*?(\d{1,2})\s*장",
+            r"(\d{1,2})\s*장(?:짜리)?\s*(?:ppt|파워포인트|프레젠테이션|발표자료|슬라이드)",
         ):
             match = re.search(pattern, command)
             if match:
@@ -139,11 +156,16 @@ class StructuredWorkflowIntentAnalyzer:
         has_analysis = any(term in command for term in ("분석", "요약", "analy"))
         has_report = any(term in command for term in self.CREATE_REPORT_TERMS)
         has_slides = any(term in command for term in self.CREATE_SLIDE_TERMS)
-        if has_analysis and has_report and has_slides:
+        contextual_current_document = bool(
+            any(term in command for term in self.CURRENT_DOCUMENT_TERMS)
+            and any(term in command for term in self.CREATE_ACTION_TERMS)
+        )
+        if (has_analysis or contextual_current_document) and has_report and has_slides:
             params = self._creation_params(
                 command,
                 default_report_format="word",
             )
+            params["contextual_current_document"] = contextual_current_document
             report_format = str(params["report_format"])
             report_label = {
                 "word": "Word",
@@ -151,17 +173,23 @@ class StructuredWorkflowIntentAnalyzer:
                 "both": "Word·한글",
             }[report_format]
             slide_count = params["slide_count"]
+            source_label = (
+                "현재 연결 Excel 전체 읽기 전용 분석"
+                if contextual_current_document
+                else "Excel 읽기 전용 분석"
+            )
+            description = (
+                f"{source_label} → {report_label} 보고서 → "
+                f"PowerPoint {slide_count}장 요약 생성"
+                if slide_count is not None
+                else (
+                    f"{source_label} → {report_label} 보고서 → "
+                    "PowerPoint 요약 생성"
+                )
+            )
             return WorkflowIntent(
                 "create_business_workflow",
-                (
-                    f"Excel 읽기 전용 분석 → {report_label} 보고서 → "
-                    f"PowerPoint {slide_count}장 요약 생성"
-                    if slide_count is not None
-                    else (
-                        f"Excel 읽기 전용 분석 → {report_label} 보고서 → "
-                        "PowerPoint 요약 생성"
-                    )
-                ),
+                description,
                 params,
             )
         return None

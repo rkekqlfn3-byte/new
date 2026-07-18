@@ -452,6 +452,38 @@ class Stage10WorkflowTests(unittest.TestCase):
             "deactivate_business_workflow_skill", forget.operation
         )
 
+    def test_current_excel_reference_can_supply_omitted_analysis_phrase(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        context = {"app_type": "excel"}
+
+        generic = analyzer.analyze(
+            "이거 보고서랑 발표자료 만들어줘",
+            context,
+        )
+        explicit = analyzer.analyze(
+            "현재 엑셀을 한글 보고서와 발표자료 7장으로 정리해줘",
+            context,
+        )
+
+        self.assertEqual("create_business_workflow", generic.operation)
+        self.assertTrue(generic.params["contextual_current_document"])
+        self.assertEqual("word", generic.params["report_format"])
+        self.assertIn("현재 연결 Excel 전체", generic.description)
+        self.assertEqual("hwp", explicit.params["report_format"])
+        self.assertEqual(7, explicit.params["slide_count"])
+        self.assertIsNone(
+            analyzer.analyze(
+                "이거 보고서랑 발표자료가 뭐야?",
+                context,
+            )
+        )
+        self.assertIsNone(
+            analyzer.analyze(
+                "이거 보고서랑 발표자료 만들어줘",
+                {"app_type": "word"},
+            )
+        )
+
     def test_both_report_plan_runs_each_report_as_a_separate_verified_step(self):
         analyzer = FakeAnalyzer()
         word = FakeWriter("word")

@@ -391,6 +391,39 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertFalse(reuse["success"])
         self.assertEqual("blocked", reuse["status"])
 
+    def test_current_excel_reference_routes_to_workflow_without_learning_slide_default(self):
+        self.ppt.fail_times = 0
+        preview = self.command(
+            "이거 보고서랑 5장짜리 발표자료 만들어줘",
+            "contextual-workflow-create",
+        )
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("현재 연결 Excel 전체", preview["message"])
+        completed = self.approve(preview)
+        self.assertTrue(completed["success"])
+        self.assertEqual(1, self.analyzer.calls)
+
+        explicit = self.command(
+            "현재 엑셀을 한글 보고서와 발표자료 7장으로 정리해줘",
+            "contextual-workflow-explicit",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
+
+        self.assertEqual("confirmation_required", explicit["status"])
+        self.assertEqual("hwp", plan["report_format"])
+        self.assertEqual(7, plan["slide_count"])
+        preference_candidates = self.controller._learning_manager().list_candidates(
+            include_observing=True
+        )
+        self.assertFalse(any(
+            item.get("preference") == "ppt_slide_count"
+            for item in preference_candidates
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
