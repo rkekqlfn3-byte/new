@@ -658,6 +658,8 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "right_sheet",
             "left_key",
             "right_key",
+            "match_basis",
+            "ambiguous",
             "cardinality",
             "matched_key_count",
             "left_distinct_count",
@@ -691,15 +693,44 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             right_key = re.sub(
                 r"[\s_\-]+", "", candidate["right_key"]
             ).casefold()
-            if left_key != right_key:
-                raise Stage10EditError("현재 후보 조회는 같은 이름 키만 허용합니다.")
-            identity = (
-                tuple(sorted((
+            match_basis = str(candidate.get("match_basis") or "")
+            if match_basis == "normalized_header":
+                if left_key != right_key:
+                    raise Stage10EditError(
+                        "같은 이름 후보의 양쪽 키 이름이 일치하지 않습니다."
+                    )
+            elif match_basis == "value_overlap":
+                def key_like(key):
+                    return bool(
+                        key in {
+                            "id", "key", "no", "번호", "코드", "식별자",
+                        }
+                        or key.endswith(("id", "key", "번호", "코드"))
+                    )
+
+                if left_key == right_key or not (
+                    key_like(left_key) and key_like(right_key)
+                ):
+                    raise Stage10EditError(
+                        "이름이 다른 후보는 양쪽 모두 ID·코드·번호형 키여야 합니다."
+                    )
+            else:
+                raise Stage10EditError("시트 관계 후보 근거가 올바르지 않습니다.")
+            candidate["match_basis"] = match_basis
+            if not isinstance(candidate.get("ambiguous"), bool):
+                raise Stage10EditError("시트 관계 후보 모호성 상태가 올바르지 않습니다.")
+            if match_basis == "normalized_header" and candidate["ambiguous"]:
+                raise Stage10EditError("같은 이름 후보를 모호한 후보로 표시할 수 없습니다.")
+            identity = tuple(sorted((
+                (
                     candidate["left_sheet"].casefold(),
+                    left_key,
+                ),
+                (
                     candidate["right_sheet"].casefold(),
-                ))),
-                left_key,
-            )
+                    right_key,
+                ),
+            )))
             if identity in identities:
                 raise Stage10EditError("같은 시트 관계 후보를 중복 표시할 수 없습니다.")
             identities.add(identity)
@@ -755,6 +786,20 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 or candidate["right_coverage"] != expected_right_coverage
             ):
                 raise Stage10EditError("시트 관계 후보 겹침 비율 검증에 실패했습니다.")
+            if (
+                match_basis == "value_overlap"
+                and (
+                    candidate["matched_key_count"] < 3
+                    or min(
+                        candidate["left_coverage"],
+                        candidate["right_coverage"],
+                    ) < 0.8
+                    or cardinality == "many_to_many"
+                )
+            ):
+                raise Stage10EditError(
+                    "이름이 다른 키 후보가 안전한 겹침 기준을 충족하지 않습니다."
+                )
             if not isinstance(candidate.get("sample_limited"), bool):
                 raise Stage10EditError("시트 관계 후보 표본 상태가 올바르지 않습니다.")
             if not isinstance(candidate.get("requires_preaggregation"), bool):
@@ -767,7 +812,9 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             expected_confidence = (
                 "high"
                 if (
-                    not candidate["sample_limited"]
+                    match_basis == "normalized_header"
+                    and not candidate["ambiguous"]
+                    and not candidate["sample_limited"]
                     and min(
                         candidate["left_coverage"],
                         candidate["right_coverage"],

@@ -814,13 +814,24 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
                 flags.append("양쪽 사전 집계 필요")
             if candidate.get("sample_limited"):
                 flags.append("표본 제한")
+            if candidate.get("match_basis") == "value_overlap":
+                flags.append("열 이름 다름")
+            if candidate.get("ambiguous"):
+                flags.append("복수 후보와 겹침")
             if candidate.get("confidence") != "high":
                 flags.append("사용자 검토 필요")
             suffix = f" · {' · '.join(flags)}" if flags else ""
+            left_key = candidate.get("left_key")
+            right_key = candidate.get("right_key")
+            key_description = (
+                str(left_key)
+                if left_key == right_key
+                else f"{left_key} ↔ {right_key}"
+            )
             lines.append(
                 f"{index}. {candidate.get('left_sheet')} ↔ "
                 f"{candidate.get('right_sheet')} · 키 "
-                f"{candidate.get('left_key')} · "
+                f"{key_description} · "
                 f"{cardinality_labels.get(candidate.get('cardinality'), '?')} · "
                 f"겹치는 키 {candidate.get('matched_key_count', 0)}개{suffix}"
             )

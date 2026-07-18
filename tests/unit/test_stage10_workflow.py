@@ -963,6 +963,8 @@ class Stage10WorkflowTests(unittest.TestCase):
                 "right_sheet": "주문",
                 "left_key": "고객ID",
                 "right_key": "고객 ID",
+                "match_basis": "normalized_header",
+                "ambiguous": False,
                 "cardinality": "one_to_one",
                 "matched_key_count": 3,
                 "left_distinct_count": 3,
@@ -980,6 +982,123 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertFalse(result["document_paths_reported"])
         self.assertNotIn("rows", result)
         self.assertNotIn("source_path", result)
+
+    def test_excel_relationship_inspection_suggests_different_named_keys_for_review(self):
+        lease = FakeLease()
+        workbook = FakeWorkbook(self.source, [
+            FakeWorksheet("고객", (
+                ("고객ID", "고객명"),
+                (1, "가"),
+                (2, "나"),
+                (3, "다"),
+                (4, "라"),
+            )),
+            FakeWorksheet("주문", (
+                ("구매자ID", "주문액"),
+                (1, 100),
+                (2, 200),
+                (3, 300),
+                (3, 150),
+                (4, 400),
+            )),
+        ])
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        result = analyzer.relationship_candidates({
+            "source_path": str(self.source),
+        })
+
+        self.assertTrue(lease.cleaned)
+        self.assertEqual(1, result["candidate_count"])
+        candidate = result["candidates"][0]
+        self.assertEqual("고객ID", candidate["left_key"])
+        self.assertEqual("구매자ID", candidate["right_key"])
+        self.assertEqual("value_overlap", candidate["match_basis"])
+        self.assertFalse(candidate["ambiguous"])
+        self.assertEqual("one_to_many", candidate["cardinality"])
+        self.assertEqual("review_required", candidate["confidence"])
+        self.assertFalse(result["automatic_execution_allowed"])
+
+    def test_excel_relationship_inspection_rejects_weak_different_named_keys(self):
+        lease = FakeLease()
+        workbook = FakeWorkbook(self.source, [
+            FakeWorksheet("고객", (
+                ("고객ID",), (1,), (2,), (3,), (4,),
+            )),
+            FakeWorksheet("주문", (
+                ("구매자ID",), (1,), (2,), (8,), (9,),
+            )),
+        ])
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        result = analyzer.relationship_candidates({
+            "source_path": str(self.source),
+        })
+
+        self.assertTrue(lease.cleaned)
+        self.assertEqual("no_candidate", result["status"])
+        self.assertEqual([], result["candidates"])
+
+    def test_excel_relationship_inspection_marks_competing_key_matches_ambiguous(self):
+        lease = FakeLease()
+        workbook = FakeWorkbook(self.source, [
+            FakeWorksheet("고객", (
+                ("고객ID",), (1,), (2,), (3,), (4,),
+            )),
+            FakeWorksheet("주문", (
+                ("고객ID", "구매자ID"),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+            )),
+        ])
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        result = analyzer.relationship_candidates({
+            "source_path": str(self.source),
+        })
+
+        self.assertTrue(lease.cleaned)
+        self.assertEqual(2, result["candidate_count"])
+        self.assertEqual(
+            ["normalized_header", "value_overlap"],
+            [candidate["match_basis"] for candidate in result["candidates"]],
+        )
+        self.assertEqual(
+            [False, True],
+            [candidate["ambiguous"] for candidate in result["candidates"]],
+        )
+        self.assertEqual(
+            ["high", "review_required"],
+            [candidate["confidence"] for candidate in result["candidates"]],
+        )
+
+    def test_excel_relationship_inspection_caps_candidates_and_prefers_same_names(self):
+        lease = FakeLease()
+        headers = tuple(f"키{index}ID" for index in range(12))
+        rows = tuple(tuple([value] * 12) for value in range(1, 5))
+        workbook = FakeWorkbook(self.source, [
+            FakeWorksheet("왼쪽", (headers, *rows)),
+            FakeWorksheet("오른쪽", (headers, *rows)),
+        ])
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        result = analyzer.relationship_candidates({
+            "source_path": str(self.source),
+        })
+
+        self.assertTrue(lease.cleaned)
+        self.assertEqual(10, result["candidate_count"])
+        self.assertEqual(10, len(result["candidates"]))
+        self.assertTrue(all(
+            candidate["match_basis"] == "normalized_header"
+            for candidate in result["candidates"]
+        ))
 
     def test_excel_analyzer_never_treats_shared_measure_as_join_key(self):
         result = self._analyze_sheets([

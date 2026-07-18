@@ -71,22 +71,22 @@ def _create_source(path):
         workbook = application.Workbooks.Add()
         sheet = workbook.Worksheets.Item(1)
         sheet.Name = "매출"
-        sheet.Range("A1:E6").Value2 = (
-            ("항목ID", "지역", "담당자", "수량", "매출"),
-            (1, "서울", "김", 10, 1200000),
-            (2, "부산", "이", 7, 900000),
-            (3, "서울", "박", 12, 1500000),
-            (4, "대전", "최", 5, 600000),
-            (1, "서울", "정", 2, 300000),
+        sheet.Range("A1:F6").Value2 = (
+            ("항목ID", "지역", "담당자", "수량", "매출", "고객ID"),
+            (1, "서울", "김", 10, 1200000, 101),
+            (2, "부산", "이", 7, 900000, 102),
+            (3, "서울", "박", 12, 1500000, 103),
+            (4, "대전", "최", 5, 600000, 104),
+            (1, "서울", "정", 2, 300000, 101),
         )
         cost_sheet = workbook.Worksheets.Add(After=sheet)
         cost_sheet.Name = "비용"
-        cost_sheet.Range("A1:D5").Value2 = (
-            ("참조항목ID", "항목", "담당자", "비용"),
-            (1, "인건비", "김", 300000),
-            (1, "교통비", "정", 200000),
-            (3, "임대료", "박", 200000),
-            (4, "광고비", "최", 150000),
+        cost_sheet.Range("A1:E5").Value2 = (
+            ("참조항목ID", "항목", "담당자", "비용", "구매자ID"),
+            (1, "인건비", "김", 300000, 101),
+            (1, "교통비", "정", 200000, 102),
+            (3, "임대료", "박", 200000, 103),
+            (4, "광고비", "최", 150000, 104),
         )
         workbook.SaveAs(str(path), FileFormat=51)
     finally:
@@ -451,22 +451,43 @@ def _owned_probe(report_format="word", progress=None):
             "relationship_inspection_verified": (
                 relationship_inspection == {
                     "status": "candidate_found",
-                    "candidate_count": 1,
-                    "candidates": [{
-                        "left_sheet": "비용",
-                        "right_sheet": "매출",
-                        "left_key": "담당자",
-                        "right_key": "담당자",
-                        "cardinality": "one_to_one",
-                        "matched_key_count": 4,
-                        "left_distinct_count": 4,
-                        "right_distinct_count": 5,
-                        "left_coverage": 1.0,
-                        "right_coverage": 0.8,
-                        "sample_limited": False,
-                        "requires_preaggregation": False,
-                        "confidence": "high",
-                    }],
+                    "candidate_count": 2,
+                    "candidates": [
+                        {
+                            "left_sheet": "비용",
+                            "right_sheet": "매출",
+                            "left_key": "담당자",
+                            "right_key": "담당자",
+                            "match_basis": "normalized_header",
+                            "ambiguous": False,
+                            "cardinality": "one_to_one",
+                            "matched_key_count": 4,
+                            "left_distinct_count": 4,
+                            "right_distinct_count": 5,
+                            "left_coverage": 1.0,
+                            "right_coverage": 0.8,
+                            "sample_limited": False,
+                            "requires_preaggregation": False,
+                            "confidence": "high",
+                        },
+                        {
+                            "left_sheet": "비용",
+                            "right_sheet": "매출",
+                            "left_key": "구매자ID",
+                            "right_key": "고객ID",
+                            "match_basis": "value_overlap",
+                            "ambiguous": False,
+                            "cardinality": "one_to_many",
+                            "matched_key_count": 4,
+                            "left_distinct_count": 4,
+                            "right_distinct_count": 4,
+                            "left_coverage": 1.0,
+                            "right_coverage": 1.0,
+                            "sample_limited": False,
+                            "requires_preaggregation": False,
+                            "confidence": "review_required",
+                        },
+                    ],
                     "automatic_execution_allowed": False,
                     "raw_cell_values_stored": False,
                     "document_paths_reported": False,

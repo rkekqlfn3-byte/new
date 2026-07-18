@@ -12,6 +12,7 @@ import queue
 import re
 import time
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -1174,105 +1175,220 @@ class ExcelSalesAnalyzer:
 
     @classmethod
     def _relationship_insights(cls, profiles) -> list[str]:
-        insights = []
-        relationship_count = 0
+        detected = []
+        profile_cache = {}
+        cardinality_rank = {
+            "one_to_one": 0,
+            "one_to_many": 1,
+            "many_to_one": 1,
+            "many_to_many": 2,
+        }
+
+        def column_profile(profile_index, profile, column):
+            cache_key = (profile_index, column)
+            if cache_key not in profile_cache:
+                profile_cache[cache_key] = cls._relation_column_profile(
+                    profile["rows"], column
+                )
+            return profile_cache[cache_key]
+
         for left_index, left in enumerate(profiles):
             left_headers = {}
             for column, header in enumerate(left["headers"]):
                 left_headers.setdefault(cls._header_key(header), []).append(
                     (column, header)
                 )
-            for right in profiles[left_index + 1:]:
+            for right_index, right in enumerate(
+                profiles[left_index + 1:],
+                start=left_index + 1,
+            ):
                 right_headers = {}
                 for column, header in enumerate(right["headers"]):
                     right_headers.setdefault(cls._header_key(header), []).append(
                         (column, header)
                     )
-                shared = sorted(set(left_headers) & set(right_headers))
-                for header_key in shared:
-                    if relationship_count >= MAX_RELATIONSHIPS:
-                        return insights
-                    if (
-                        not header_key
-                        or len(left_headers[header_key]) != 1
-                        or len(right_headers[header_key]) != 1
-                    ):
+                pair_candidates = []
+                for left_header_key, left_items in left_headers.items():
+                    if not left_header_key or len(left_items) != 1:
                         continue
-                    left_column, display_header = left_headers[header_key][0]
-                    right_column, right_display_header = right_headers[header_key][0]
-                    left_profile = cls._relation_column_profile(
-                        left["rows"], left_column
-                    )
-                    right_profile = cls._relation_column_profile(
-                        right["rows"], right_column
-                    )
-                    left_values = left_profile["values"]
-                    right_values = right_profile["values"]
-                    if not left_values or not right_values:
-                        continue
-                    matched = len(left_values & right_values)
-                    if matched <= 0:
-                        continue
-                    left_coverage = matched / len(left_values)
-                    right_coverage = matched / len(right_values)
-                    left_unique_ratio = (
-                        left_profile["unique_count"]
-                        / left_profile["nonempty_count"]
-                    )
-                    right_unique_ratio = (
-                        right_profile["unique_count"]
-                        / right_profile["nonempty_count"]
-                    )
-                    if (
-                        max(left_coverage, right_coverage) < 0.5
-                        or (
-                            not cls._looks_like_key_header(display_header)
-                            and max(left_unique_ratio, right_unique_ratio) < 0.8
+                    left_column, display_header = left_items[0]
+                    for right_header_key, right_items in right_headers.items():
+                        if not right_header_key or len(right_items) != 1:
+                            continue
+                        right_column, right_display_header = right_items[0]
+                        same_header = left_header_key == right_header_key
+                        if not same_header and not (
+                            cls._looks_like_key_header(display_header)
+                            and cls._looks_like_key_header(right_display_header)
+                        ):
+                            continue
+                        if (
+                            cls._looks_like_measure_header(display_header)
+                            or cls._looks_like_measure_header(
+                                right_display_header
+                            )
+                        ):
+                            continue
+                        left_profile = column_profile(
+                            left_index, left, left_column
                         )
-                        or cls._looks_like_measure_header(display_header)
-                    ):
-                        continue
-                    left_unique = left_unique_ratio >= 0.98
-                    right_unique = right_unique_ratio >= 0.98
-                    if left_unique and right_unique:
-                        cardinality = "one_to_one"
-                    elif left_unique:
-                        cardinality = "one_to_many"
-                    elif right_unique:
-                        cardinality = "many_to_one"
-                    else:
-                        cardinality = "many_to_many"
-                    relationship = {
-                        "other_sheet": right["sheet_name"],
-                        "column": str(display_header),
-                        "other_column": str(right_display_header),
-                        "cardinality": cardinality,
-                        "matched_key_count": matched,
-                        "left_distinct_count": len(left_values),
-                        "right_distinct_count": len(right_values),
-                        "left_coverage": round(left_coverage, 4),
-                        "right_coverage": round(right_coverage, 4),
-                        "sample_limited": bool(
-                            left_profile["sample_limited"]
-                            or right_profile["sample_limited"]
-                        ),
-                    }
-                    left["table"].setdefault("relationships", []).append(
-                        relationship
+                        right_profile = column_profile(
+                            right_index, right, right_column
+                        )
+                        left_values = left_profile["values"]
+                        right_values = right_profile["values"]
+                        if not left_values or not right_values:
+                            continue
+                        matched = len(left_values & right_values)
+                        if matched <= 0:
+                            continue
+                        left_coverage = matched / len(left_values)
+                        right_coverage = matched / len(right_values)
+                        left_unique_ratio = (
+                            left_profile["unique_count"]
+                            / left_profile["nonempty_count"]
+                        )
+                        right_unique_ratio = (
+                            right_profile["unique_count"]
+                            / right_profile["nonempty_count"]
+                        )
+                        if (
+                            same_header
+                            and (
+                                max(left_coverage, right_coverage) < 0.5
+                                or (
+                                    not cls._looks_like_key_header(
+                                        display_header
+                                    )
+                                    and max(
+                                        left_unique_ratio,
+                                        right_unique_ratio,
+                                    ) < 0.8
+                                )
+                            )
+                        ):
+                            continue
+                        left_unique = left_unique_ratio >= 0.98
+                        right_unique = right_unique_ratio >= 0.98
+                        if (
+                            not same_header
+                            and (
+                                matched < 3
+                                or min(left_coverage, right_coverage) < 0.8
+                                or not (left_unique or right_unique)
+                            )
+                        ):
+                            continue
+                        if left_unique and right_unique:
+                            cardinality = "one_to_one"
+                        elif left_unique:
+                            cardinality = "one_to_many"
+                        elif right_unique:
+                            cardinality = "many_to_one"
+                        else:
+                            cardinality = "many_to_many"
+                        if not same_header and cardinality == "many_to_many":
+                            continue
+                        pair_candidates.append({
+                            "other_sheet": right["sheet_name"],
+                            "column": str(display_header),
+                            "other_column": str(right_display_header),
+                            "match_basis": (
+                                "normalized_header"
+                                if same_header
+                                else "value_overlap"
+                            ),
+                            "left_column_index": left_column,
+                            "right_column_index": right_column,
+                            "cardinality": cardinality,
+                            "matched_key_count": matched,
+                            "left_distinct_count": len(left_values),
+                            "right_distinct_count": len(right_values),
+                            "left_coverage": round(left_coverage, 4),
+                            "right_coverage": round(right_coverage, 4),
+                            "sample_limited": bool(
+                                left_profile["sample_limited"]
+                                or right_profile["sample_limited"]
+                            ),
+                        })
+                candidate_left_counts = Counter(
+                    item["left_column_index"]
+                    for item in pair_candidates
+                )
+                candidate_right_counts = Counter(
+                    item["right_column_index"]
+                    for item in pair_candidates
+                )
+                for relationship in pair_candidates:
+                    relationship["ambiguous"] = bool(
+                        relationship["match_basis"] == "value_overlap"
+                        and (
+                            candidate_left_counts[
+                                relationship["left_column_index"]
+                            ] > 1
+                            or candidate_right_counts[
+                                relationship["right_column_index"]
+                            ] > 1
+                        )
                     )
-                    labels = {
-                        "one_to_one": "1:1",
-                        "one_to_many": "1:N",
-                        "many_to_one": "N:1",
-                        "many_to_many": "N:M",
-                    }
-                    insights.append(
-                        f"시트 관계 후보: {left['sheet_name']} ↔ "
-                        f"{right['sheet_name']}의 '{display_header}' 열에서 "
-                        f"{matched}개 키가 겹치며 관계 형태는 "
-                        f"{labels[cardinality]}입니다."
-                    )
-                    relationship_count += 1
+                    relationship.pop("left_column_index", None)
+                    relationship.pop("right_column_index", None)
+                pair_candidates.sort(key=lambda item: (
+                    item["match_basis"] != "normalized_header",
+                    item["ambiguous"],
+                    item["sample_limited"],
+                    cardinality_rank[item["cardinality"]],
+                    -min(item["left_coverage"], item["right_coverage"]),
+                    -item["matched_key_count"],
+                    item["column"].casefold(),
+                    item["other_column"].casefold(),
+                ))
+                for relationship in pair_candidates[:MAX_RELATIONSHIPS]:
+                    detected.append((left, relationship))
+        detected.sort(key=lambda entry: (
+            entry[1]["match_basis"] != "normalized_header",
+            entry[1]["ambiguous"],
+            entry[1]["sample_limited"],
+            cardinality_rank[entry[1]["cardinality"]],
+            -min(
+                entry[1]["left_coverage"],
+                entry[1]["right_coverage"],
+            ),
+            -entry[1]["matched_key_count"],
+            entry[0]["sheet_name"].casefold(),
+            entry[1]["other_sheet"].casefold(),
+            entry[1]["column"].casefold(),
+            entry[1]["other_column"].casefold(),
+        ))
+        insights = []
+        labels = {
+            "one_to_one": "1:1",
+            "one_to_many": "1:N",
+            "many_to_one": "N:1",
+            "many_to_many": "N:M",
+        }
+        for left, relationship in detected[:MAX_RELATIONSHIPS]:
+            left["table"].setdefault("relationships", []).append(
+                relationship
+            )
+            if relationship["match_basis"] == "normalized_header":
+                key_description = f"'{relationship['column']}' 열"
+            else:
+                key_description = (
+                    f"'{relationship['column']}' ↔ "
+                    f"'{relationship['other_column']}' 열"
+                )
+            review = (
+                " 이름이 다른 열이므로 사용자 확인이 필요합니다."
+                if relationship["match_basis"] == "value_overlap"
+                else ""
+            )
+            insights.append(
+                f"시트 관계 후보: {left['sheet_name']} ↔ "
+                f"{relationship['other_sheet']}의 {key_description}에서 "
+                f"{relationship['matched_key_count']}개 키가 겹치며 관계 형태는 "
+                f"{labels[relationship['cardinality']]}입니다.{review}"
+            )
         return insights
 
     def relationship_candidates(
@@ -1299,12 +1415,17 @@ class ExcelSalesAnalyzer:
                 other_column = str(
                     item.get("other_column") or column
                 ).strip()
+                match_basis = str(item.get("match_basis") or "").strip()
                 cardinality = str(item.get("cardinality") or "").strip()
                 if (
                     not left_sheet
                     or not right_sheet
                     or not column
                     or not other_column
+                    or match_basis not in {
+                        "normalized_header",
+                        "value_overlap",
+                    }
                     or cardinality not in {
                         "one_to_one",
                         "one_to_many",
@@ -1313,6 +1434,7 @@ class ExcelSalesAnalyzer:
                     }
                 ):
                     continue
+                ambiguous = bool(item.get("ambiguous"))
                 left_coverage = float(item.get("left_coverage") or 0.0)
                 right_coverage = float(item.get("right_coverage") or 0.0)
                 sample_limited = bool(item.get("sample_limited"))
@@ -1320,7 +1442,9 @@ class ExcelSalesAnalyzer:
                 confidence = (
                     "high"
                     if (
-                        not sample_limited
+                        match_basis == "normalized_header"
+                        and not ambiguous
+                        and not sample_limited
                         and min(left_coverage, right_coverage) >= 0.8
                         and not requires_preaggregation
                     )
@@ -1331,6 +1455,8 @@ class ExcelSalesAnalyzer:
                     "right_sheet": right_sheet,
                     "left_key": column,
                     "right_key": other_column,
+                    "match_basis": match_basis,
+                    "ambiguous": ambiguous,
                     "cardinality": cardinality,
                     "matched_key_count": int(
                         item.get("matched_key_count") or 0
@@ -1354,6 +1480,8 @@ class ExcelSalesAnalyzer:
             "many_to_many": 2,
         }
         candidates.sort(key=lambda item: (
+            item["match_basis"] != "normalized_header",
+            item["ambiguous"],
             item["sample_limited"],
             cardinality_rank[item["cardinality"]],
             -min(item["left_coverage"], item["right_coverage"]),

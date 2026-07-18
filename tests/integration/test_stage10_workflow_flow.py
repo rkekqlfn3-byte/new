@@ -186,6 +186,8 @@ class Analyzer:
                 "right_sheet": "주문",
                 "left_key": "고객ID",
                 "right_key": "고객ID",
+                "match_basis": "normalized_header",
+                "ambiguous": False,
                 "cardinality": "many_to_many",
                 "matched_key_count": 2,
                 "left_distinct_count": 2,
@@ -345,6 +347,26 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         })
         unsafe_counts["candidates"][0]["matched_key_count"] = 3
         cases.append((unsafe_counts, "고유 키 수를 넘을 수 없습니다"))
+        unsafe_name_match = Analyzer().relationship_candidates({
+            "source_path": str(self.source),
+        })
+        unsafe_name_match["candidates"][0]["right_key"] = "구매자ID"
+        cases.append((unsafe_name_match, "양쪽 키 이름이 일치하지 않습니다"))
+        unsafe_overlap = Analyzer().relationship_candidates({
+            "source_path": str(self.source),
+        })
+        unsafe_overlap["candidates"][0].update({
+            "right_key": "구매자ID",
+            "match_basis": "value_overlap",
+            "matched_key_count": 2,
+            "left_distinct_count": 3,
+            "right_distinct_count": 3,
+            "left_coverage": 0.6667,
+            "right_coverage": 0.6667,
+            "cardinality": "one_to_one",
+            "requires_preaggregation": False,
+        })
+        cases.append((unsafe_overlap, "안전한 겹침 기준"))
 
         for index, (unsafe, message) in enumerate(cases, 1):
             self.analyzer.relationship_candidates = lambda _context, value=unsafe: value
@@ -355,6 +377,37 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             with self.subTest(message=message):
                 self.assertFalse(blocked["success"])
                 self.assertIn(message, blocked["message"])
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
+    def test_different_named_relationship_candidate_is_review_only(self):
+        value = Analyzer().relationship_candidates({
+            "source_path": str(self.source),
+        })
+        value["candidates"][0].update({
+            "right_key": "구매자ID",
+            "match_basis": "value_overlap",
+            "cardinality": "one_to_many",
+            "matched_key_count": 4,
+            "left_distinct_count": 4,
+            "right_distinct_count": 5,
+            "left_coverage": 1.0,
+            "right_coverage": 0.8,
+            "requires_preaggregation": False,
+            "confidence": "review_required",
+        })
+        self.analyzer.relationship_candidates = lambda _context: value
+
+        inspected = self.command(
+            "조인 키 후보 알려줘",
+            "stage10-different-key-inspection",
+        )
+
+        self.assertTrue(inspected["success"], inspected)
+        self.assertIn("고객ID ↔ 구매자ID", inspected["message"])
+        self.assertIn("열 이름 다름", inspected["message"])
+        self.assertIn("사용자 검토 필요", inspected["message"])
+        self.assertIn("별도 미리보기", inspected["message"])
         self.assertEqual(0, self.word.calls)
         self.assertEqual(0, self.ppt.calls)
 

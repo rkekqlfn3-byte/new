@@ -36,7 +36,8 @@ Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 �
 인계 뒤 선택한 Word Range와 PowerPoint Shape에 승인된 후속 편집이 적용되어
 read-back되고 같은 세션이 `ready`로 복귀하는 증거도 필수다.
 Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개와 셀 값·경로·
-산출물 없이 같은 머리글 `담당자`의 1:1 키 후보 1개를 찾아
+산출물 없이 같은 머리글 `담당자`의 1:1 후보와 이름이 다른
+`구매자ID ↔ 고객ID`의 1:N 검토 후보를 함께 찾아
 `relationship_inspection_verified`를 남긴다. 이어서 사용자가
 명시·승인한 `항목ID ↔ 참조항목ID` 매핑 내부 조인 1개·결과 3행을 만들고
 왼쪽 중복 5행을 `매출 합계 + 수량 평균 + 담당자 건수 + 매출 최솟값 + 매출
@@ -45,6 +46,10 @@ Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개�
 `mapped_join_keys_verified`·`aggregated_join_verified`·
 `multi_aggregation_join_verified`와 분석 검증에 기록한 뒤,
 원본 불변 상태에서 보고서와 발표자료가 재열기 검증되는지도 요구한다.
+단위·통합 계약은 `고객ID ↔ 구매자ID`처럼 이름이 다른 ID형 열도 겹치는 키
+3개 이상·양쪽 포함률 80% 이상·최소 한쪽 거의 고유 조건에서만 검토 후보로
+제시하고, 약한 겹침과 일반 다대다를 거부하며 복수 대응 열을 모호하다고 표시하는
+검사를 추가로 요구한다. 어떤 후보도 실제 조인을 자동 실행해서는 안 된다.
 같은 Word probe에서 `매출!B1:E4`만 읽는 별도 워크플로가 범위 밖 시트를
 제외하고 `explicit_selection_scope_verified`를 남기며, Word와 정확히 5장인
 PowerPoint를 재열기 검증하는 `selection_scope_cross_app_outputs_verified`도
