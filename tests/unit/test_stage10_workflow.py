@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from engine.workflows import (
     ExcelSalesAnalyzer,
     HwpReportWriter,
+    HwpSecurityModuleUnavailable,
     HwpWorkflowTimeout,
     PowerPointSummaryWriter,
     WordReportWriter,
@@ -422,7 +423,7 @@ class Stage10WorkflowTests(unittest.TestCase):
 
             def start(self):
                 Path(self.args[0]["output_path"]).write_bytes(b"partial")
-                self.args[4].put_nowait(222)
+                self.args[5].put_nowait(222)
 
             def join(self, _timeout=None):
                 return None
@@ -454,6 +455,7 @@ class Stage10WorkflowTests(unittest.TestCase):
             process_stopper=lambda process_id, baseline: stop_calls.append(
                 (process_id, set(baseline))
             ),
+            security_module_resolver=lambda: "TestSecurityModule",
         )
 
         with self.assertRaisesRegex(
@@ -468,6 +470,35 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertTrue(process_context.process.terminated)
         self.assertEqual([(222, {111})], stop_calls)
         self.assertFalse(output.exists())
+
+    def test_default_hwp_writer_blocks_before_process_when_module_is_missing(self):
+        process_context_called = False
+
+        def process_context_factory():
+            nonlocal process_context_called
+            process_context_called = True
+            raise AssertionError("missing module must block before process")
+
+        writer = HwpReportWriter(
+            process_context_factory=process_context_factory,
+            security_module_resolver=lambda: None,
+        )
+
+        with self.assertRaisesRegex(
+            HwpSecurityModuleUnavailable,
+            "설치·등록",
+        ) as raised:
+            writer.run(
+                {
+                    "output_path": str(self.root / "보안모듈없음.hwp"),
+                    "preferences": {},
+                },
+                product(self.source),
+            )
+
+        self.assertEqual("environment_error", raised.exception.error_type)
+        self.assertTrue(raised.exception.retryable)
+        self.assertFalse(process_context_called)
 
     def test_hwp_timeout_keeps_resume_state_and_timeout_diagnosis(self):
         class TimeoutWriter:

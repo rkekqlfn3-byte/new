@@ -65,8 +65,8 @@ PROBE_SPECS = {
         "probe": "prototype11_hwp_workflow_watchdog",
         "required_checks": (
             "bounded_timeout_or_generation",
-            "generation_readback_or_typed_timeout",
-            "partial_output_removed_on_timeout",
+            "generation_readback_or_typed_block",
+            "partial_output_absent_on_block",
         ),
     },
     "workflow_word": {

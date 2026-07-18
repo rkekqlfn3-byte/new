@@ -106,6 +106,14 @@ class HwpWorkflowTimeout(WorkflowError):
     retryable = True
 
 
+class HwpSecurityModuleUnavailable(WorkflowError):
+    """HWP file access cannot proceed without a user-installed security module."""
+
+    error_type = "environment_error"
+    status = "blocked"
+    retryable = True
+
+
 def _timestamp() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -767,6 +775,40 @@ def _hwp_process_ids() -> set[int]:
     return result
 
 
+def _registered_hwp_security_module() -> str | None:
+    """Return one valid user-configured HWP Automation security module name."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\HNC\HwpAutomation\Modules",
+            0,
+            winreg.KEY_READ,
+        )
+    except OSError:
+        return None
+    candidates = []
+    try:
+        value_count = int(winreg.QueryInfoKey(key)[1])
+        for index in range(value_count):
+            try:
+                name, raw_path, value_type = winreg.EnumValue(key, index)
+            except OSError:
+                continue
+            if value_type not in {winreg.REG_SZ, winreg.REG_EXPAND_SZ}:
+                continue
+            module_name = str(name or "").strip()
+            module_path = os.path.expandvars(str(raw_path or "").strip())
+            if module_name and module_path and Path(module_path).is_file():
+                candidates.append(module_name)
+    finally:
+        winreg.CloseKey(key)
+    return sorted(candidates, key=str.casefold)[0] if candidates else None
+
+
 def _stop_owned_hwp_process(process_id: int, baseline: set[int]) -> bool:
     process_id = int(process_id or 0)
     if process_id <= 0 or process_id in set(baseline or set()):
@@ -809,8 +851,10 @@ class HwpReportWriter:
         process_context_factory=None,
         process_ids=None,
         process_stopper=None,
+        security_module_resolver=None,
         _worker_mode=False,
         _ownership_reporter=None,
+        _security_module_name=None,
     ):
         self._application_factory = application_factory
         self._com_runtime = com_runtime
@@ -835,8 +879,15 @@ class HwpReportWriter:
         )
         self._process_ids = process_ids or _hwp_process_ids
         self._process_stopper = process_stopper or _stop_owned_hwp_process
+        self._security_module_resolver = (
+            security_module_resolver
+            or _registered_hwp_security_module
+        )
         self._worker_mode = bool(_worker_mode)
         self._ownership_reporter = _ownership_reporter
+        self._security_module_name = (
+            str(_security_module_name or "").strip() or None
+        )
 
     @staticmethod
     def _formatting_plan(preferences=None) -> dict[str, Any]:
@@ -907,13 +958,26 @@ class HwpReportWriter:
             or self._com_runtime is not None
         ):
             return self._run_inline(context, product)
-        return self._run_isolated(context, product, output_path)
+        security_module_name = self._security_module_resolver()
+        if not security_module_name:
+            raise HwpSecurityModuleUnavailable(
+                "한글 Automation 파일 보안 모듈이 등록되어 있지 않아 보고서를 "
+                "저장하지 않았습니다. 한글 공식 보안 모듈을 사용자가 설치·등록한 "
+                "뒤 '실패한 워크플로 이어서'로 다시 시도해주세요."
+            )
+        return self._run_isolated(
+            context,
+            product,
+            output_path,
+            str(security_module_name),
+        )
 
     def _run_isolated(
         self,
         context: Mapping[str, Any],
         work_product: Mapping[str, Any],
         output_path: Path,
+        security_module_name: str,
     ) -> dict[str, Any]:
         baseline = set(self._process_ids())
         process_context = self._process_context_factory()
@@ -925,6 +989,7 @@ class HwpReportWriter:
                 dict(context),
                 dict(work_product),
                 tuple(sorted(baseline)),
+                str(security_module_name),
                 result_queue,
                 ownership_queue,
             ),
@@ -1001,6 +1066,16 @@ class HwpReportWriter:
                 hwp = lease.application
                 if callable(self._ownership_reporter):
                     self._ownership_reporter()
+                if self._security_module_name and not bool(
+                    hwp.RegisterModule(
+                        "FilePathCheckDLL",
+                        self._security_module_name,
+                    )
+                ):
+                    raise HwpSecurityModuleUnavailable(
+                        "등록된 한글 Automation 파일 보안 모듈을 활성화하지 "
+                        "못해 보고서를 저장하지 않았습니다."
+                    )
                 report_text = WordReportWriter._report_text(
                     product, context.get("preferences")
                 )
@@ -1054,6 +1129,7 @@ def _hwp_report_worker(
     context,
     work_product,
     baseline_process_ids,
+    security_module_name,
     result_queue,
     ownership_queue,
 ):
@@ -1068,6 +1144,7 @@ def _hwp_report_worker(
     writer = HwpReportWriter(
         _worker_mode=True,
         _ownership_reporter=report_owned_process,
+        _security_module_name=security_module_name,
     )
     try:
         result_queue.put({

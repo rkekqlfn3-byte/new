@@ -3,6 +3,7 @@
 from engine.workflows.business_workflow import (
     ExcelSalesAnalyzer,
     HwpReportWriter,
+    HwpSecurityModuleUnavailable,
     HwpWorkflowTimeout,
     PowerPointSummaryWriter,
     WordReportWriter,
@@ -15,6 +16,7 @@ from engine.workflows.business_workflow import (
 __all__ = [
     "ExcelSalesAnalyzer",
     "HwpReportWriter",
+    "HwpSecurityModuleUnavailable",
     "HwpWorkflowTimeout",
     "PowerPointSummaryWriter",
     "WordReportWriter",

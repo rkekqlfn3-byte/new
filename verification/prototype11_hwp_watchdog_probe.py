@@ -13,7 +13,11 @@ from pathlib import Path
 
 import psutil
 
-from engine.workflows import HwpReportWriter, HwpWorkflowTimeout
+from engine.workflows import (
+    HwpReportWriter,
+    HwpSecurityModuleUnavailable,
+    HwpWorkflowTimeout,
+)
 
 
 REPORT_PATH = Path(__file__).with_name(
@@ -88,28 +92,36 @@ def _owned_probe() -> dict:
             elapsed = time.monotonic() - started
             checks = {
                 "bounded_timeout_or_generation": elapsed <= 75,
-                "generation_readback_or_typed_timeout": bool(
+                "generation_readback_or_typed_block": bool(
                     output_path.is_file()
                     and artifact.get("verification", {}).get(
                         "content_readback"
                     )
                 ),
-                "partial_output_removed_on_timeout": True,
+                "partial_output_absent_on_block": True,
             }
             outcome = "generation_verified"
-        except HwpWorkflowTimeout as error:
+        except (
+            HwpWorkflowTimeout,
+            HwpSecurityModuleUnavailable,
+        ) as error:
             elapsed = time.monotonic() - started
             checks = {
                 "bounded_timeout_or_generation": elapsed <= 75,
-                "generation_readback_or_typed_timeout": (
-                    error.error_type == "timeout"
+                "generation_readback_or_typed_block": (
+                    error.error_type
+                    in {"timeout", "environment_error"}
                     and error.retryable is True
                 ),
-                "partial_output_removed_on_timeout": (
+                "partial_output_absent_on_block": (
                     not output_path.exists()
                 ),
             }
-            outcome = "environment_timeout_handled"
+            outcome = (
+                "environment_timeout_handled"
+                if error.error_type == "timeout"
+                else "security_module_unavailable_blocked"
+            )
         return {
             "status": "passed" if all(checks.values()) else "failed",
             "outcome": outcome,

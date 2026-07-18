@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-18 — HWP Automation 보안 모듈 사전 검사
+
+- 한컴 공식 Automation 보안 모듈이
+  `HKCU\Software\HNC\HwpAutomation\Modules`에 등록돼 있고 등록 경로의 파일이
+  실제로 존재하는지 읽기 전용으로 확인한다.
+- 기본 한글 보고서 생성은 유효한 모듈이 없으면 HWP 프로세스를 시작하지 않고
+  `environment_error`·재시도 가능으로 즉시 차단한다. JARVIS가 모듈 설치,
+  레지스트리 등록 또는 보안 설정 변경을 대신하지 않는다.
+- 유효한 등록이 있으면 모듈 값 이름을 그대로
+  `RegisterModule("FilePathCheckDLL", 이름)`에 전달한다. 활성화 실패도 파일
+  쓰기 전에 환경 차단한다.
+- 실제 현재 PC에서는 0초대에 `security_module_unavailable_blocked`로
+  복귀했고 부분 파일·생성 HWP 프로세스가 없었다. 별도 10단계 probe도
+  `create_hwp_report`의 구조화된 `environment_error`와 재개 안내를 확인했다.
+
 ## 2026-07-18 — HWP 워크플로 저장 watchdog
 
 - 기본 한글 보고서 생성 전체를 별도 소유 프로세스로 격리하고

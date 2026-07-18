@@ -36,8 +36,8 @@ class Prototype11HwpWatchdogProbeTests(unittest.TestCase):
                 "status": "passed",
                 "checks": {
                     "bounded_timeout_or_generation": True,
-                    "generation_readback_or_typed_timeout": True,
-                    "partial_output_removed_on_timeout": True,
+                    "generation_readback_or_typed_block": True,
+                    "partial_output_absent_on_block": True,
                 },
             }
             report = probe.run_probe()
