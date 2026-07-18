@@ -317,6 +317,24 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(1, self.ppt.calls)
         self.assertIn("한글 보고서", completed["message"])
 
+        handoff = self.command(
+            "방금 만든 한글 보고서를 편집 문서로 연결해줘",
+            "stage10-hwp-handoff",
+        )
+
+        self.assertTrue(handoff["success"], handoff)
+        connected = handoff["data"]["edit_session_handoff"]
+        self.assertEqual("hwp", connected["app_type"])
+        self.assertEqual(
+            str(Path(observations["output_paths"]["report"]).resolve()).casefold(),
+            connected["file_path"].casefold(),
+        )
+        self.assertEqual(
+            connected["session_id"],
+            self.controller.status()["session"]["session_id"],
+        )
+        self.assertEqual("ready", self.controller.status()["session"]["state"])
+
     def test_word_and_hwp_reports_are_previewed_and_completed_together(self):
         self.ppt.fail_times = 0
         preview = self.command(
@@ -342,6 +360,17 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(1, self.hwp.calls)
         self.assertEqual(1, self.ppt.calls)
         self.assertIn("Word·한글 보고서", completed["message"])
+
+        ambiguous = self.command(
+            "방금 만든 보고서를 편집 문서로 연결해줘",
+            "stage10-both-ambiguous-handoff",
+        )
+
+        self.assertFalse(ambiguous["success"])
+        self.assertIn("지정해주세요", ambiguous["message"])
+        current = self.controller.status()["session"]
+        self.assertEqual("excel", current["app_type"])
+        self.assertEqual("ready", current["state"])
 
     def test_verified_workflow_becomes_approved_content_free_reusable_skill(self):
         self.ppt.fail_times = 0
