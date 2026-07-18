@@ -3,7 +3,10 @@ import unittest
 from pathlib import Path
 
 from engine.edit_mode import EditModeController, EditSessionManager
-from engine.learning import UserPreferenceLearningManager
+from engine.learning import (
+    BusinessWorkflowSkillManager,
+    UserPreferenceLearningManager,
+)
 from engine.parser import CommandParser
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
@@ -84,6 +87,9 @@ class Stage11UserLearningFlowTests(unittest.TestCase):
             context_manager=Context(),
             native_action_registry=Registry(),
             workflow_executor=executor,
+            workflow_skill_manager=BusinessWorkflowSkillManager(
+                self.root / "business-workflow-skills.json"
+            ),
             user_learning_manager=self.learning,
         )
         self.parser = CommandParser(edit_mode_controller=self.controller)

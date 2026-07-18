@@ -20,6 +20,7 @@ TEST_GROUPS = {
         "tests.unit.test_execution_busy",
         "tests.unit.test_gui_markdown_safety",
         "tests.unit.test_browser_launcher",
+        "tests.unit.test_business_workflow_skill",
         "tests.unit.test_edit_context",
         "tests.unit.test_edit_mode_contracts",
         "tests.unit.test_edit_target_ui",

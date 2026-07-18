@@ -71,6 +71,7 @@ class EditModeController:
         file_picker=None,
         settings_path=None,
         workflow_executor=None,
+        workflow_skill_manager=None,
         user_learning_manager=None,
         preference_feedback_analyzer=None,
         selection_overlay_manager=None,
@@ -81,6 +82,7 @@ class EditModeController:
         self.context_manager = context_manager or EditContextManager()
         self._native_action_registry = native_action_registry
         self._workflow_executor = workflow_executor
+        self._workflow_skill_manager = workflow_skill_manager
         self._user_learning_manager = user_learning_manager
         self.preference_feedback_analyzer = (
             preference_feedback_analyzer or StructuredPreferenceIntentAnalyzer()
@@ -114,11 +116,19 @@ class EditModeController:
             self._user_learning_manager = UserPreferenceLearningManager()
         return self._user_learning_manager
 
+    def _workflow_skills(self):
+        if self._workflow_skill_manager is None:
+            from engine.learning import BusinessWorkflowSkillManager
+
+            self._workflow_skill_manager = BusinessWorkflowSkillManager()
+        return self._workflow_skill_manager
+
     def user_preference_learning_status(self) -> dict:
         manager = self._learning_manager()
         return {
             "active_preferences": manager.active_preferences(),
             "candidates": manager.list_candidates(include_observing=True),
+            "business_workflow_skill": self._workflow_skills().status(),
         }
 
     def _load_auto_layout(self) -> bool:
@@ -1240,6 +1250,7 @@ class EditModeController:
 
             self._workflow_executor = WorkflowExecutor()
         kwargs["workflow_executor"] = self._workflow_executor
+        kwargs["workflow_skill_manager"] = self._workflow_skills()
         return adapter_class(
             session,
             self.context_manager,
@@ -1474,6 +1485,7 @@ class EditModeController:
         if (
             prepared.metadata.get("vba")
             or prepared.metadata.get("workflow")
+            or prepared.metadata.get("workflow_skill")
             or prepared.metadata.get("user_preference")
         ):
             data["observations"] = dict(result.observations)
@@ -1763,6 +1775,13 @@ class EditModeController:
             and self._user_learning_manager is not None
         ):
             self._user_learning_manager.dismiss(
+                prepared.arguments.get("candidate_id")
+            )
+        if (
+            prepared.operation == "activate_business_workflow_skill"
+            and self._workflow_skill_manager is not None
+        ):
+            self._workflow_skill_manager.dismiss(
                 prepared.arguments.get("candidate_id")
             )
         try:

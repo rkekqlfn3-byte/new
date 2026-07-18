@@ -13,7 +13,10 @@ import time
 import uuid
 from pathlib import Path
 
-from engine.learning import UserPreferenceLearningManager
+from engine.learning import (
+    BusinessWorkflowSkillManager,
+    UserPreferenceLearningManager,
+)
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
 from verification.prototype11_stage10_probe import (
@@ -191,10 +194,65 @@ def _owned_probe():
         result = executor.start(state)
         report_path = Path(result["output_paths"]["report"])
         presentation_path = Path(result["output_paths"]["presentation"])
+        first_report_fingerprint = file_fingerprint(report_path)
+        first_presentation_fingerprint = file_fingerprint(presentation_path)
+
+        stage = "approve_and_replay_content_free_workflow_skill"
+        workflow_skills = BusinessWorkflowSkillManager(
+            temp_dir / "business-workflow-skills.json"
+        )
+        workflow_candidate = workflow_skills.record_verified_success(
+            result,
+            evidence_id=result["workflow_id"],
+        )
+        workflow_skill_inactive_before_approval = (
+            workflow_skills.active_skill() is None
+        )
+        workflow_skill_store = Path(workflow_skills.path).read_text(
+            encoding="utf-8"
+        )
+        workflow_skill_content_free = (
+            str(source) not in workflow_skill_store
+            and source.name not in workflow_skill_store
+            and str(report_path) not in workflow_skill_store
+            and "work_product" not in workflow_skill_store
+        )
+        active_workflow_skill = workflow_skills.activate(
+            workflow_candidate["candidate_id"]
+        )
+        workflow_template = active_workflow_skill["template"]
+        replay_plan = executor.prepare(
+            source,
+            title="Stage 11 재사용 스킬 검증",
+            preferences=preferences,
+            slide_count=workflow_template["slide_count"],
+            report_format=workflow_template["report_format"],
+        )
+        workflow_skill_fresh_plan = bool(
+            replay_plan.get("status") == "approval_required"
+            and set(replay_plan.get("output_paths") or {})
+            == set(result.get("output_paths") or {})
+            and all(
+                replay_plan["output_paths"][name] != result["output_paths"][name]
+                for name in replay_plan["output_paths"]
+            )
+        )
+        replay_result = executor.start(replay_plan)
+        replay_report_path = Path(replay_result["output_paths"]["report"])
+        replay_presentation_path = Path(
+            replay_result["output_paths"]["presentation"]
+        )
 
         stage = "reopen_outputs"
         word_verified = _verify_word(report_path, word_preferences)
         slide_count = _powerpoint_slide_count(presentation_path)
+        replay_word_verified = _verify_word(
+            replay_report_path,
+            word_preferences,
+        )
+        replay_slide_count = _powerpoint_slide_count(
+            replay_presentation_path
+        )
         stored = executor.load(state["workflow_id"])
         checks = {
             "three_observations_created_candidate": candidate_ready,
@@ -219,6 +277,24 @@ def _owned_probe():
                 and replacement_activation.get("replaced_previous_value") == "formal"
                 and active_after_replacement
                 and active_after_replacement.get("value") == "friendly"
+            ),
+            "workflow_skill_inactive_before_approval": (
+                workflow_skill_inactive_before_approval
+            ),
+            "workflow_skill_content_free_store": workflow_skill_content_free,
+            "workflow_skill_requires_approval_each_run": bool(
+                workflow_template.get("requires_approval_each_run")
+            ),
+            "workflow_skill_fresh_output_plan": workflow_skill_fresh_plan,
+            "workflow_skill_actual_replay_verified": bool(
+                replay_result.get("verified")
+                and replay_word_verified
+                and replay_slide_count == 7
+            ),
+            "workflow_skill_preserved_first_outputs": bool(
+                file_fingerprint(report_path) == first_report_fingerprint
+                and file_fingerprint(presentation_path)
+                == first_presentation_fingerprint
             ),
             "word_report_reopened_with_approved_formatting": word_verified,
             "preferred_seven_slides_created": slide_count == 7,

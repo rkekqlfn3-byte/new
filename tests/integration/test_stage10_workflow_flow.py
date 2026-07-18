@@ -7,7 +7,10 @@ from engine.edit_mode import EditModeController, EditSessionManager
 from engine.parser import CommandParser
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
-from engine.learning import UserPreferenceLearningManager
+from engine.learning import (
+    BusinessWorkflowSkillManager,
+    UserPreferenceLearningManager,
+)
 
 
 def digest(value):
@@ -133,6 +136,9 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             powerpoint_writer=self.ppt,
         )
         self.executor = executor
+        self.workflow_skills = BusinessWorkflowSkillManager(
+            self.root / "business-workflow-skills.json"
+        )
         self.controller = EditModeController(
             intake_manager=Intake(),
             session_manager=EditSessionManager(),
@@ -140,6 +146,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             context_manager=Context(),
             native_action_registry=Registry(),
             workflow_executor=executor,
+            workflow_skill_manager=self.workflow_skills,
             user_learning_manager=UserPreferenceLearningManager(
                 self.root / "user-style-preferences.json"
             ),
@@ -285,6 +292,104 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(1, self.hwp.calls)
         self.assertEqual(1, self.ppt.calls)
         self.assertIn("Word·한글 보고서", completed["message"])
+
+    def test_verified_workflow_becomes_approved_content_free_reusable_skill(self):
+        self.ppt.fail_times = 0
+        first_preview = self.command(
+            "이 엑셀을 분석해서 Word 보고서와 5장짜리 PPT 만들어줘.",
+            "workflow-skill-first",
+        )
+        first = self.approve(first_preview)
+
+        self.assertTrue(first["success"])
+        self.assertIn("성공한 단계 구조만 재사용 후보", first["message"])
+        candidate = self.workflow_skills.latest_candidate()
+        self.assertIsNotNone(candidate)
+        self.assertIsNone(self.workflow_skills.active_skill())
+        self.assertFalse(
+            self.workflow_skills.status()["raw_paths_or_content_stored"]
+        )
+
+        remember = self.command(
+            "이 워크플로 기억해",
+            "workflow-skill-remember",
+        )
+        self.assertEqual("confirmation_required", remember["status"])
+        self.assertIn("Excel 분석 → Word 보고서 → PowerPoint 5장", remember["message"])
+        activated = self.approve(remember)
+        self.assertTrue(activated["success"])
+        self.assertIn("재사용 스킬에 활성화", activated["message"])
+
+        reuse = self.command("지난번처럼 해줘", "workflow-skill-reuse")
+        self.assertEqual("confirmation_required", reuse["status"])
+        self.assertIn("승인된 재사용 스킬", reuse["message"])
+        self.assertIn("현재 Excel 재검증", reuse["message"])
+        reused = self.approve(reuse)
+
+        self.assertTrue(reused["success"])
+        self.assertTrue(reused["data"]["observations"]["workflow_skill_reused"])
+        self.assertIn("모든 단계를 다시 검증", reused["message"])
+        self.assertEqual(2, self.analyzer.calls)
+        self.assertEqual(2, self.word.calls)
+        self.assertEqual(2, self.ppt.calls)
+        self.assertEqual(
+            2,
+            self.workflow_skills.active_skill()["verified_success_count"],
+        )
+
+    def test_reuse_requires_active_skill_and_current_explicit_values_override_it(self):
+        self.ppt.fail_times = 0
+        missing = self.command("지난번처럼 해줘", "workflow-skill-missing")
+        self.assertFalse(missing["success"])
+        self.assertEqual("blocked", missing["status"])
+
+        first = self.approve(self.command(
+            "이 엑셀을 분석해서 Word 보고서와 5장짜리 PPT 만들어줘.",
+            "workflow-skill-override-first",
+        ))
+        self.assertTrue(first["success"])
+        self.approve(self.command(
+            "이 워크플로 기억해",
+            "workflow-skill-override-remember",
+        ))
+
+        override = self.command(
+            "지난번처럼 한글 보고서와 7장짜리 PPT로 해줘",
+            "workflow-skill-explicit-override",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
+
+        self.assertEqual("confirmation_required", override["status"])
+        self.assertEqual("hwp", plan["report_format"])
+        self.assertEqual(7, plan["slide_count"])
+        self.assertTrue(plan["explicit_slide_count"])
+
+    def test_cancelling_workflow_skill_activation_keeps_reuse_disabled(self):
+        self.ppt.fail_times = 0
+        completed = self.approve(self.command(
+            "이 엑셀을 분석해서 Word 보고서와 5장짜리 PPT 만들어줘.",
+            "workflow-skill-cancel-first",
+        ))
+        self.assertTrue(completed["success"])
+        remember = self.command(
+            "이 워크플로 기억해",
+            "workflow-skill-cancel-remember",
+        )
+
+        cancelled = self.cancel(remember)
+        reuse = self.command(
+            "지난번처럼 해줘",
+            "workflow-skill-cancel-reuse",
+        )
+
+        self.assertEqual("user_cancelled", cancelled["error_type"])
+        self.assertIsNone(self.workflow_skills.active_skill())
+        self.assertIsNone(self.workflow_skills.latest_candidate())
+        self.assertFalse(reuse["success"])
+        self.assertEqual("blocked", reuse["status"])
 
 
 if __name__ == "__main__":

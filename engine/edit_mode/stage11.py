@@ -750,6 +750,24 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
         return replace(prepared, metadata=metadata)
 
     def prepare(self, request: EditRequest, context: Mapping[str, Any]) -> EditPreparedAction:
+        workflow_analyzer = getattr(self, "workflow_analyzer", None)
+        workflow_intent = (
+            workflow_analyzer.analyze(request.text, context)
+            if workflow_analyzer is not None
+            else None
+        )
+        if workflow_intent is not None and (
+            workflow_intent.operation in {
+                "activate_business_workflow_skill",
+                "deactivate_business_workflow_skill",
+                "resume_business_workflow",
+            }
+            or workflow_intent.params.get("reuse_approved_skill")
+        ):
+            # A remembered-workflow command may also contain ``PPT 7장``.
+            # The explicit number belongs to this replay, not to long-term
+            # preference evidence. Let Stage 10 own the whole command.
+            return super().prepare(request, context)
         intent = self._pending_file_candidate_intent(request.text)
         if intent is None:
             intent = self.preference_analyzer.analyze(request.text, context)

@@ -85,6 +85,9 @@ PROBE_SPECS = {
             "replacement_candidate_explained",
             "replacement_cancel_kept_existing_default",
             "approved_replacement_recorded_previous_value",
+            "workflow_skill_content_free_store",
+            "workflow_skill_fresh_output_plan",
+            "workflow_skill_actual_replay_verified",
         ),
     },
     "failure_diagnosis": {

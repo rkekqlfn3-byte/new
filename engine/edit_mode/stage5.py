@@ -762,6 +762,14 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
         )
     if prepared.operation == "deactivate_user_preference":
         return f"{preview.get('description') or '사용자 선호'}을(를) 비활성화했습니다."
+    if prepared.operation == "activate_business_workflow_skill":
+        return (
+            "검증된 복합 업무 구조를 사용자 승인으로 재사용 스킬에 활성화했습니다. "
+            "다음에 `지난번처럼 해줘`라고 말해도 현재 Excel과 새 산출물 경로를 "
+            "다시 검증하고 전체 작업을 다시 승인받습니다."
+        )
+    if prepared.operation == "deactivate_business_workflow_skill":
+        return "승인된 복합 업무 재사용 스킬을 해제했습니다."
     if prepared.operation in {"create_business_workflow", "resume_business_workflow"}:
         observations = result.observations
         outputs = dict(observations.get("output_paths") or {})
@@ -778,7 +786,7 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             )
         else:
             report_paths = f"{report_label}: {outputs.get('report', '')}"
-        return (
+        message = (
             f"Excel 원본을 변경하지 않고 분석을 완료해 {report_label} 보고서와 "
             f"{observations.get('slide_count', 5)}장짜리 PowerPoint를 만들고 "
             "파일 지문까지 검증했습니다.\n"
@@ -786,6 +794,19 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             f"PowerPoint: {outputs.get('presentation', '')}\n"
             f"워크플로 ID: {observations.get('workflow_id', '')}"
         )
+        candidate = dict(observations.get("workflow_skill_candidate") or {})
+        if observations.get("workflow_skill_reused"):
+            message += (
+                "\n승인된 복합 업무 스킬을 현재 문서에서 새 계획으로 재생하고 "
+                "모든 단계를 다시 검증했습니다."
+            )
+        elif candidate.get("needs_confirmation"):
+            message += (
+                "\n성공한 단계 구조만 재사용 후보로 준비했습니다. 문서 내용·경로는 "
+                "저장하지 않았습니다. `이 워크플로 기억해`라고 말하면 활성화 전에 "
+                "다시 확인합니다."
+            )
+        return message
     if prepared.operation == "vba_inspect_project":
         observations = result.observations
         modules = observations.get("modules") or []

@@ -20,6 +20,9 @@ Range→동일 Range 재선택 뒤 직접 서식 교정, PowerPoint 결과에는
 Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 않는지, 교체
 미리보기가 현재값·후보값을 설명하는지, 취소 시 기존값 유지와 승인 시 이전값
 기록이 모두 성립하는지도 필수로 검사한다.
+또한 검증된 복합 업무를 경로·내용 없이 구조만 저장하는지, 재생 계획이 새
+산출물 경로를 쓰는지, 실제 Word·PowerPoint 재생과 기존 산출물 보존이
+성립하는지도 요구한다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

@@ -429,6 +429,29 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual("both", both.params["report_format"])
         self.assertIn("Word·한글 보고서", both.description)
 
+    def test_workflow_intent_recognizes_approved_reuse_lifecycle(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        context = {"app_type": "excel"}
+
+        remember = analyzer.analyze("이 워크플로 기억해", context)
+        reuse = analyzer.analyze("지난번처럼 해줘", context)
+        overridden = analyzer.analyze(
+            "지난번처럼 한글 보고서와 7장짜리 PPT로 해줘",
+            context,
+        )
+        forget = analyzer.analyze("워크플로 기억 취소", context)
+
+        self.assertEqual(
+            "activate_business_workflow_skill", remember.operation
+        )
+        self.assertTrue(reuse.params["reuse_approved_skill"])
+        self.assertIsNone(reuse.params["report_format"])
+        self.assertEqual("hwp", overridden.params["report_format"])
+        self.assertEqual(7, overridden.params["slide_count"])
+        self.assertEqual(
+            "deactivate_business_workflow_skill", forget.operation
+        )
+
     def test_both_report_plan_runs_each_report_as_a_separate_verified_step(self):
         analyzer = FakeAnalyzer()
         word = FakeWriter("word")
