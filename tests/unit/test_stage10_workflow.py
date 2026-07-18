@@ -713,6 +713,37 @@ class Stage10WorkflowTests(unittest.TestCase):
             "paragraph_align": "center",
         }, applied)
 
+    def test_approved_powerpoint_formatting_defaults_apply_by_text_role(self):
+        title = SimpleNamespace(
+            Font=SimpleNamespace(Bold=0, Size=28.0),
+            ParagraphFormat=SimpleNamespace(Alignment=1),
+        )
+        body = SimpleNamespace(
+            Font=SimpleNamespace(Bold=0, Size=18.0),
+            ParagraphFormat=SimpleNamespace(Alignment=1),
+        )
+        preferences = {
+            "emphasis_style": "bold",
+            "font_scale": "larger",
+            "paragraph_align": "center",
+        }
+
+        title_applied = PowerPointSummaryWriter._apply_formatting_preferences(
+            title, preferences, role="title"
+        )
+        body_applied = PowerPointSummaryWriter._apply_formatting_preferences(
+            body, preferences, role="body"
+        )
+
+        self.assertEqual(-1, title.Font.Bold)
+        self.assertEqual(36.0, title.Font.Size)
+        self.assertEqual(2, title.ParagraphFormat.Alignment)
+        self.assertEqual(-1, body.Font.Bold)
+        self.assertEqual(24.0, body.Font.Size)
+        self.assertEqual(2, body.ParagraphFormat.Alignment)
+        self.assertEqual(preferences, title_applied)
+        self.assertEqual(preferences, body_applied)
+
     def test_invalid_word_formatting_default_is_blocked(self):
         content = SimpleNamespace(
             Font=SimpleNamespace(Bold=0, Size=11.0),

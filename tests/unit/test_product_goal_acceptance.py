@@ -32,6 +32,8 @@ def probe_report(spec, *, success=True, generated_at=NOW, checks=True):
     }
     if spec.get("report_format"):
         report["report_format"] = spec["report_format"]
+    for check_name in spec.get("required_checks", ()):
+        report["result"]["checks"][check_name] = True
     if spec["probe"] == "prototype1_stage8_four_app_stability":
         report["prototype_1_0_ready"] = True
     return report

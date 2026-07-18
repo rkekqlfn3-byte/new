@@ -146,7 +146,7 @@ def _verify_word(path, expected_formatting=None):
         gc.collect()
 
 
-def _verify_powerpoint(path):
+def _verify_powerpoint(path, expected_formatting=None):
     import win32com.client
 
     application = presentation = None
@@ -155,7 +155,46 @@ def _verify_powerpoint(path):
         presentation = application.Presentations.Open(
             str(path), ReadOnly=True, Untitled=False, WithWindow=False
         )
-        return int(presentation.Slides.Count) == 5
+        slide_count = int(presentation.Slides.Count)
+        expected = dict(expected_formatting or {})
+        formatting_verified = True
+        for slide_index in range(1, slide_count + 1):
+            slide = presentation.Slides.Item(slide_index)
+            ranges = (
+                ("title", slide.Shapes.Title.TextFrame.TextRange),
+                (
+                    "body",
+                    slide.Shapes.Placeholders.Item(2).TextFrame.TextRange,
+                ),
+            )
+            for role, text_range in ranges:
+                if "emphasis_style" in expected:
+                    formatting_verified = formatting_verified and (
+                        bool(int(text_range.Font.Bold))
+                        == (expected["emphasis_style"] == "bold")
+                    )
+                if "font_scale" in expected:
+                    expected_size = {
+                        "larger": {"title": 36.0, "body": 24.0},
+                        "smaller": {"title": 24.0, "body": 14.0},
+                    }[expected["font_scale"]][role]
+                    formatting_verified = formatting_verified and (
+                        abs(float(text_range.Font.Size) - expected_size) <= 0.01
+                    )
+                if "paragraph_align" in expected:
+                    alignment = {
+                        "left": 1,
+                        "center": 2,
+                        "right": 3,
+                        "justify": 4,
+                    }[expected["paragraph_align"]]
+                    formatting_verified = formatting_verified and (
+                        int(text_range.ParagraphFormat.Alignment) == alignment
+                    )
+        return {
+            "slide_count": slide_count == 5,
+            "formatting": formatting_verified,
+        }
     finally:
         if presentation is not None:
             try:
@@ -245,7 +284,9 @@ def _owned_probe(report_format="word", progress=None):
             word_verified = _verify_word(
                 report_paths["word"], expected_formatting
             )
-        powerpoint_verified = _verify_powerpoint(presentation_path)
+        powerpoint_readback = _verify_powerpoint(
+            presentation_path, expected_formatting
+        )
         stored = executor.load(state["workflow_id"])
         verification_results = stored.get("verification_results", {})
         hwp_verified = True
@@ -291,7 +332,18 @@ def _owned_probe(report_format="word", progress=None):
                 stored.get("report_format") == report_format
             ),
             "report_content_verified": bool(report_verified),
-            "powerpoint_exactly_five_slides": powerpoint_verified,
+            "powerpoint_exactly_five_slides": powerpoint_readback["slide_count"],
+            "powerpoint_formatting_verified": (
+                powerpoint_readback["formatting"]
+                and verification_results.get(
+                    "create_powerpoint_summary", {}
+                ).get("applied_formatting") == expected_formatting
+                and int(
+                    verification_results.get(
+                        "create_powerpoint_summary", {}
+                    ).get("formatted_text_range_count") or 0
+                ) == 10
+            ),
             "expected_artifacts_created": (
                 len(result.get("created_files") or []) == len(report_kinds) + 1
             ),

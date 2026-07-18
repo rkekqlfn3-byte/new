@@ -857,6 +857,69 @@ class PowerPointSummaryWriter:
         return win32com.client.DispatchEx(program_id)
 
     @staticmethod
+    def _formatting_plan(preferences=None, *, role="body") -> dict[str, Any]:
+        preferences = dict(preferences or {})
+        plan = {}
+        emphasis = preferences.get("emphasis_style")
+        if emphasis is not None:
+            emphasis = validate_preference_value("emphasis_style", emphasis)
+            plan["bold"] = emphasis == "bold"
+            plan["emphasis_style"] = emphasis
+        scale = preferences.get("font_scale")
+        if scale is not None:
+            scale = validate_preference_value("font_scale", scale)
+            sizes = {
+                "larger": {"title": 36.0, "body": 24.0},
+                "smaller": {"title": 24.0, "body": 14.0},
+            }
+            plan["font_size"] = sizes[scale]["title" if role == "title" else "body"]
+            plan["font_scale"] = scale
+        alignment = preferences.get("paragraph_align")
+        if alignment is not None:
+            alignment = validate_preference_value("paragraph_align", alignment)
+            plan["paragraph_alignment"] = {
+                "left": 1,
+                "center": 2,
+                "right": 3,
+                "justify": 4,
+            }[alignment]
+            plan["paragraph_align"] = alignment
+        return plan
+
+    @classmethod
+    def _apply_formatting_preferences(
+        cls,
+        text_range,
+        preferences=None,
+        *,
+        role="body",
+    ) -> dict[str, Any]:
+        plan = cls._formatting_plan(preferences, role=role)
+        if "bold" in plan:
+            text_range.Font.Bold = -1 if plan["bold"] else 0
+        if "font_size" in plan:
+            text_range.Font.Size = float(plan["font_size"])
+        if "paragraph_alignment" in plan:
+            text_range.ParagraphFormat.Alignment = int(
+                plan["paragraph_alignment"]
+            )
+        if "bold" in plan and bool(int(text_range.Font.Bold)) != plan["bold"]:
+            raise WorkflowError("PowerPoint 굵기 기본값 검증에 실패했습니다.")
+        if "font_size" in plan and abs(
+            float(text_range.Font.Size) - float(plan["font_size"])
+        ) > 0.01:
+            raise WorkflowError("PowerPoint 글자 크기 기본값 검증에 실패했습니다.")
+        if "paragraph_alignment" in plan and int(
+            text_range.ParagraphFormat.Alignment
+        ) != int(plan["paragraph_alignment"]):
+            raise WorkflowError("PowerPoint 문단 정렬 기본값 검증에 실패했습니다.")
+        return {
+            key: plan[key]
+            for key in ("emphasis_style", "font_scale", "paragraph_align")
+            if key in plan
+        }
+
+    @staticmethod
     def _slide_content(
         product: WorkProductData,
         preferences=None,
@@ -933,6 +996,8 @@ class PowerPointSummaryWriter:
                 application.Visible = True
                 presentation = lease.register_owned_document(application.Presentations.Add())
                 expected_slides = max(3, min(int(context.get("slide_count") or 5), 20))
+                applied_formatting = {}
+                formatted_text_range_count = 0
                 for index, (title, body) in enumerate(
                     self._slide_content(
                         product,
@@ -944,8 +1009,24 @@ class PowerPointSummaryWriter:
                 ):
                     layout = 1 if index == 1 else 2  # ppLayoutTitle / ppLayoutText
                     slide = presentation.Slides.Add(index, layout)
-                    slide.Shapes.Title.TextFrame.TextRange.Text = str(title)[:500]
-                    slide.Shapes.Placeholders.Item(2).TextFrame.TextRange.Text = str(body)[:5_000]
+                    title_range = slide.Shapes.Title.TextFrame.TextRange
+                    body_range = (
+                        slide.Shapes.Placeholders.Item(2).TextFrame.TextRange
+                    )
+                    title_range.Text = str(title)[:500]
+                    body_range.Text = str(body)[:5_000]
+                    for role, text_range in (
+                        ("title", title_range),
+                        ("body", body_range),
+                    ):
+                        applied = self._apply_formatting_preferences(
+                            text_range,
+                            context.get("preferences"),
+                            role=role,
+                        )
+                        if applied:
+                            applied_formatting = applied
+                            formatted_text_range_count += 1
                 if int(presentation.Slides.Count) != expected_slides:
                     raise WorkflowError(
                         f"PowerPoint가 요청된 {expected_slides}장으로 생성되지 않았습니다."
@@ -962,6 +1043,8 @@ class PowerPointSummaryWriter:
                         "format": "pptx",
                         "slide_count": int(presentation.Slides.Count),
                         "expected_slide_count": expected_slides,
+                        "applied_formatting": applied_formatting,
+                        "formatted_text_range_count": formatted_text_range_count,
                     },
                 }
             except Exception:

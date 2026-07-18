@@ -48,16 +48,19 @@ PROBE_SPECS = {
         "file": "prototype11_stage10_word_report.json",
         "probe": "prototype11_stage10_document_workflow",
         "report_format": "word",
+        "required_checks": ("powerpoint_formatting_verified",),
     },
     "workflow_hwp": {
         "file": "prototype11_stage10_hwp_report.json",
         "probe": "prototype11_stage10_document_workflow",
         "report_format": "hwp",
+        "required_checks": ("powerpoint_formatting_verified",),
     },
     "workflow_both": {
         "file": "prototype11_stage10_both_report.json",
         "probe": "prototype11_stage10_document_workflow",
         "report_format": "both",
+        "required_checks": ("powerpoint_formatting_verified",),
     },
     "user_learning": {
         "file": "prototype11_stage11_report.json",
@@ -206,6 +209,15 @@ def validate_probe_report(
     checks = _all_check_values(report)
     if checks and not all(checks):
         reasons.append("probe_check_failed")
+    result_checks = (
+        result.get("checks") if isinstance(result, Mapping) else {}
+    )
+    result_checks = result_checks if isinstance(result_checks, Mapping) else {}
+    if any(
+        result_checks.get(check_name) is not True
+        for check_name in spec.get("required_checks", ())
+    ):
+        reasons.append("required_probe_check_missing_or_failed")
     if spec["probe"] == "prototype1_stage8_four_app_stability":
         if report.get("prototype_1_0_ready") is not True:
             reasons.append("prototype_stability_unproven")
