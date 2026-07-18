@@ -60,6 +60,7 @@ class StructuredEditIntentAnalyzerTests(unittest.TestCase):
             "보고서체로 바꿔줘": "insert_text",
             "굵게 해줘": "set_text_format",
             "글자 크기 11": "set_text_format",
+            "글자 크기를 조금 작게": "set_text_format",
             "가운데 정렬": "set_paragraph_format",
             '"이"를 "해당"으로 바꿔줘': "find_replace",
             '표 셀에 "완료" 입력해줘': "insert_text",
@@ -73,6 +74,20 @@ class StructuredEditIntentAnalyzerTests(unittest.TestCase):
                     selection_reader=lambda: selected,
                 )
                 self.assertEqual(operation, intent.operation)
+
+        relative = self.analyzer.analyze(
+            "글자 크기를 조금 작게",
+            context,
+            selection_reader=lambda: selected,
+        )
+        self.assertEqual(-2.0, relative.params["font_size_delta"])
+        shortened = self.analyzer.analyze(
+            "조금 줄여줘",
+            context,
+            selection_reader=lambda: selected,
+        )
+        self.assertEqual("insert_text", shortened.operation)
+        self.assertNotIn("font_size_delta", shortened.params)
 
     def test_write_to_an_unselected_cell_is_blocked(self):
         with self.assertRaises(Stage5EditError):

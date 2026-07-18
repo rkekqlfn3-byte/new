@@ -504,12 +504,12 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
     ) -> tuple[EditRequest, dict[str, Any] | None]:
         """Fill one omitted formatting value from an approved local default.
 
-        Explicit formatting words always win.  This is limited to Word and
-        PowerPoint because their captured targets expose enough structural
-        text context for the existing preview/approval/read-back contract.
+        Explicit formatting words always win.  Word, PowerPoint and HWP all
+        route the resolved value through their existing structural
+        preview/approval/read-back contracts.
         """
         app_type = str(context.get("app_type") or "").strip().casefold()
-        if app_type not in {"word", "powerpoint"}:
+        if app_type not in {"word", "powerpoint", "hwp"}:
             return request, None
         command = re.sub(r"\s+", " ", str(request.text or "")).strip()
         lower = command.casefold()

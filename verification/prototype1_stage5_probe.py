@@ -21,6 +21,7 @@ from engine.app_actions.hwp_adapter import HwpAdapter
 from engine.edit_mode import EditContextManager, EditModeController, EditSessionManager
 from engine.edit_mode.context import NativeDocumentContextReader
 from engine.edit_mode.native_bridge import NativeDocumentBridge
+from engine.learning import UserPreferenceLearningManager
 from engine.parser import CommandParser
 from verification.prototype1_stage3_probe import (
     APP_SPECS,
@@ -112,7 +113,14 @@ class _OwnedHwpProvider:
         }
 
 
-def _session_parser(app_type, path, context_manager, native_adapter, window_handle=0):
+def _session_parser(
+    app_type,
+    path,
+    context_manager,
+    native_adapter,
+    window_handle=0,
+    user_learning_manager=None,
+):
     sessions = EditSessionManager()
     session = sessions.connect(
         {
@@ -128,6 +136,7 @@ def _session_parser(app_type, path, context_manager, native_adapter, window_hand
         context_manager=context_manager,
         native_action_registry=_Registry(app_type, native_adapter),
         layout_manager=_NoLayout(),
+        user_learning_manager=user_learning_manager,
     )
     return session, controller, CommandParser(edit_mode_controller=controller)
 
@@ -286,6 +295,7 @@ def _probe_hwp() -> dict:
         return {"status": "unavailable"}
 
     hwp = provider = controller = parser = None
+    learning_manager = None
     owned_pid = None
     original = "5단계 편집 검증을 위한 선택 문장입니다."
     replacement = "5단계 승인 편집이 검증되었습니다."
@@ -315,6 +325,19 @@ def _probe_hwp() -> dict:
         provider = _OwnedHwpProvider(hwp)
         manager = EditContextManager(providers=(provider,))
         adapter = HwpAdapter(object_getter=lambda: hwp, require_visible=False)
+        learning_manager = UserPreferenceLearningManager(
+            Path(temp_dir) / "hwp-formatting-preferences.json"
+        )
+        candidate = None
+        for index in range(1, 4):
+            candidate = learning_manager.record_evidence(
+                "font_scale",
+                "smaller",
+                scope_kind="app",
+                scope_id="hwp",
+                evidence_id=f"stage5-hwp-font-scale-{index}",
+            )
+        learning_manager.activate(candidate["candidate_id"])
         window = hwp.XHwpWindows.Active_XHwpWindow
         session, controller, parser = _session_parser(
             "hwp",
@@ -322,6 +345,7 @@ def _probe_hwp() -> dict:
             manager,
             adapter,
             window_handle=int(window.WindowHandle or 0),
+            user_learning_manager=learning_manager,
         )
         stage = "approved_selection_replace"
         _trace(stage)
@@ -335,13 +359,30 @@ def _probe_hwp() -> dict:
         _trace("hwp.approved")
         text = str(hwp.GetTextFile("UNICODE", "") or "")
         verified = replacement in text and original not in text
+
+        stage = "approved_learned_font_default"
+        hwp.HAction.Run("SelectAll")
+        before_height = int(adapter._char_state(hwp)["font_size_hu"])
+        formatting = _approve(
+            parser,
+            controller,
+            session,
+            "글자 크기 맞춰줘",
+            "stage5-hwp-learned-font",
+        )
+        after_height = int(adapter._char_state(hwp)["font_size_hu"])
+        formatting_verified = (
+            formatting["verified"]
+            and after_height == before_height - int(hwp.PointToHwpUnit(2))
+        )
         _trace("hwp.status")
         return {
-            "status": "passed" if verified else "failed",
+            "status": "passed" if verified and formatting_verified else "failed",
             "owned_fixture_only": True,
             "user_process_protected": True,
             "preview_approval_verified": True,
             "selection_replace_readback_verified": verified and result["verified"],
+            "learned_font_default_readback_verified": formatting_verified,
             "session_returned_ready": (
                 controller.status()["session"]["state"] == "ready"
             ),
@@ -359,6 +400,7 @@ def _probe_hwp() -> dict:
         parser = None
         controller = None
         provider = None
+        learning_manager = None
         hwp = None
         gc.collect()
         pythoncom.CoUninitialize()

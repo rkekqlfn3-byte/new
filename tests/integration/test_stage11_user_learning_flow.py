@@ -307,7 +307,11 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
         manager.activate(candidate["candidate_id"])
 
     def _formatting_preview(self, root, app_type, preference, value, command):
-        suffix = ".docx" if app_type == "word" else ".pptx"
+        suffix = {
+            "word": ".docx",
+            "powerpoint": ".pptx",
+            "hwp": ".hwp",
+        }[app_type]
         path = root / f"formatting-default{suffix}"
         path.write_bytes(b"fixture")
         manager = UserPreferenceLearningManager(root / f"{app_type}-preferences.json")
@@ -430,6 +434,90 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
                 "smaller",
                 prepared["metadata"]["applied_user_preference"]["value"],
             )
+
+    def test_omitted_hwp_font_size_uses_confirmed_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parser, native, result = self._formatting_preview(
+                Path(temp_dir),
+                "hwp",
+                "font_scale",
+                "smaller",
+                "글자 크기 맞춰줘",
+            )
+
+            self.assertEqual(
+                "confirmation_required", result["status"], result
+            )
+            self.assertIn("학습 기본값 작게", result["message"])
+            pending = parser.pending_confirmation_manager.active_record(
+                "stage11-formatting-hwp"
+            )
+            prepared = pending["payload"]["prepared_action"]
+            self.assertEqual("set_text_format", prepared["operation"])
+            native_params = prepared["arguments"]["native_prepared_action"]["params"]
+            self.assertEqual(-2.0, native_params["font_size_delta"])
+            self.assertEqual(
+                "smaller",
+                prepared["metadata"]["applied_user_preference"]["value"],
+            )
+
+    def test_omitted_hwp_emphasis_and_alignment_use_confirmed_defaults(self):
+        cases = (
+            (
+                "emphasis_style",
+                "bold",
+                "강조 방식 맞춰줘",
+                "set_text_format",
+                "bold",
+                True,
+            ),
+            (
+                "paragraph_align",
+                "center",
+                "정렬해줘",
+                "set_paragraph_format",
+                "alignment",
+                "가운데",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for index, (
+                preference,
+                value,
+                command,
+                operation,
+                native_key,
+                native_value,
+            ) in enumerate(cases):
+                with self.subTest(preference=preference):
+                    case_root = root / str(index)
+                    case_root.mkdir()
+                    parser, native, result = self._formatting_preview(
+                        case_root,
+                        "hwp",
+                        preference,
+                        value,
+                        command,
+                    )
+                    self.assertEqual(
+                        "confirmation_required", result["status"], result
+                    )
+                    pending = parser.pending_confirmation_manager.active_record(
+                        "stage11-formatting-hwp"
+                    )
+                    prepared = pending["payload"]["prepared_action"]
+                    self.assertEqual(operation, prepared["operation"])
+                    native_params = prepared["arguments"][
+                        "native_prepared_action"
+                    ]["params"]
+                    self.assertEqual(native_value, native_params[native_key])
+                    self.assertEqual(
+                        value,
+                        prepared["metadata"][
+                            "applied_user_preference"
+                        ]["value"],
+                    )
 
     def test_explicit_alignment_does_not_report_learned_default(self):
         with tempfile.TemporaryDirectory() as temp_dir:

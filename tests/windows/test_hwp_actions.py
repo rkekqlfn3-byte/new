@@ -341,6 +341,14 @@ class HwpAdapterTests(unittest.TestCase):
             {"Bold": 1, "Height": 1500, "TextColor": 255}, hwp.char_state
         )
         self.assertEqual(3, hwp.paragraph_alignment)
+        smaller = adapter.prepare(
+            "set_text_format", {"font_size_delta": -2}
+        )
+        adapter.execute(smaller)
+        self.assertEqual(1300, hwp.char_state["Height"])
+        hwp.char_state["Height"] = 0
+        with self.assertRaises(AppActionBlocked):
+            adapter.prepare("set_text_format", {"font_size_delta": -2})
 
     def test_find_replace_respects_selection_scope(self):
         hwp = FakeHwp("홍길동 하나 / 홍길동 둘")

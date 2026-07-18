@@ -402,6 +402,15 @@ class StructuredEditIntentAnalyzer:
         if size_match:
             desired["font_size"] = float(size_match.group(1))
             labels.append(f"글자 크기 {size_match.group(1)}")
+        elif any(
+            term in command for term in ("글자", "글씨", "폰트", "크기")
+        ):
+            if any(term in command for term in ("조금 크게", "키워", "늘려")):
+                desired["font_size_delta"] = 2.0
+                labels.append("글자 크기 +2")
+            elif any(term in command for term in ("조금 작게", "작게", "줄여")):
+                desired["font_size_delta"] = -2.0
+                labels.append("글자 크기 -2")
         if desired:
             return EditIntent(
                 "set_text_format",

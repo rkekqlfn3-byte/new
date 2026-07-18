@@ -355,7 +355,7 @@ class HwpAdapter:
             )
         return color
 
-    def _desired_text_format(self, hwp, params):
+    def _desired_text_format(self, hwp, params, current=None):
         supplied = params.get("desired")
         desired = dict(supplied) if isinstance(supplied, dict) else {}
         labels = dict(params.get("format_labels") or {})
@@ -371,6 +371,32 @@ class HwpAdapter:
                     raise AppActionBlocked("한글 글자 크기는 1부터 409포인트 사이여야 합니다.")
                 desired["font_size_hu"] = int(hwp.PointToHwpUnit(size))
                 labels["font_size"] = int(size) if size.is_integer() else size
+            elif params.get("font_size_delta") is not None:
+                try:
+                    delta = float(params.get("font_size_delta"))
+                except (TypeError, ValueError) as error:
+                    raise AppActionBlocked(
+                        "한글 글자 크기 변화량은 숫자로 지정해주세요."
+                    ) from error
+                if delta == 0 or abs(delta) > 72:
+                    raise AppActionBlocked(
+                        "한글 글자 크기 변화량은 0이 아닌 72포인트 이하여야 합니다."
+                    )
+                current = dict(current or self._char_state(hwp))
+                minimum = int(hwp.PointToHwpUnit(1))
+                maximum = int(hwp.PointToHwpUnit(409))
+                current_height = int(current["font_size_hu"])
+                if not minimum <= current_height <= maximum:
+                    raise AppActionBlocked(
+                        "선택 영역의 글자 크기가 섞여 있어 상대 크기를 안전하게 계산할 수 없습니다."
+                    )
+                target = current_height + int(hwp.PointToHwpUnit(delta))
+                if not minimum <= target <= maximum:
+                    raise AppActionBlocked(
+                        "변경 후 한글 글자 크기는 1부터 409포인트 사이여야 합니다."
+                    )
+                desired["font_size_hu"] = target
+                labels["font_size_delta"] = delta
             if params.get("text_color") is not None:
                 color = self._normalize_color_name(params.get("text_color"))
                 desired["text_color"] = int(hwp.RGBColor(*COLOR_RGB[color]))
@@ -389,8 +415,8 @@ class HwpAdapter:
             raise AppActionBlocked(
                 f"글자 서식은 한 번에 최대 {MAX_FORMAT_SELECTION_CHARS:,}자까지 지원합니다."
             )
-        desired, labels = self._desired_text_format(hwp, params)
         current = self._char_state(hwp)
+        desired, labels = self._desired_text_format(hwp, params, current)
         noop = all(current.get(key) == value for key, value in desired.items())
         snapshot = {
             **base,

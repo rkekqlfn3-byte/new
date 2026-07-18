@@ -32,6 +32,20 @@ def probe_report(spec, *, success=True, generated_at=NOW, checks=True):
     }
     if spec.get("report_format"):
         report["report_format"] = spec["report_format"]
+    if spec.get("required_targets"):
+        report["results"] = {
+            target: {
+                "status": "passed",
+                "owned_fixture_only": True,
+                "user_process_protected": True,
+            }
+            for target in spec["required_targets"]
+        }
+        for target, check_names in spec.get(
+            "required_target_checks", {}
+        ).items():
+            for check_name in check_names:
+                report["results"][target][check_name] = True
     for check_name in spec.get("required_checks", ()):
         report["result"]["checks"][check_name] = True
     if spec["probe"] == "prototype1_stage8_four_app_stability":
@@ -80,6 +94,28 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
         self.assertIn(
             "one_or_more_probe_targets_not_passed",
             validate_probe_report(report, spec, now=NOW, max_age_hours=168),
+        )
+
+    def test_probe_validation_requires_all_named_targets_and_hwp_learning_check(self):
+        spec = PROBE_SPECS["native_excel_hwp"]
+        missing_target = probe_report(spec)
+        del missing_target["results"]["excel"]
+        self.assertIn(
+            "required_probe_target_missing_or_failed",
+            validate_probe_report(
+                missing_target, spec, now=NOW, max_age_hours=168
+            ),
+        )
+
+        missing_check = probe_report(spec)
+        del missing_check["results"]["hwp"][
+            "learned_font_default_readback_verified"
+        ]
+        self.assertIn(
+            "required_target_check_missing_or_failed",
+            validate_probe_report(
+                missing_check, spec, now=NOW, max_age_hours=168
+            ),
         )
 
     def test_automated_evidence_never_claims_manual_acceptance(self):

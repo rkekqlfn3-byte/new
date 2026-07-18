@@ -50,6 +50,16 @@ class StaticContextManager:
             target = {"start": 4, "end": 4 + len(self.text), "style_name": "본문"}
             selection_kind = "text"
             reference = f"4:{4 + len(self.text)}"
+        elif self.app_type == "hwp":
+            target = {
+                "coordinates": [0, 0, 4, 0, 0, 4 + len(self.text)],
+                "position": [0, 0, 4],
+            }
+            selection_kind = "text"
+            reference = (
+                "selected:0:0:4:0:0:"
+                f"{4 + len(self.text)}"
+            )
         else:
             target = {
                 "slide_number": 2,
@@ -73,7 +83,9 @@ class StaticContextManager:
             "document_name": value["document_name"],
             "document_fingerprint": value["document_fingerprint"],
             "context_fingerprint": "C" * 64,
-            "active_container": "슬라이드 2" if self.app_type == "powerpoint" else None,
+            "active_container": (
+                "슬라이드 2" if self.app_type == "powerpoint" else None
+            ),
             "selection_reference": reference,
             "selection_kind": selection_kind,
             "target": target,
@@ -110,6 +122,13 @@ class FakeNativeAdapter:
         if self.context_manager.app_type == "word":
             native_params.update({"start": target["start"], "end": target["end"]})
             current.update({"has_selection": True, "in_table": False, "table": {}})
+            sheet = "현재 문서"
+        elif self.context_manager.app_type == "hwp":
+            current.update({
+                "has_selection": True,
+                "coordinates": list(target["coordinates"]),
+                "position": list(target["position"]),
+            })
             sheet = "현재 문서"
         else:
             current.update({

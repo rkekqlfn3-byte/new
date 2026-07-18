@@ -31,6 +31,10 @@ PROBE_SPECS = {
     "native_excel_hwp": {
         "file": "prototype1_stage5_report.json",
         "probe": "prototype1_stage5_owned_fixture_editing",
+        "required_targets": ("excel", "hwp"),
+        "required_target_checks": {
+            "hwp": ("learned_font_default_readback_verified",),
+        },
     },
     "native_word_powerpoint": {
         "file": "prototype1_stage6_report.json",
@@ -177,6 +181,25 @@ def validate_probe_report(
         for item in results.values()
     ):
         reasons.append("one_or_more_probe_targets_not_passed")
+    required_targets = tuple(spec.get("required_targets", ()))
+    if required_targets:
+        if not isinstance(results, Mapping) or any(
+            not isinstance(results.get(target), Mapping)
+            or results[target].get("status") != "passed"
+            for target in required_targets
+        ):
+            reasons.append("required_probe_target_missing_or_failed")
+    required_target_checks = spec.get("required_target_checks", {})
+    if isinstance(required_target_checks, Mapping):
+        for target, check_names in required_target_checks.items():
+            target_result = (
+                results.get(target) if isinstance(results, Mapping) else None
+            )
+            if not isinstance(target_result, Mapping) or any(
+                target_result.get(check_name) is not True
+                for check_name in check_names
+            ):
+                reasons.append("required_target_check_missing_or_failed")
     expected_format = spec.get("report_format")
     if expected_format and report.get("report_format") != expected_format:
         reasons.append("report_format_mismatch")
