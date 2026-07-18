@@ -766,6 +766,7 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             }
             or workflow_intent.params.get("reuse_approved_skill")
             or workflow_intent.params.get("contextual_current_document")
+            or workflow_intent.params.get("join_requested")
         ):
             # A remembered-workflow command may also contain ``PPT 7장``.
             # The explicit number belongs to this replay, not to long-term

@@ -76,6 +76,7 @@ PROBE_SPECS = {
         "required_checks": (
             "powerpoint_formatting_verified",
             "bounded_pivot_summaries_created",
+            "explicit_join_verified",
         ),
     },
     "workflow_hwp": {

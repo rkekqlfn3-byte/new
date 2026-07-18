@@ -42,6 +42,8 @@ MAX_RELATIONSHIPS = 10
 MAX_RELATION_VALUES = 5_000
 MAX_PIVOT_SUMMARIES = 10
 MAX_PIVOT_GROUPS = 5
+MAX_JOIN_SOURCE_ROWS = 5_000
+MAX_JOIN_OUTPUT_ROWS = 5_000
 MAX_WORK_PRODUCT_BYTES = 1_000_000
 SUPPORTED_EXCEL_SUFFIXES = frozenset({".xlsx", ".xlsm", ".xlsb", ".xls"})
 REPORT_FORMATS = {
@@ -116,6 +118,14 @@ class HwpSecurityModuleUnavailable(WorkflowError):
     error_type = "environment_error"
     status = "blocked"
     retryable = True
+
+
+class WorkflowJoinValidationError(WorkflowError):
+    """An explicit row join is ambiguous, unsafe, or outside bounded limits."""
+
+    error_type = "validation_error"
+    status = "blocked"
+    retryable = False
 
 
 def _timestamp() -> str:
@@ -330,6 +340,62 @@ def _validated_workflow_preferences(value) -> dict[str, Any]:
     return result
 
 
+def _validated_join_plan(value) -> dict[str, str] | None:
+    """Validate the complete, content-free contract for one approved join."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise WorkflowJoinValidationError("시트 조인 계획이 JSON 객체가 아닙니다.")
+    required = {
+        "left_sheet",
+        "right_sheet",
+        "left_key",
+        "right_key",
+        "join_type",
+    }
+    if set(value) != required:
+        raise WorkflowJoinValidationError(
+            "시트 조인 계획에는 두 시트명·두 키·결합 방식만 정확히 있어야 합니다."
+        )
+
+    def clean_name(name, label):
+        text = re.sub(r"\s+", " ", str(name or "")).strip()
+        if (
+            not text
+            or len(text) > 80
+            or any(ord(character) < 32 for character in text)
+        ):
+            raise WorkflowJoinValidationError(
+                f"조인할 {label}은(는) 1~80자의 한 줄 이름이어야 합니다."
+            )
+        return text
+
+    plan = {
+        "left_sheet": clean_name(value.get("left_sheet"), "왼쪽 시트명"),
+        "right_sheet": clean_name(value.get("right_sheet"), "오른쪽 시트명"),
+        "left_key": clean_name(value.get("left_key"), "왼쪽 키"),
+        "right_key": clean_name(value.get("right_key"), "오른쪽 키"),
+        "join_type": str(value.get("join_type") or "").strip().casefold(),
+    }
+    if plan["left_sheet"].casefold() == plan["right_sheet"].casefold():
+        raise WorkflowJoinValidationError("서로 다른 두 시트를 지정해야 합니다.")
+    if plan["join_type"] not in {"inner", "left"}:
+        raise WorkflowJoinValidationError(
+            "조인 방식은 '내부 조인' 또는 '왼쪽 조인'으로 명시해야 합니다."
+        )
+    normalized_left_key = re.sub(
+        r"[\s_\-]+", "", plan["left_key"]
+    ).casefold()
+    normalized_right_key = re.sub(
+        r"[\s_\-]+", "", plan["right_key"]
+    ).casefold()
+    if normalized_left_key != normalized_right_key:
+        raise WorkflowJoinValidationError(
+            "현재 안전 조인은 두 시트에서 같은 이름의 키 열만 지원합니다."
+        )
+    return plan
+
+
 class ExcelSalesAnalyzer:
     """Read the exact workbook without changing it and produce bounded JSON data."""
 
@@ -475,15 +541,8 @@ class ExcelSalesAnalyzer:
         values = []
         for row in rows:
             value = row[column] if column < len(row) else None
-            if value in (None, ""):
-                continue
-            number = cls._number(value)
-            normalized = (
-                f"number:{number:.15g}"
-                if number is not None
-                else "text:" + str(value).strip().casefold()
-            )
-            if not normalized:
+            normalized = cls._join_key_value(value)
+            if normalized is None:
                 continue
             values.append(hashlib.sha256(
                 normalized[:500].encode("utf-8")
@@ -497,6 +556,218 @@ class ExcelSalesAnalyzer:
             "unique_count": len(unique),
             "sample_limited": len(values) >= MAX_RELATION_VALUES,
         }
+
+    @classmethod
+    def _join_key_value(cls, value) -> str | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            # Text identifiers such as "001" intentionally remain distinct
+            # from numeric 1. Plain numeric text such as "1" still matches
+            # Excel's numeric Value2 representation.
+            if re.fullmatch(r"[+-]?0\d+(?:\.\d+)?", text):
+                return f"text:{text.casefold()[:500]}"
+        number = cls._number(value)
+        if number is not None:
+            return f"number:{number:.15g}"
+        text = str(value).strip().casefold()
+        return f"text:{text[:500]}" if text else None
+
+    @classmethod
+    def _apply_explicit_join(
+        cls,
+        profiles,
+        tables,
+        join_plan,
+        *,
+        remaining_table_rows: int,
+    ) -> str:
+        plan = _validated_join_plan(join_plan)
+        if plan is None:
+            return ""
+        if len(tables) >= MAX_WORKSHEETS:
+            raise WorkflowJoinValidationError(
+                "조인 결과 표를 포함하면 표가 20개를 넘습니다. 표시 시트를 19개 "
+                "이하로 줄인 뒤 다시 요청해주세요."
+            )
+
+        def normalized_sheet_name(value):
+            return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+        def resolve_profile(name, label):
+            matches = [
+                profile
+                for profile in profiles
+                if normalized_sheet_name(profile["sheet_name"])
+                == normalized_sheet_name(name)
+            ]
+            if len(matches) != 1:
+                raise WorkflowJoinValidationError(
+                    f"표시된 Excel 시트에서 {label} '{name}'을(를) 정확히 하나 "
+                    "찾지 못했습니다. 숨김 여부와 이름을 확인해주세요."
+                )
+            return matches[0]
+
+        left = resolve_profile(plan["left_sheet"], "왼쪽 시트")
+        right = resolve_profile(plan["right_sheet"], "오른쪽 시트")
+        if left is right:
+            raise WorkflowJoinValidationError("서로 다른 두 시트를 지정해야 합니다.")
+        if (
+            len(left["rows"]) > MAX_JOIN_SOURCE_ROWS
+            or len(right["rows"]) > MAX_JOIN_SOURCE_ROWS
+        ):
+            raise WorkflowJoinValidationError(
+                f"명시 조인은 각 시트 {MAX_JOIN_SOURCE_ROWS:,}행까지 지원합니다."
+            )
+
+        def resolve_key(profile, requested, label):
+            requested_key = cls._header_key(requested)
+            matches = [
+                (index, header)
+                for index, header in enumerate(profile["headers"])
+                if cls._header_key(header) == requested_key
+            ]
+            if len(matches) != 1:
+                raise WorkflowJoinValidationError(
+                    f"'{profile['sheet_name']}' 시트에서 {label} '{requested}' "
+                    "열을 정확히 하나 찾지 못했습니다."
+                )
+            index, header = matches[0]
+            if cls._looks_like_measure_header(header):
+                raise WorkflowJoinValidationError(
+                    f"금액·매출·수량 같은 측정값 열 '{header}'은 조인 키로 "
+                    "사용하지 않습니다."
+                )
+            return index, str(header)
+
+        left_key_index, left_key_header = resolve_key(
+            left, plan["left_key"], "조인 키"
+        )
+        right_key_index, right_key_header = resolve_key(
+            right, plan["right_key"], "조인 키"
+        )
+        left_rows = [
+            (row + [None] * len(left["headers"]))[:len(left["headers"])]
+            for row in left["rows"]
+        ]
+        right_rows = [
+            (row + [None] * len(right["headers"]))[:len(right["headers"])]
+            for row in right["rows"]
+        ]
+        left_keys = [
+            cls._join_key_value(row[left_key_index]) for row in left_rows
+        ]
+        right_keys = [
+            cls._join_key_value(row[right_key_index]) for row in right_rows
+        ]
+        left_nonempty = [key for key in left_keys if key is not None]
+        right_nonempty = [key for key in right_keys if key is not None]
+        if not left_nonempty or not right_nonempty:
+            raise WorkflowJoinValidationError(
+                "지정한 조인 키에 비교할 값이 없습니다."
+            )
+        left_unique = len(set(left_nonempty)) == len(left_nonempty)
+        right_unique = len(set(right_nonempty)) == len(right_nonempty)
+        if not left_unique and not right_unique:
+            raise WorkflowJoinValidationError(
+                "두 시트의 조인 키가 모두 중복된 다대다 관계라 자동 결합하지 "
+                "않습니다. 한쪽 키를 고유하게 정리하거나 집계 방식을 지정해주세요."
+            )
+
+        right_output_indexes = [
+            index
+            for index in range(len(right["headers"]))
+            if index != right_key_index
+        ]
+        output_columns = len(left["headers"]) + len(right_output_indexes)
+        if output_columns > MAX_TABLE_COLUMNS:
+            raise WorkflowJoinValidationError(
+                f"조인 결과가 {MAX_TABLE_COLUMNS}열을 넘습니다. 필요한 열을 줄인 "
+                "별도 시트를 만든 뒤 다시 요청해주세요."
+            )
+        output_headers = [
+            f"{left['sheet_name']}/{header}" for header in left["headers"]
+        ] + [
+            f"{right['sheet_name']}/{right['headers'][index]}"
+            for index in right_output_indexes
+        ]
+        right_index = {}
+        for row, key in zip(right_rows, right_keys):
+            if key is not None:
+                right_index.setdefault(key, []).append(row)
+
+        preview_limit = min(
+            MAX_TABLE_ROWS, max(0, int(remaining_table_rows))
+        )
+        output_rows = []
+        output_row_count = 0
+        matched_left_rows = 0
+        unmatched_left_rows = 0
+        for left_row, key in zip(left_rows, left_keys):
+            matches = right_index.get(key, ()) if key is not None else ()
+            if matches:
+                matched_left_rows += 1
+                candidates = [
+                    left_row + [right_row[index] for index in right_output_indexes]
+                    for right_row in matches
+                ]
+            elif plan["join_type"] == "left":
+                unmatched_left_rows += 1
+                candidates = [
+                    left_row + [None] * len(right_output_indexes)
+                ]
+            else:
+                unmatched_left_rows += 1
+                candidates = []
+            output_row_count += len(candidates)
+            if output_row_count > MAX_JOIN_OUTPUT_ROWS:
+                raise WorkflowJoinValidationError(
+                    f"조인 결과가 {MAX_JOIN_OUTPUT_ROWS:,}행을 넘어 자동 생성하지 "
+                    "않습니다. 키 또는 대상 행을 더 좁혀주세요."
+                )
+            for candidate in candidates:
+                if len(output_rows) < preview_limit:
+                    output_rows.append(candidate)
+
+        cardinality = (
+            "one_to_one"
+            if left_unique and right_unique
+            else "one_to_many"
+            if left_unique
+            else "many_to_one"
+        )
+        join_label = "내부" if plan["join_type"] == "inner" else "왼쪽"
+        table = {
+            "name": f"{left['sheet_name']}↔{right['sheet_name']} {join_label} 조인",
+            "headers": output_headers,
+            "rows": output_rows,
+            "total_rows": output_row_count,
+            "included_rows": len(output_rows),
+            "used_cells": output_row_count * output_columns,
+            "derived": True,
+            "join": {
+                "left_sheet": left["sheet_name"],
+                "right_sheet": right["sheet_name"],
+                "left_key": left_key_header,
+                "right_key": right_key_header,
+                "join_type": plan["join_type"],
+                "cardinality": cardinality,
+                "matched_left_rows": matched_left_rows,
+                "unmatched_left_rows": unmatched_left_rows,
+                "output_rows": output_row_count,
+                "included_rows": len(output_rows),
+                "truncated": output_row_count > len(output_rows),
+            },
+        }
+        tables.append(table)
+        return (
+            f"승인한 {join_label} 조인: '{left['sheet_name']}'과 "
+            f"'{right['sheet_name']}'을 '{left_key_header}' 기준으로 결합해 "
+            f"{output_row_count:,}행을 만들었으며 Excel 원본은 변경하지 않았습니다."
+        )
 
     @classmethod
     def _relationship_insights(cls, profiles) -> list[str]:
@@ -708,6 +979,7 @@ class ExcelSalesAnalyzer:
         from engine.app_actions.com_lifecycle import com_apartment
 
         source_path = _absolute_path(context["source_path"])
+        join_plan = _validated_join_plan(context.get("join_plan"))
         lease = None
         workbook = None
         with com_apartment(self._com_runtime):
@@ -765,7 +1037,11 @@ class ExcelSalesAnalyzer:
                 tables = []
                 charts = []
                 analysis_profiles = []
-                remaining_table_rows = MAX_TOTAL_TABLE_ROWS
+                remaining_table_rows = (
+                    MAX_TOTAL_TABLE_ROWS - MAX_TABLE_ROWS
+                    if join_plan is not None
+                    else MAX_TOTAL_TABLE_ROWS
+                )
                 qualify_metrics = len(visible_sheets) > 1
                 for (
                     worksheet,
@@ -840,8 +1116,18 @@ class ExcelSalesAnalyzer:
                 if not tables:
                     raise WorkflowError("표시된 Excel 시트에 분석할 데이터가 없습니다.")
                 summary_lines = max(1, min(int(context.get("preferences", {}).get("summary_lines", 8)), 20))
+                join_insight = self._apply_explicit_join(
+                    analysis_profiles,
+                    tables,
+                    join_plan,
+                    remaining_table_rows=MAX_TOTAL_TABLE_ROWS - sum(
+                        int(table.get("included_rows") or 0)
+                        for table in tables
+                    ),
+                ) if join_plan is not None else ""
                 advanced_insights = (
-                    self._relationship_insights(analysis_profiles)
+                    ([join_insight] if join_insight else [])
+                    + self._relationship_insights(analysis_profiles)
                     + self._pivot_insights(analysis_profiles)
                 )
                 metric_insights = [
@@ -1746,6 +2032,7 @@ class WorkflowExecutor:
         state.setdefault(
             "step_order", list(_step_order(state.get("report_format") or "word"))
         )
+        state.setdefault("join_plan", None)
         return state
 
     def prepare(
@@ -1758,6 +2045,7 @@ class WorkflowExecutor:
         slide_count=5,
         explicit_slide_count=False,
         report_format="word",
+        join_plan=None,
     ) -> dict:
         source = Path(_absolute_path(source_path))
         if not source.is_file() or source.suffix.casefold() not in SUPPORTED_EXCEL_SUFFIXES:
@@ -1770,6 +2058,7 @@ class WorkflowExecutor:
         if not 3 <= slide_count <= 20:
             raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
         report_format = _report_format(report_format)
+        join_plan = _validated_join_plan(join_plan)
         self._preflight_report_environment(report_format)
         destination = Path(_absolute_path(output_dir or source.parent))
         if not destination.is_dir():
@@ -1818,6 +2107,7 @@ class WorkflowExecutor:
             "output_dir": str(destination),
             "output_paths": output_paths,
             "report_format": report_format,
+            "join_plan": join_plan,
             "step_order": list(step_order),
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
@@ -1882,6 +2172,7 @@ class WorkflowExecutor:
 
         report_format = _report_format(state.get("report_format") or "word")
         state["report_format"] = report_format
+        state["join_plan"] = _validated_join_plan(state.get("join_plan"))
         expected_steps = _step_order(report_format)
         if (
             tuple(state.get("step_order") or ()) != expected_steps
@@ -1971,6 +2262,11 @@ class WorkflowExecutor:
             if _path_key(state.get("source_path") or "") != source_key:
                 continue
             allowed = {"failed", "running"}
+            failure = state.get("failure")
+            if isinstance(failure, Mapping) and bool(
+                failure.get("retryable")
+            ):
+                allowed.add("blocked")
             if include_completed:
                 allowed.add("completed")
             if state.get("status") not in allowed:
@@ -2159,6 +2455,7 @@ class WorkflowExecutor:
             "preferences": dict(state.get("applied_preferences") or {}),
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
+            "join_plan": _validated_join_plan(state.get("join_plan")),
         }
         if name == "create_word_report":
             context["output_path"] = state["output_paths"][
@@ -2187,6 +2484,15 @@ class WorkflowExecutor:
         state = self.load(workflow_id)
         if state.get("status") in {"approval_required", "cancelled"}:
             raise WorkflowError("승인되지 않은 워크플로 상태는 실행할 수 없습니다.")
+        failure = state.get("failure")
+        retryable_failure = bool(
+            failure.get("retryable")
+        ) if isinstance(failure, Mapping) else False
+        if state.get("status") == "blocked" and not retryable_failure:
+            raise WorkflowJoinValidationError(
+                "재시도할 수 없는 검증 오류로 차단된 워크플로입니다. 조인 조건을 "
+                "고쳐 새 요청으로 다시 미리보기·승인해주세요."
+            )
         if state.get("status") == "completed":
             self._reconcile(state)
             if len(state["successful_steps"]) == len(self._state_step_order(state)):
@@ -2195,6 +2501,7 @@ class WorkflowExecutor:
         step_order = self._state_step_order(state)
         state["status"] = "running"
         state["failed_step"] = None
+        state["failure"] = None
         self._save(state)
         for name in step_order:
             step = state["steps"][name]
@@ -2214,7 +2521,14 @@ class WorkflowExecutor:
                         "valid_common_model": True,
                         "metric_count": len(artifact["metrics"]),
                         "table_count": len(artifact["tables"]),
-                        "sheet_count": len(artifact["tables"]),
+                        "sheet_count": sum(
+                            not bool(table.get("derived"))
+                            for table in artifact["tables"]
+                        ),
+                        "derived_table_count": sum(
+                            bool(table.get("derived"))
+                            for table in artifact["tables"]
+                        ),
                         "chart_count": len(artifact["charts"]),
                         "relationship_count": sum(
                             len(table.get("relationships") or [])
@@ -2222,6 +2536,10 @@ class WorkflowExecutor:
                         ),
                         "pivot_summary_count": sum(
                             len(table.get("pivot_summaries") or [])
+                            for table in artifact["tables"]
+                        ),
+                        "join_summary_count": sum(
+                            bool(table.get("join"))
                             for table in artifact["tables"]
                         ),
                     }
@@ -2244,9 +2562,23 @@ class WorkflowExecutor:
             except Exception as error:
                 step["status"] = "failed"
                 step["error"] = str(error)[:2_000]
-                state["status"] = "failed"
+                failure_status = str(
+                    getattr(error, "status", "") or "failed"
+                ).strip()
+                state["status"] = (
+                    failure_status
+                    if failure_status in {"failed", "blocked"}
+                    else "failed"
+                )
                 state["failed_step"] = name
                 state["current_step"] = name
+                state["failure"] = {
+                    "error_type": str(
+                        getattr(error, "error_type", "") or "execution_error"
+                    ),
+                    "status": state["status"],
+                    "retryable": bool(getattr(error, "retryable", True)),
+                }
                 self._save(state)
                 raise WorkflowExecutionError(
                     state["workflow_id"],
@@ -2275,6 +2607,7 @@ class WorkflowExecutor:
             "output_paths": dict(state.get("output_paths") or {}),
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
+            "join_plan": _validated_join_plan(state.get("join_plan")),
             "report_formats": list(
                 _report_kinds(state.get("report_format") or "word")
             ),

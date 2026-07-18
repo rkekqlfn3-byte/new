@@ -821,6 +821,20 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
                 "저장하지 않았습니다. `이 워크플로 기억해`라고 말하면 활성화 전에 "
                 "다시 확인합니다."
             )
+        if observations.get("join_plan"):
+            join_plan = dict(observations["join_plan"])
+            join_label = (
+                "내부"
+                if join_plan.get("join_type") == "inner"
+                else "왼쪽"
+            )
+            message += (
+                f"\n승인한 {join_label} 조인을 읽기 전용으로 검증했습니다: "
+                f"{join_plan.get('left_sheet')} ↔ "
+                f"{join_plan.get('right_sheet')} · 키 "
+                f"{join_plan.get('left_key')}. 시트명과 키는 재사용 스킬로 "
+                "저장하지 않았습니다."
+            )
         return message
     if prepared.operation == "vba_inspect_project":
         observations = result.observations

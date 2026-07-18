@@ -120,10 +120,12 @@ class Registry:
 class Analyzer:
     def __init__(self):
         self.calls = 0
+        self.contexts = []
 
     def run(self, context):
         self.calls += 1
-        return {
+        self.contexts.append(dict(context))
+        value = {
             "title": "매출 분석",
             "metrics": [{
                 "name": "매출", "count": 2, "sum": 300,
@@ -138,6 +140,27 @@ class Analyzer:
             "insights": ["부산 매출이 가장 높습니다."],
             "source_files": [context["source_path"]],
         }
+        join_plan = dict(context.get("join_plan") or {})
+        if join_plan:
+            value["tables"].append({
+                "name": "고객↔주문 내부 조인",
+                "headers": ["고객/고객ID", "주문/매출"],
+                "rows": [[1, 300]],
+                "total_rows": 1,
+                "included_rows": 1,
+                "derived": True,
+                "join": {
+                    **join_plan,
+                    "cardinality": "one_to_many",
+                    "output_rows": 1,
+                    "included_rows": 1,
+                    "truncated": False,
+                },
+            })
+            value["insights"].insert(
+                0, "승인한 내부 조인을 읽기 전용으로 검증했습니다."
+            )
+        return value
 
 
 class Writer:
@@ -532,6 +555,52 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             item.get("preference") == "ppt_slide_count"
             for item in preference_candidates
         ))
+
+    def test_explicit_join_requires_complete_contract_and_is_not_learned(self):
+        self.ppt.fail_times = 0
+        incomplete = self.command(
+            "고객 시트와 주문 시트를 고객ID로 조인해서 "
+            "Word 보고서와 5장짜리 PPT 만들어줘",
+            "join-incomplete",
+        )
+
+        self.assertFalse(incomplete["success"])
+        self.assertEqual("validation_error", incomplete["error_type"])
+        self.assertEqual("blocked", incomplete["status"])
+        self.assertNotIn("confirmation", incomplete.get("data") or {})
+        self.assertEqual(0, self.analyzer.calls)
+
+        preview = self.command(
+            "고객 시트와 주문 시트를 고객ID로 내부 조인해서 "
+            "Word 보고서와 5장짜리 PPT 만들어줘",
+            "join-complete",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("읽기 전용 내부 조인", preview["message"])
+        self.assertEqual("inner", plan["join_plan"]["join_type"])
+        self.assertEqual(0, self.analyzer.calls)
+
+        completed = self.approve(preview)
+        observations = completed["data"]["observations"]
+
+        self.assertTrue(completed["success"], completed)
+        self.assertEqual(1, self.analyzer.calls)
+        self.assertEqual(
+            plan["join_plan"], self.analyzer.contexts[-1]["join_plan"]
+        )
+        self.assertEqual(
+            1,
+            observations["verification_results"]["analyze_excel"][
+                "join_summary_count"
+            ],
+        )
+        self.assertIn("시트명과 키는 재사용 스킬로 저장하지 않았습니다", completed["message"])
+        self.assertIsNone(self.workflow_skills.latest_candidate())
 
     def test_recent_verified_workflow_artifact_opens_exact_file_and_focuses(self):
         self.ppt.fail_times = 0

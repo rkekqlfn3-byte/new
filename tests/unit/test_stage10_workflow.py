@@ -15,6 +15,7 @@ from engine.workflows import (
     WorkflowError,
     WorkflowExecutionError,
     WorkflowExecutor,
+    WorkflowJoinValidationError,
 )
 from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 
@@ -271,7 +272,7 @@ class Stage10WorkflowTests(unittest.TestCase):
                 source_files=[],
             )
 
-    def _analyze_sheets(self, worksheets):
+    def _analyze_sheets(self, worksheets, *, join_plan=None):
         lease = FakeLease()
         workbook = FakeWorkbook(self.source, worksheets)
         analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
@@ -280,9 +281,202 @@ class Stage10WorkflowTests(unittest.TestCase):
             "source_path": str(self.source),
             "title": "다중 시트 분석",
             "preferences": {"summary_lines": 8},
+            "join_plan": join_plan,
         })
         self.assertTrue(lease.cleaned)
         return result
+
+    @staticmethod
+    def _join_plan(join_type="inner"):
+        return {
+            "left_sheet": "고객",
+            "right_sheet": "주문",
+            "left_key": "고객ID",
+            "right_key": "고객ID",
+            "join_type": join_type,
+        }
+
+    def test_excel_analyzer_performs_explicit_inner_join_without_raw_key_lists(self):
+        source_values = (
+            ("고객ID", "고객명"),
+            (1, "가"),
+            (2, "나"),
+            (3, "다"),
+        )
+        order_values = (
+            ("주문ID", "고객ID", "매출"),
+            (101, "1", 100),
+            (102, "1", 300),
+            (103, "2", 200),
+            (104, "4", 150),
+        )
+
+        result = self._analyze_sheets(
+            [
+                FakeWorksheet("고객", source_values),
+                FakeWorksheet("주문", order_values),
+            ],
+            join_plan=self._join_plan(),
+        )
+
+        joined = result["tables"][-1]
+        self.assertTrue(joined["derived"])
+        self.assertEqual("inner", joined["join"]["join_type"])
+        self.assertEqual("one_to_many", joined["join"]["cardinality"])
+        self.assertEqual(3, joined["join"]["output_rows"])
+        self.assertEqual(
+            [
+                ["고객/고객ID", "고객/고객명", "주문/주문ID", "주문/매출"],
+                [1, "가", 101, 100],
+                [1, "가", 102, 300],
+                [2, "나", 103, 200],
+            ],
+            [joined["headers"]] + joined["rows"],
+        )
+        self.assertNotIn("values", joined["join"])
+        self.assertEqual(source_values, source_values)
+        self.assertEqual(order_values, order_values)
+        self.assertTrue(any(
+            "Excel 원본은 변경하지 않았습니다" in insight
+            for insight in result["insights"]
+        ))
+
+    def test_excel_analyzer_left_join_keeps_unmatched_left_rows(self):
+        result = self._analyze_sheets(
+            [
+                FakeWorksheet("고객", (
+                    ("고객ID", "고객명"),
+                    (1, "가"),
+                    (2, "나"),
+                    (3, "다"),
+                )),
+                FakeWorksheet("주문", (
+                    ("주문ID", "고객ID"),
+                    (101, 1),
+                    (102, 1),
+                    (103, 2),
+                )),
+            ],
+            join_plan=self._join_plan("left"),
+        )
+
+        joined = result["tables"][-1]
+        self.assertEqual(4, joined["join"]["output_rows"])
+        self.assertEqual(1, joined["join"]["unmatched_left_rows"])
+        self.assertEqual([3, "다", None], joined["rows"][-1])
+
+    def test_excel_analyzer_preserves_leading_zero_text_identifier(self):
+        result = self._analyze_sheets(
+            [
+                FakeWorksheet("고객", (
+                    ("고객ID", "고객명"),
+                    ("001", "문자 코드"),
+                    (1, "숫자 코드"),
+                )),
+                FakeWorksheet("주문", (
+                    ("주문ID", "고객ID"),
+                    (101, 1),
+                )),
+            ],
+            join_plan=self._join_plan(),
+        )
+
+        joined = result["tables"][-1]
+        self.assertEqual(1, joined["total_rows"])
+        self.assertEqual([1, "숫자 코드", 101], joined["rows"][0])
+
+    def test_excel_analyzer_blocks_missing_duplicate_or_measure_join_key(self):
+        cases = (
+            (
+                [
+                    FakeWorksheet("고객", (("고객ID",), (1,))),
+                    FakeWorksheet("주문", (("주문ID",), (101,))),
+                ],
+                self._join_plan(),
+                "열을 정확히 하나",
+            ),
+            (
+                [
+                    FakeWorksheet(
+                        "고객", (("고객ID", "고객-ID"), (1, 1))
+                    ),
+                    FakeWorksheet("주문", (("고객ID",), (1,))),
+                ],
+                self._join_plan(),
+                "열을 정확히 하나",
+            ),
+            (
+                [
+                    FakeWorksheet("고객", (("매출",), (100,))),
+                    FakeWorksheet("주문", (("매출",), (100,))),
+                ],
+                {
+                    "left_sheet": "고객",
+                    "right_sheet": "주문",
+                    "left_key": "매출",
+                    "right_key": "매출",
+                    "join_type": "inner",
+                },
+                "측정값 열",
+            ),
+        )
+
+        for worksheets, plan, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(
+                    WorkflowJoinValidationError, message
+                ):
+                    self._analyze_sheets(
+                        worksheets,
+                        join_plan=plan,
+                    )
+
+    def test_excel_analyzer_blocks_explicit_many_to_many_join(self):
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "다대다 관계",
+        ) as raised:
+            self._analyze_sheets(
+                [
+                    FakeWorksheet("고객", (
+                        ("고객ID", "고객명"),
+                        (1, "가"),
+                        (1, "가2"),
+                    )),
+                    FakeWorksheet("주문", (
+                        ("주문ID", "고객ID"),
+                        (101, 1),
+                        (102, 1),
+                    )),
+                ],
+                join_plan=self._join_plan(),
+            )
+
+        self.assertEqual("validation_error", raised.exception.error_type)
+        self.assertEqual("blocked", raised.exception.status)
+        self.assertFalse(raised.exception.retryable)
+
+    def test_excel_analyzer_caps_join_preview_and_total_preview_rows(self):
+        orders = tuple(
+            [("주문ID", "고객ID")]
+            + [(index, 1) for index in range(1, 102)]
+        )
+        result = self._analyze_sheets(
+            [
+                FakeWorksheet("고객", (("고객ID", "고객명"), (1, "가"))),
+                FakeWorksheet("주문", orders),
+            ],
+            join_plan=self._join_plan(),
+        )
+
+        joined = result["tables"][-1]
+        self.assertEqual(101, joined["total_rows"])
+        self.assertEqual(100, joined["included_rows"])
+        self.assertTrue(joined["join"]["truncated"])
+        self.assertLessEqual(
+            sum(table["included_rows"] for table in result["tables"]),
+            500,
+        )
 
     def test_excel_analyzer_builds_one_bounded_table_per_visible_sheet(self):
         result = self._analyze_sheets([
@@ -747,6 +941,36 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual("create_hwp_report", stored["failed_step"])
         self.assertEqual(["analyze_excel"], stored["successful_steps"])
 
+    def test_retryable_blocked_workflow_is_resumable_but_validation_block_is_not(self):
+        retryable = self.executor.prepare(self.source)
+        retryable["status"] = "blocked"
+        retryable["failure"] = {
+            "error_type": "environment_error",
+            "status": "blocked",
+            "retryable": True,
+        }
+        self.executor._save(retryable)
+
+        self.assertEqual(
+            retryable["workflow_id"],
+            self.executor.latest_for_source(self.source)["workflow_id"],
+        )
+
+        nonretryable = self.executor.prepare(self.source)
+        nonretryable["status"] = "blocked"
+        nonretryable["failure"] = {
+            "error_type": "validation_error",
+            "status": "blocked",
+            "retryable": False,
+        }
+        self.executor._save(nonretryable)
+
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "새 요청",
+        ):
+            self.executor.run(nonretryable["workflow_id"])
+
     def test_workflow_intent_selects_hwp_word_default_and_both_formats(self):
         analyzer = StructuredWorkflowIntentAnalyzer()
         intent = analyzer.analyze(
@@ -768,6 +992,43 @@ class Stage10WorkflowTests(unittest.TestCase):
         )
         self.assertEqual("both", both.params["report_format"])
         self.assertIn("Word·한글 보고서", both.description)
+
+    def test_workflow_intent_requires_complete_explicit_join_contract(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        context = {"app_type": "excel"}
+
+        joined = analyzer.analyze(
+            "고객 시트와 주문 시트를 고객ID로 내부 조인해서 "
+            "Word 보고서와 5장짜리 PPT 만들어줘",
+            context,
+        )
+        quoted = analyzer.analyze(
+            '"고객 목록" 시트와 "주문 내역" 시트를 "고객 ID" 기준으로 '
+            "왼쪽 조인해서 보고서와 PPT 만들어줘",
+            context,
+        )
+        incomplete = analyzer.analyze(
+            "고객 시트와 주문 시트를 고객ID로 조인해서 "
+            "보고서와 PPT 만들어줘",
+            context,
+        )
+
+        self.assertEqual(
+            {
+                "left_sheet": "고객",
+                "right_sheet": "주문",
+                "left_key": "고객ID",
+                "right_key": "고객ID",
+                "join_type": "inner",
+            },
+            joined.params["join_plan"],
+        )
+        self.assertEqual("left", quoted.params["join_plan"]["join_type"])
+        self.assertEqual("고객 목록", quoted.params["join_plan"]["left_sheet"])
+        self.assertEqual("고객 ID", quoted.params["join_plan"]["left_key"])
+        self.assertTrue(incomplete.params["join_requested"])
+        self.assertIsNone(incomplete.params["join_plan"])
+        self.assertIn("조인 방식", incomplete.params["join_error"])
 
     def test_workflow_intent_recognizes_approved_reuse_lifecycle(self):
         analyzer = StructuredWorkflowIntentAnalyzer()
@@ -1107,6 +1368,22 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual(0, self.analyzer.calls)
         self.assertEqual(0, self.word.calls)
         self.assertEqual(0, self.hwp.calls)
+        self.assertFalse(self.executor._path(state["workflow_id"]).exists())
+
+    def test_approval_rejects_tampered_join_plan_before_any_step(self):
+        state = self.executor.prepare(
+            self.source,
+            join_plan=self._join_plan(),
+        )
+        state["join_plan"]["right_key"] = "주문ID"
+
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "같은 이름의 키",
+        ):
+            self.executor.start(state)
+
+        self.assertEqual(0, self.analyzer.calls)
         self.assertFalse(self.executor._path(state["workflow_id"]).exists())
 
     def test_legacy_preview_is_never_resumable_and_retention_removes_it(self):

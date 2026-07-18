@@ -14,7 +14,7 @@ from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.stage9 import Stage9EditError, Stage9NativeEditAdapter
 from engine.edit_mode.window_layout import DocumentWindowActivator
 from engine.learning import BusinessWorkflowSkillManager
-from engine.workflows import WorkflowExecutor
+from engine.workflows import WorkflowExecutor, WorkflowJoinValidationError
 from engine.workflows.business_workflow import file_fingerprint
 
 
@@ -114,6 +114,109 @@ class StructuredWorkflowIntentAnalyzer:
         "앞으로",
         "포커스",
     )
+    JOIN_NAME_TOKEN = (
+        r'(?:"[^"\r\n]{1,80}"|\'[^\'\r\n]{1,80}\'|'
+        r'[^\s,，"\']{1,80})'
+    )
+
+    @staticmethod
+    def _join_token(value: str) -> str:
+        text = str(value or "").strip()
+        if (
+            len(text) >= 2
+            and text[0] == text[-1]
+            and text[0] in {'"', "'"}
+        ):
+            text = text[1:-1]
+        return re.sub(r"\s+", " ", text).strip()
+
+    @classmethod
+    def _join_params(cls, command: str) -> dict[str, Any]:
+        """Extract only a complete same-key inner/left sheet join request."""
+        raw = re.sub(r"\s+", " ", str(command or "")).strip()
+        lowered = raw.casefold()
+        requested = "시트" in lowered and bool(
+            re.search(r"(?:조인|\bjoin\b|결합)", lowered)
+        )
+        if not requested:
+            return {"join_requested": False, "join_plan": None}
+
+        token = cls.JOIN_NAME_TOKEN
+        pair = re.search(
+            rf"(?P<left>{token})\s*시트(?:와|과|하고)\s*"
+            rf"(?P<right>{token})\s*시트(?:를|을)?",
+            raw,
+            re.IGNORECASE,
+        )
+        if pair is None:
+            return {
+                "join_requested": True,
+                "join_plan": None,
+                "join_error": (
+                    "조인할 두 시트를 '고객 시트와 주문 시트'처럼 정확히 "
+                    "지정해주세요. 공백이 있는 시트명은 따옴표로 묶어주세요."
+                ),
+            }
+        suffix = raw[pair.end():]
+        join_type_match = re.search(
+            r"(?P<type>내부|이너|inner|왼쪽|좌측|left)\s*"
+            r"(?:조인|join|결합)",
+            suffix,
+            re.IGNORECASE,
+        )
+        if join_type_match is None:
+            return {
+                "join_requested": True,
+                "join_plan": None,
+                "join_error": (
+                    "조인 방식을 '내부 조인' 또는 '왼쪽 조인'으로 "
+                    "명시해주세요."
+                ),
+            }
+
+        key_patterns = (
+            rf"(?P<key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
+            r"기준(?:으로)?\s*$",
+            rf"(?P<key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
+            r"(?:키\s*)?(?:로|으로)\s*$",
+        )
+        key_match = None
+        before_type = suffix[:join_type_match.start()].strip()
+        after_type = suffix[join_type_match.end():].strip()
+        for fragment in (before_type, after_type):
+            for pattern in key_patterns:
+                key_match = re.search(pattern, fragment, re.IGNORECASE)
+                if key_match is not None:
+                    break
+            if key_match is not None:
+                break
+        if key_match is None:
+            return {
+                "join_requested": True,
+                "join_plan": None,
+                "join_error": (
+                    "두 시트에 공통으로 있는 키 열을 '고객ID 기준으로'처럼 "
+                    "정확히 지정해주세요."
+                ),
+            }
+
+        join_type_text = join_type_match.group("type").casefold()
+        join_type = (
+            "inner"
+            if join_type_text in {"내부", "이너", "inner"}
+            else "left"
+        )
+        key = cls._join_token(key_match.group("key"))
+        return {
+            "join_requested": True,
+            "join_plan": {
+                "left_sheet": cls._join_token(pair.group("left")),
+                "right_sheet": cls._join_token(pair.group("right")),
+                "left_key": key,
+                "right_key": key,
+                "join_type": join_type,
+            },
+        }
 
     @classmethod
     def _creation_params(
@@ -151,7 +254,8 @@ class StructuredWorkflowIntentAnalyzer:
     def analyze(self, text: str, context: Mapping[str, Any]) -> WorkflowIntent | None:
         if str(context.get("app_type") or "").casefold() != "excel":
             return None
-        command = re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+        raw_command = re.sub(r"\s+", " ", str(text or "")).strip()
+        command = raw_command.casefold()
         if any(term in command for term in self.FORGET_TERMS):
             return WorkflowIntent(
                 "deactivate_business_workflow_skill",
@@ -211,13 +315,18 @@ class StructuredWorkflowIntentAnalyzer:
                 command,
                 default_report_format=None,
             )
+            params.update(self._join_params(raw_command))
             params["reuse_approved_skill"] = True
             return WorkflowIntent(
                 "create_business_workflow",
                 "승인된 지난 복합 업무 구조를 현재 Excel에서 새 산출물로 재사용",
                 params,
             )
-        has_analysis = any(term in command for term in ("분석", "요약", "analy"))
+        join_params = self._join_params(raw_command)
+        has_analysis = (
+            any(term in command for term in ("분석", "요약", "analy"))
+            or bool(join_params.get("join_requested"))
+        )
         has_report = any(term in command for term in self.CREATE_REPORT_TERMS)
         has_slides = any(term in command for term in self.CREATE_SLIDE_TERMS)
         contextual_current_document = bool(
@@ -229,6 +338,7 @@ class StructuredWorkflowIntentAnalyzer:
                 command,
                 default_report_format="word",
             )
+            params.update(join_params)
             params["contextual_current_document"] = contextual_current_document
             report_format = str(params["report_format"])
             report_label = {
@@ -251,6 +361,15 @@ class StructuredWorkflowIntentAnalyzer:
                     "PowerPoint 요약 생성"
                 )
             )
+            join_plan = params.get("join_plan")
+            if join_plan:
+                join_label = (
+                    "내부" if join_plan["join_type"] == "inner" else "왼쪽"
+                )
+                description = (
+                    f"{join_plan['left_sheet']}·{join_plan['right_sheet']} 시트를 "
+                    f"{join_plan['left_key']} 기준 {join_label} 조인 후 " + description
+                )
             return WorkflowIntent(
                 "create_business_workflow",
                 description,
@@ -449,6 +568,14 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def _workflow_state(self, intent: WorkflowIntent) -> dict[str, Any]:
         source_path = self._path(self.session.get("file_path"))
         if intent.operation == "create_business_workflow":
+            if (
+                intent.params.get("join_requested")
+                and not intent.params.get("join_plan")
+            ):
+                raise WorkflowJoinValidationError(
+                    str(intent.params.get("join_error") or "")
+                    or "조인할 시트·공통 키·결합 방식을 모두 지정해주세요."
+                )
             preferences = self.resolved_workflow_preferences(source_path)
             reuse = bool(intent.params.get("reuse_approved_skill"))
             active_skill = (
@@ -490,6 +617,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 slide_count=slide_count,
                 explicit_slide_count=bool(intent.params.get("explicit_slide_count")),
                 report_format=report_format,
+                join_plan=intent.params.get("join_plan"),
             )
         state = self.workflow_executor.latest_for_source(source_path)
         if state is None:
@@ -598,6 +726,17 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             f"{outputs.get('presentation', '')}"
         )
         after = "\n".join(after_lines)
+        join_plan = dict(state.get("join_plan") or {})
+        if join_plan:
+            join_label = (
+                "내부" if join_plan.get("join_type") == "inner" else "왼쪽"
+            )
+            after += (
+                f"\n읽기 전용 {join_label} 조인: "
+                f"{join_plan.get('left_sheet')} ↔ {join_plan.get('right_sheet')} "
+                f"· 공통 키 {join_plan.get('left_key')} "
+                "· Excel 원본 변경 없음"
+            )
         applied_preferences, preference_summary = self._preference_preview(
             state.get("applied_preferences") or {}
         )
@@ -633,6 +772,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "report_format": report_format,
             "workflow_skill_reused": bool(reused_skill),
             "workflow_skill": reused_skill,
+            "join_plan": join_plan or None,
         }
         if intent.operation == "create_business_workflow":
             arguments["workflow_plan"] = state
@@ -670,6 +810,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 "resume": intent.operation == "resume_business_workflow",
                 "workflow_skill_reused": bool(reused_skill),
                 "workflow_skill": reused_skill,
+                "explicit_join": bool(join_plan),
                 "rewrite_supported": False,
                 "applied_user_preferences": applied_preferences,
             },
@@ -805,12 +946,19 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             and len(result.get("created_files") or []) == expected_artifacts
         )
         if verified:
-            candidate = self.workflow_skill_manager.record_verified_success(
-                result,
-                evidence_id=str(result.get("workflow_id") or ""),
-            )
-            if isinstance(result, dict):
-                result["workflow_skill_candidate"] = candidate
+            if result.get("join_plan"):
+                if isinstance(result, dict):
+                    result["workflow_skill_candidate"] = None
+                    result["workflow_skill_candidate_suppressed"] = (
+                        "explicit_join_parameters_not_persisted"
+                    )
+            else:
+                candidate = self.workflow_skill_manager.record_verified_success(
+                    result,
+                    evidence_id=str(result.get("workflow_id") or ""),
+                )
+                if isinstance(result, dict):
+                    result["workflow_skill_candidate"] = candidate
         return verified
 
     def rollback(self, prepared_action: EditPreparedAction) -> bool:

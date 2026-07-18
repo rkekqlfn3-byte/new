@@ -71,20 +71,20 @@ def _create_source(path):
         workbook = application.Workbooks.Add()
         sheet = workbook.Worksheets.Item(1)
         sheet.Name = "매출"
-        sheet.Range("A1:D5").Value2 = (
-            ("지역", "담당자", "수량", "매출"),
-            ("서울", "김", 10, 1200000),
-            ("부산", "이", 7, 900000),
-            ("서울", "박", 12, 1500000),
-            ("대전", "최", 5, 600000),
+        sheet.Range("A1:E5").Value2 = (
+            ("항목ID", "지역", "담당자", "수량", "매출"),
+            (1, "서울", "김", 10, 1200000),
+            (2, "부산", "이", 7, 900000),
+            (3, "서울", "박", 12, 1500000),
+            (4, "대전", "최", 5, 600000),
         )
         cost_sheet = workbook.Worksheets.Add(After=sheet)
         cost_sheet.Name = "비용"
-        cost_sheet.Range("A1:C4").Value2 = (
-            ("항목", "분기", "비용"),
-            ("인건비", "1분기", 500000),
-            ("임대료", "1분기", 200000),
-            ("광고비", "1분기", 150000),
+        cost_sheet.Range("A1:D4").Value2 = (
+            ("항목ID", "항목", "분기", "비용"),
+            (1, "인건비", "1분기", 500000),
+            (3, "임대료", "1분기", 200000),
+            (4, "광고비", "1분기", 150000),
         )
         workbook.SaveAs(str(path), FileFormat=51)
     finally:
@@ -276,6 +276,13 @@ def _owned_probe(report_format="word", progress=None):
             title="Stage 10 매출 분석",
             report_format=report_format,
             preferences=expected_formatting,
+            join_plan={
+                "left_sheet": "매출",
+                "right_sheet": "비용",
+                "left_key": "항목ID",
+                "right_key": "항목ID",
+                "join_type": "inner",
+            },
         )
         preview_created_nothing = all(
             not Path(path).exists() for path in state["output_paths"].values()
@@ -336,7 +343,15 @@ def _owned_probe(report_format="word", progress=None):
             expected_steps.append("create_hwp_report")
         expected_steps.append("create_powerpoint_summary")
         analyzed_tables = (stored.get("work_product") or {}).get("tables", [])
-        analyzed_sheet_names = {table.get("name") for table in analyzed_tables}
+        analyzed_source_tables = [
+            table for table in analyzed_tables if not table.get("derived")
+        ]
+        analyzed_join_tables = [
+            table for table in analyzed_tables if table.get("join")
+        ]
+        analyzed_sheet_names = {
+            table.get("name") for table in analyzed_source_tables
+        }
         analyzed_sheet_count = (
             stored.get("verification_results", {})
             .get("analyze_excel", {})
@@ -347,15 +362,38 @@ def _owned_probe(report_format="word", progress=None):
             .get("analyze_excel", {})
             .get("pivot_summary_count")
         )
+        analyzed_join_count = (
+            stored.get("verification_results", {})
+            .get("analyze_excel", {})
+            .get("join_summary_count")
+        )
+        join_summary = (
+            dict(analyzed_join_tables[0].get("join") or {})
+            if len(analyzed_join_tables) == 1
+            else {}
+        )
         checks = {
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),
-            "two_tables_created": len(analyzed_tables) == 2,
+            "two_source_tables_and_one_join_created": (
+                len(analyzed_source_tables) == 2
+                and len(analyzed_join_tables) == 1
+                and len(analyzed_tables) == 3
+            ),
             "both_fixture_sheet_names_present": analyzed_sheet_names == {"매출", "비용"},
             "verification_sheet_count_is_two": analyzed_sheet_count == 2,
             "bounded_pivot_summaries_created": int(
                 analyzed_pivot_count or 0
             ) == 2,
+            "explicit_join_verified": (
+                int(analyzed_join_count or 0) == 1
+                and join_summary.get("join_type") == "inner"
+                and join_summary.get("left_sheet") == "매출"
+                and join_summary.get("right_sheet") == "비용"
+                and join_summary.get("left_key") == "항목ID"
+                and join_summary.get("right_key") == "항목ID"
+                and int(join_summary.get("output_rows") or 0) == 3
+            ),
             "all_requested_steps_succeeded": (
                 stored.get("successful_steps") == expected_steps
             ),

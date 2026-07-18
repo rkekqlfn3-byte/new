@@ -11,6 +11,7 @@ from engine.workflows.business_workflow import (
     WorkflowError,
     WorkflowExecutionError,
     WorkflowExecutor,
+    WorkflowJoinValidationError,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "WorkflowError",
     "WorkflowExecutionError",
     "WorkflowExecutor",
+    "WorkflowJoinValidationError",
 ]
