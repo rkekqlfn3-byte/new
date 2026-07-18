@@ -61,6 +61,17 @@ class Prototype11Stage10ProbeSafetyTests(unittest.TestCase):
         )
         self.assertTrue(result["retryable"])
         self.assertIn("설치·등록", result["message"])
+        self.assertEqual(
+            {
+                "environment_component": "hwp_automation_security_module",
+                "setup_guide_url": "https://developer.hancom.com/hwpautomation",
+                "registry_location": (
+                    r"HKCU\Software\HNC\HwpAutomation\Modules"
+                ),
+                "automatic_install_attempted": False,
+            },
+            result["diagnostic_context"],
+        )
 
     def test_each_report_format_has_a_distinct_default_evidence_file(self):
         paths = probe.REPORT_PATHS

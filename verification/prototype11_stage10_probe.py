@@ -230,7 +230,7 @@ def _structured_failure(stage, error):
     status = "unavailable" if unavailable else str(
         getattr(error, "status", "") or "failed"
     )
-    return {
+    result = {
         "status": status,
         "stage": stage,
         "error_type": str(
@@ -241,6 +241,34 @@ def _structured_failure(stage, error):
         "retryable": bool(getattr(error, "retryable", False)),
         "user_process_protected": True,
     }
+    diagnostic = getattr(error, "diagnostic_context", None)
+    if isinstance(diagnostic, dict):
+        safe_diagnostic = {}
+        if diagnostic.get("environment_component") == (
+            "hwp_automation_security_module"
+        ):
+            safe_diagnostic["environment_component"] = (
+                "hwp_automation_security_module"
+            )
+        if diagnostic.get("setup_guide_url") == (
+            "https://developer.hancom.com/hwpautomation"
+        ):
+            safe_diagnostic["setup_guide_url"] = (
+                "https://developer.hancom.com/hwpautomation"
+            )
+        if diagnostic.get("registry_location") == (
+            r"HKCU\Software\HNC\HwpAutomation\Modules"
+        ):
+            safe_diagnostic["registry_location"] = (
+                r"HKCU\Software\HNC\HwpAutomation\Modules"
+            )
+        if isinstance(diagnostic.get("automatic_install_attempted"), bool):
+            safe_diagnostic["automatic_install_attempted"] = diagnostic[
+                "automatic_install_attempted"
+            ]
+        if safe_diagnostic:
+            result["diagnostic_context"] = safe_diagnostic
+    return result
 
 
 def _owned_probe(report_format="word", progress=None):
