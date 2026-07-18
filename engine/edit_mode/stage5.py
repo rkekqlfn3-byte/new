@@ -831,12 +831,35 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             key_label = str(join_plan.get("left_key") or "")
             if join_plan.get("left_key") != join_plan.get("right_key"):
                 key_label += f" ↔ {join_plan.get('right_key')}"
-            aggregation = dict(join_plan.get("right_aggregation") or {})
+            raw_aggregation = join_plan.get("right_aggregation")
+            aggregations = (
+                [dict(raw_aggregation)]
+                if isinstance(raw_aggregation, Mapping)
+                else [
+                    dict(item)
+                    for item in (raw_aggregation or [])
+                    if isinstance(item, Mapping)
+                ]
+            )
             aggregation_label = ""
-            if aggregation:
+            if aggregations:
+                function_labels = {
+                    "sum": "합계",
+                    "average": "평균",
+                    "count": "건수",
+                }
+                aggregation_parts = [
+                    "{}/{} {}".format(
+                        join_plan.get("right_sheet"),
+                        item.get("column"),
+                        function_labels.get(
+                            item.get("function"), item.get("function")
+                        ),
+                    )
+                    for item in aggregations
+                ]
                 aggregation_label = (
-                    f" · {join_plan.get('right_sheet')}/"
-                    f"{aggregation.get('column')} 합계 집계"
+                    f" · {' · '.join(aggregation_parts)} 집계"
                 )
             message += (
                 f"\n승인한 {join_label} 조인을 읽기 전용으로 검증했습니다: "

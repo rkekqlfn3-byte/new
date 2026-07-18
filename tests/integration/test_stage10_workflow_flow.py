@@ -703,6 +703,44 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertIn("주문/매출 합계 집계", completed["message"])
         self.assertIsNone(self.workflow_skills.latest_candidate())
 
+    def test_explicit_multi_aggregation_is_previewed_and_executed(self):
+        self.ppt.fail_times = 0
+        preview = self.command(
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 주문 시트의 "
+            "매출을 합계 집계하고 주문 시트의 수량을 평균 집계하고 "
+            "주문 시트의 주문ID를 건수 집계해서 왼쪽 조인해서 Word "
+            "보고서와 5장짜리 PPT 만들어줘",
+            "join-multi-aggregate",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertEqual(
+            [
+                {"column": "매출", "function": "sum"},
+                {"column": "수량", "function": "average"},
+                {"column": "주문ID", "function": "count"},
+            ],
+            plan["join_plan"]["right_aggregation"],
+        )
+        self.assertIn("주문/매출 합계", preview["message"])
+        self.assertIn("주문/수량 평균", preview["message"])
+        self.assertIn("주문/주문ID 건수", preview["message"])
+
+        completed = self.approve(preview)
+
+        self.assertTrue(completed["success"], completed)
+        self.assertEqual(
+            plan["join_plan"], self.analyzer.contexts[-1]["join_plan"]
+        )
+        self.assertIn("주문/매출 합계", completed["message"])
+        self.assertIn("주문/수량 평균", completed["message"])
+        self.assertIn("주문/주문ID 건수", completed["message"])
+        self.assertIsNone(self.workflow_skills.latest_candidate())
+
     def test_recent_verified_workflow_artifact_opens_exact_file_and_focuses(self):
         self.ppt.fail_times = 0
         completed = self.approve(self.command(

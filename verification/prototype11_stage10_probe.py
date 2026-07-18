@@ -311,10 +311,11 @@ def _owned_probe(report_format="word", progress=None):
                 "left_key": "항목ID",
                 "right_key": "참조항목ID",
                 "join_type": "inner",
-                "right_aggregation": {
-                    "column": "비용",
-                    "function": "sum",
-                },
+                "right_aggregation": [
+                    {"column": "비용", "function": "sum"},
+                    {"column": "비용", "function": "average"},
+                    {"column": "항목", "function": "count"},
+                ],
             },
         )
         preview_created_nothing = all(
@@ -400,10 +401,17 @@ def _owned_probe(report_format="word", progress=None):
             .get("analyze_excel", {})
             .get("join_summary_count")
         )
-        join_summary = (
-            dict(analyzed_join_tables[0].get("join") or {})
+        join_table = (
+            analyzed_join_tables[0]
             if len(analyzed_join_tables) == 1
             else {}
+        )
+        join_summary = dict(join_table.get("join") or {})
+        raw_aggregations = join_summary.get("right_aggregation") or []
+        aggregation_summaries = (
+            [dict(raw_aggregations)]
+            if isinstance(raw_aggregations, dict)
+            else [dict(item) for item in raw_aggregations]
         )
         checks = {
             "approval_preview_created_nothing": preview_created_nothing,
@@ -434,22 +442,44 @@ def _owned_probe(report_format="word", progress=None):
                 != join_summary.get("right_key")
             ),
             "aggregated_join_verified": (
-                (join_summary.get("right_aggregation") or {}).get("column")
-                == "비용"
-                and (join_summary.get("right_aggregation") or {}).get(
-                    "function"
-                ) == "sum"
-                and int(
-                    (join_summary.get("right_aggregation") or {}).get(
-                        "input_rows"
-                    ) or 0
-                ) == 4
-                and int(
-                    (join_summary.get("right_aggregation") or {}).get(
-                        "groups"
-                    ) or 0
-                ) == 3
+                aggregation_summaries
+                and aggregation_summaries[0].get("column") == "비용"
+                and aggregation_summaries[0].get("function") == "sum"
+                and int(aggregation_summaries[0].get("input_rows") or 0) == 4
+                and int(aggregation_summaries[0].get("groups") or 0) == 3
                 and int(join_summary.get("output_rows") or 0) == 3
+            ),
+            "multi_aggregation_join_verified": (
+                aggregation_summaries == [
+                    {
+                        "column": "비용",
+                        "function": "sum",
+                        "input_rows": 4,
+                        "groups": 3,
+                    },
+                    {
+                        "column": "비용",
+                        "function": "average",
+                        "input_rows": 4,
+                        "groups": 3,
+                    },
+                    {
+                        "column": "항목",
+                        "function": "count",
+                        "input_rows": 4,
+                        "groups": 3,
+                    },
+                ]
+                and join_table.get("headers", [])[-3:] == [
+                    "비용/비용 합계",
+                    "비용/비용 평균",
+                    "비용/항목 건수",
+                ]
+                and [row[-3:] for row in join_table.get("rows", [])] == [
+                    [500000, 250000, 2],
+                    [200000, 200000, 1],
+                    [150000, 150000, 1],
+                ]
             ),
             "all_requested_steps_succeeded": (
                 stored.get("successful_steps") == expected_steps

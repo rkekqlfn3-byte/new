@@ -37,8 +37,9 @@ Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 �
 read-back되고 같은 세션이 `ready`로 복귀하는 증거도 필수다.
 Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개와 사용자가
 명시·승인한 `항목ID ↔ 참조항목ID` 매핑 내부 조인 1개·결과 3행을 만들고
-오른쪽 중복 4행을 `비용` 합계 3그룹으로 집계해
-`mapped_join_keys_verified`·`aggregated_join_verified`와 분석 검증에 기록한 뒤,
+오른쪽 중복 4행을 `비용 합계 + 비용 평균 + 항목 건수` 3그룹으로 집계해
+`mapped_join_keys_verified`·`aggregated_join_verified`·
+`multi_aggregation_join_verified`와 분석 검증에 기록한 뒤,
 원본 불변 상태에서 보고서와 발표자료가 재열기 검증되는지도 요구한다.
 같은 Word probe에서 `매출!B1:E4`만 읽는 별도 워크플로가 범위 밖 시트를
 제외하고 `explicit_selection_scope_verified`를 남기며, Word와 정확히 5장인
