@@ -280,7 +280,7 @@ Stage 11 소유 fixture에서는 첫 Word·7장 PowerPoint의 검증 구조만 �
 두 번째 새 Word·7장 산출물을 실제 Office로 생성·재열기 검증했다. Excel 원본과
 첫 산출물 지문은 그대로였고 스킬 저장소에 경로나 내용이 없음을 확인했다.
 
-같은 날 최신 전체 자동 회귀는 881개 중 878개 통과(unit 343·integration 332·
+같은 날 최신 전체 자동 회귀는 882개 중 879개 통과(unit 344·integration 332·
 windows 203), 외부 AI 자격 증명이 필요한 3개 skip, 실패 0개였다.
 
 ## 현재 범위

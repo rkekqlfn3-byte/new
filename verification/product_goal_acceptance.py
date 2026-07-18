@@ -73,7 +73,10 @@ PROBE_SPECS = {
         "file": "prototype11_stage10_word_report.json",
         "probe": "prototype11_stage10_document_workflow",
         "report_format": "word",
-        "required_checks": ("powerpoint_formatting_verified",),
+        "required_checks": (
+            "powerpoint_formatting_verified",
+            "bounded_pivot_summaries_created",
+        ),
     },
     "workflow_hwp": {
         "file": "prototype11_stage10_hwp_report.json",

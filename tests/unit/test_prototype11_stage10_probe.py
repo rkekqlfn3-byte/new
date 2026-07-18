@@ -62,6 +62,19 @@ class Prototype11Stage10ProbeSafetyTests(unittest.TestCase):
         self.assertTrue(result["retryable"])
         self.assertIn("설치·등록", result["message"])
 
+    def test_each_report_format_has_a_distinct_default_evidence_file(self):
+        paths = probe.REPORT_PATHS
+
+        self.assertEqual(
+            {
+                "prototype11_stage10_word_report.json",
+                "prototype11_stage10_hwp_report.json",
+                "prototype11_stage10_both_report.json",
+            },
+            {path.name for path in paths.values()},
+        )
+        self.assertEqual(3, len(set(paths.values())))
+
 
 if __name__ == "__main__":
     unittest.main()

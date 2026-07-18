@@ -19,7 +19,12 @@ from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
 
 
-REPORT_PATH = Path(__file__).with_name("prototype11_stage10_report.json")
+REPORT_PATHS = {
+    report_format: Path(__file__).with_name(
+        f"prototype11_stage10_{report_format}_report.json"
+    )
+    for report_format in ("word", "hwp", "both")
+}
 OFFICE_PROCESSES = frozenset({
     "excel.exe", "winword.exe", "powerpnt.exe", "hwp.exe", "hwp64.exe"
 })
@@ -467,15 +472,16 @@ def run_probe(timeout=240, report_format="word"):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=REPORT_PATH)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--timeout", type=int, default=240)
     parser.add_argument(
         "--report-format", choices=("word", "hwp", "both"), default="word"
     )
     args = parser.parse_args(argv)
     report = run_probe(args.timeout, args.report_format)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
+    output_path = args.output or REPORT_PATHS[args.report_format]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
