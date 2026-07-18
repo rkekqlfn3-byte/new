@@ -341,6 +341,40 @@ class Stage10WorkflowTests(unittest.TestCase):
             for insight in result["insights"]
         ))
 
+    def test_excel_analyzer_maps_explicit_different_key_names(self):
+        result = self._analyze_sheets(
+            [
+                FakeWorksheet("고객", (
+                    ("고객ID", "고객명"),
+                    (1, "가"),
+                    (2, "나"),
+                )),
+                FakeWorksheet("주문", (
+                    ("주문ID", "구매자ID", "매출"),
+                    (101, 1, 100),
+                    (102, 1, 300),
+                    (103, 2, 200),
+                )),
+            ],
+            join_plan={
+                "left_sheet": "고객",
+                "right_sheet": "주문",
+                "left_key": "고객ID",
+                "right_key": "구매자ID",
+                "join_type": "inner",
+            },
+        )
+
+        joined = result["tables"][-1]
+        self.assertEqual("고객ID", joined["join"]["left_key"])
+        self.assertEqual("구매자ID", joined["join"]["right_key"])
+        self.assertEqual(3, joined["join"]["output_rows"])
+        self.assertNotIn("주문/구매자ID", joined["headers"])
+        self.assertTrue(any(
+            "'고객ID' ↔ '구매자ID' 키" in insight
+            for insight in result["insights"]
+        ))
+
     def test_excel_analyzer_left_join_keeps_unmatched_left_rows(self):
         result = self._analyze_sheets(
             [
@@ -1047,8 +1081,19 @@ class Stage10WorkflowTests(unittest.TestCase):
             context,
         )
         quoted = analyzer.analyze(
-            '"고객 목록" 시트와 "주문 내역" 시트를 "고객 ID" 기준으로 '
+            '"고객 목록" 시트의 "고객 ID"와 "주문 내역" 시트의 '
+            '"구매자 ID"로 '
             "왼쪽 조인해서 보고서와 PPT 만들어줘",
+            context,
+        )
+        mapped = analyzer.analyze(
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 내부 조인해서 "
+            "Word 보고서와 5장짜리 PPT 만들어줘",
+            context,
+        )
+        ambiguous = analyzer.analyze(
+            "고객 시트의 고객ID와 주문 시트를 구매자ID로 내부 조인해서 "
+            "보고서와 PPT 만들어줘",
             context,
         )
         incomplete = analyzer.analyze(
@@ -1070,6 +1115,13 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual("left", quoted.params["join_plan"]["join_type"])
         self.assertEqual("고객 목록", quoted.params["join_plan"]["left_sheet"])
         self.assertEqual("고객 ID", quoted.params["join_plan"]["left_key"])
+        self.assertEqual("구매자 ID", quoted.params["join_plan"]["right_key"])
+        self.assertEqual("고객ID", mapped.params["join_plan"]["left_key"])
+        self.assertEqual("구매자ID", mapped.params["join_plan"]["right_key"])
+        self.assertIn("고객ID ↔ 구매자ID 키 매핑", mapped.description)
+        self.assertTrue(ambiguous.params["join_requested"])
+        self.assertIsNone(ambiguous.params["join_plan"])
+        self.assertIn("양쪽 키를 모두", ambiguous.params["join_error"])
         self.assertTrue(incomplete.params["join_requested"])
         self.assertIsNone(incomplete.params["join_plan"])
         self.assertIn("조인 방식", incomplete.params["join_error"])
@@ -1419,11 +1471,11 @@ class Stage10WorkflowTests(unittest.TestCase):
             self.source,
             join_plan=self._join_plan(),
         )
-        state["join_plan"]["right_key"] = "주문ID"
+        state["join_plan"]["unexpected"] = "tampered"
 
         with self.assertRaisesRegex(
             WorkflowJoinValidationError,
-            "같은 이름의 키",
+            "두 시트명·두 키·결합 방식만",
         ):
             self.executor.start(state)
 

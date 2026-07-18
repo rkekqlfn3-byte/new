@@ -132,7 +132,7 @@ class StructuredWorkflowIntentAnalyzer:
 
     @classmethod
     def _join_params(cls, command: str) -> dict[str, Any]:
-        """Extract only a complete same-key inner/left sheet join request."""
+        """Extract only a complete explicit-key inner/left sheet join request."""
         raw = re.sub(r"\s+", " ", str(command or "")).strip()
         lowered = raw.casefold()
         requested = "시트" in lowered and bool(
@@ -142,7 +142,16 @@ class StructuredWorkflowIntentAnalyzer:
             return {"join_requested": False, "join_plan": None}
 
         token = cls.JOIN_NAME_TOKEN
-        pair = re.search(
+        mapped_pair = re.search(
+            rf"(?P<left>{token})\s*시트의\s*"
+            rf"(?P<left_key>{token})\s*(?:열\s*)?(?:와|과|하고)\s*"
+            rf"(?P<right>{token})\s*시트의\s*"
+            rf"(?P<right_key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
+            rf"(?:키\s*)?(?:로|으로|기준(?:으로)?)",
+            raw,
+            re.IGNORECASE,
+        )
+        pair = mapped_pair or re.search(
             rf"(?P<left>{token})\s*시트(?:와|과|하고)\s*"
             rf"(?P<right>{token})\s*시트(?:를|을)?",
             raw,
@@ -153,8 +162,10 @@ class StructuredWorkflowIntentAnalyzer:
                 "join_requested": True,
                 "join_plan": None,
                 "join_error": (
-                    "조인할 두 시트를 '고객 시트와 주문 시트'처럼 정확히 "
-                    "지정해주세요. 공백이 있는 시트명은 따옴표로 묶어주세요."
+                    "조인할 두 시트를 '고객 시트와 주문 시트'처럼 지정하거나, "
+                    "키 이름이 다르면 '고객 시트의 고객ID와 주문 시트의 "
+                    "구매자ID로'처럼 양쪽 키를 모두 지정해주세요. 공백이 있는 "
+                    "시트명과 키는 따옴표로 묶어주세요."
                 ),
             }
         suffix = raw[pair.end():]
@@ -174,31 +185,36 @@ class StructuredWorkflowIntentAnalyzer:
                 ),
             }
 
-        key_patterns = (
-            rf"(?P<key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
-            r"기준(?:으로)?\s*$",
-            rf"(?P<key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
-            r"(?:키\s*)?(?:로|으로)\s*$",
-        )
-        key_match = None
-        before_type = suffix[:join_type_match.start()].strip()
-        after_type = suffix[join_type_match.end():].strip()
-        for fragment in (before_type, after_type):
-            for pattern in key_patterns:
-                key_match = re.search(pattern, fragment, re.IGNORECASE)
+        if mapped_pair is not None:
+            left_key = cls._join_token(mapped_pair.group("left_key"))
+            right_key = cls._join_token(mapped_pair.group("right_key"))
+        else:
+            key_patterns = (
+                rf"(?P<key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
+                r"기준(?:으로)?\s*$",
+                rf"(?P<key>{token})\s*(?:열\s*)?(?:을|를)?\s*"
+                r"(?:키\s*)?(?:로|으로)\s*$",
+            )
+            key_match = None
+            before_type = suffix[:join_type_match.start()].strip()
+            after_type = suffix[join_type_match.end():].strip()
+            for fragment in (before_type, after_type):
+                for pattern in key_patterns:
+                    key_match = re.search(pattern, fragment, re.IGNORECASE)
+                    if key_match is not None:
+                        break
                 if key_match is not None:
                     break
-            if key_match is not None:
-                break
-        if key_match is None:
-            return {
-                "join_requested": True,
-                "join_plan": None,
-                "join_error": (
-                    "두 시트에 공통으로 있는 키 열을 '고객ID 기준으로'처럼 "
-                    "정확히 지정해주세요."
-                ),
-            }
+            if key_match is None:
+                return {
+                    "join_requested": True,
+                    "join_plan": None,
+                    "join_error": (
+                        "두 시트에 공통으로 있는 키 열을 '고객ID 기준으로'처럼 "
+                        "정확히 지정해주세요."
+                    ),
+                }
+            left_key = right_key = cls._join_token(key_match.group("key"))
 
         join_type_text = join_type_match.group("type").casefold()
         join_type = (
@@ -206,14 +222,13 @@ class StructuredWorkflowIntentAnalyzer:
             if join_type_text in {"내부", "이너", "inner"}
             else "left"
         )
-        key = cls._join_token(key_match.group("key"))
         return {
             "join_requested": True,
             "join_plan": {
                 "left_sheet": cls._join_token(pair.group("left")),
                 "right_sheet": cls._join_token(pair.group("right")),
-                "left_key": key,
-                "right_key": key,
+                "left_key": left_key,
+                "right_key": right_key,
                 "join_type": join_type,
             },
         }
@@ -366,9 +381,15 @@ class StructuredWorkflowIntentAnalyzer:
                 join_label = (
                     "내부" if join_plan["join_type"] == "inner" else "왼쪽"
                 )
+                key_description = f"{join_plan['left_key']} 기준"
+                if join_plan["left_key"] != join_plan["right_key"]:
+                    key_description = (
+                        f"{join_plan['left_key']} ↔ "
+                        f"{join_plan['right_key']} 키 매핑으로"
+                    )
                 description = (
                     f"{join_plan['left_sheet']}·{join_plan['right_sheet']} 시트를 "
-                    f"{join_plan['left_key']} 기준 {join_label} 조인 후 " + description
+                    f"{key_description} {join_label} 조인 후 " + description
                 )
             return WorkflowIntent(
                 "create_business_workflow",
@@ -574,7 +595,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             ):
                 raise WorkflowJoinValidationError(
                     str(intent.params.get("join_error") or "")
-                    or "조인할 시트·공통 키·결합 방식을 모두 지정해주세요."
+                    or "조인할 두 시트·양쪽 키·결합 방식을 모두 지정해주세요."
                 )
             preferences = self.resolved_workflow_preferences(source_path)
             reuse = bool(intent.params.get("reuse_approved_skill"))
@@ -731,10 +752,13 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             join_label = (
                 "내부" if join_plan.get("join_type") == "inner" else "왼쪽"
             )
+            key_label = str(join_plan.get("left_key") or "")
+            if join_plan.get("left_key") != join_plan.get("right_key"):
+                key_label += f" ↔ {join_plan.get('right_key')}"
             after += (
                 f"\n읽기 전용 {join_label} 조인: "
                 f"{join_plan.get('left_sheet')} ↔ {join_plan.get('right_sheet')} "
-                f"· 공통 키 {join_plan.get('left_key')} "
+                f"· 키 {key_label} "
                 "· Excel 원본 변경 없음"
             )
         applied_preferences, preference_summary = self._preference_preview(

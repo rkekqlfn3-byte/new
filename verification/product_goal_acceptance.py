@@ -86,6 +86,7 @@ PROBE_SPECS = {
             "powerpoint_formatting_verified",
             "bounded_pivot_summaries_created",
             "explicit_join_verified",
+            "mapped_join_keys_verified",
         ),
     },
     "workflow_hwp": {

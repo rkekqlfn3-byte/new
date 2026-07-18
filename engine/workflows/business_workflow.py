@@ -399,16 +399,6 @@ def _validated_join_plan(value) -> dict[str, str] | None:
         raise WorkflowJoinValidationError(
             "조인 방식은 '내부 조인' 또는 '왼쪽 조인'으로 명시해야 합니다."
         )
-    normalized_left_key = re.sub(
-        r"[\s_\-]+", "", plan["left_key"]
-    ).casefold()
-    normalized_right_key = re.sub(
-        r"[\s_\-]+", "", plan["right_key"]
-    ).casefold()
-    if normalized_left_key != normalized_right_key:
-        raise WorkflowJoinValidationError(
-            "현재 안전 조인은 두 시트에서 같은 이름의 키 열만 지원합니다."
-        )
     return plan
 
 
@@ -779,9 +769,12 @@ class ExcelSalesAnalyzer:
             },
         }
         tables.append(table)
+        key_description = f"'{left_key_header}'"
+        if left_key_header != right_key_header:
+            key_description += f" ↔ '{right_key_header}'"
         return (
             f"승인한 {join_label} 조인: '{left['sheet_name']}'과 "
-            f"'{right['sheet_name']}'을 '{left_key_header}' 기준으로 결합해 "
+            f"'{right['sheet_name']}'을 {key_description} 키로 결합해 "
             f"{output_row_count:,}행을 만들었으며 Excel 원본은 변경하지 않았습니다."
         )
 

@@ -581,7 +581,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual(0, self.analyzer.calls)
 
         preview = self.command(
-            "고객 시트와 주문 시트를 고객ID로 내부 조인해서 "
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 내부 조인해서 "
             "Word 보고서와 5장짜리 PPT 만들어줘",
             "join-complete",
         )
@@ -593,6 +593,9 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual("confirmation_required", preview["status"])
         self.assertIn("읽기 전용 내부 조인", preview["message"])
         self.assertEqual("inner", plan["join_plan"]["join_type"])
+        self.assertEqual("고객ID", plan["join_plan"]["left_key"])
+        self.assertEqual("구매자ID", plan["join_plan"]["right_key"])
+        self.assertIn("고객ID ↔ 구매자ID", preview["message"])
         self.assertEqual(0, self.analyzer.calls)
 
         completed = self.approve(preview)

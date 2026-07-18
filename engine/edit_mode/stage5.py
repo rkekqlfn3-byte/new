@@ -828,11 +828,14 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
                 if join_plan.get("join_type") == "inner"
                 else "왼쪽"
             )
+            key_label = str(join_plan.get("left_key") or "")
+            if join_plan.get("left_key") != join_plan.get("right_key"):
+                key_label += f" ↔ {join_plan.get('right_key')}"
             message += (
                 f"\n승인한 {join_label} 조인을 읽기 전용으로 검증했습니다: "
                 f"{join_plan.get('left_sheet')} ↔ "
                 f"{join_plan.get('right_sheet')} · 키 "
-                f"{join_plan.get('left_key')}. 시트명과 키는 재사용 스킬로 "
+                f"{key_label}. 시트명과 키는 재사용 스킬로 "
                 "저장하지 않았습니다."
             )
         return message
