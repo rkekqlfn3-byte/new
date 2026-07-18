@@ -148,6 +148,8 @@ class StructuredWorkflowIntentAnalyzer:
             "sum": "합계",
             "average": "평균",
             "count": "건수",
+            "minimum": "최솟값",
+            "maximum": "최댓값",
         }.get(str(function or "").casefold(), str(function or ""))
 
     @classmethod
@@ -248,7 +250,8 @@ class StructuredWorkflowIntentAnalyzer:
                 re.finditer(
                     rf"(?P<sheet>{token})\s*시트의\s*"
                     rf"(?P<column>{token})\s*(?:열\s*)?(?:을|를|은|는)\s*"
-                    r"(?P<function>합계|합산|평균|건수|개수)(?:로)?\s*집계",
+                    r"(?P<function>합계|합산|평균|건수|개수|"
+                    r"최솟값|최소값|최소|최댓값|최대값|최대)(?:로)?\s*집계",
                     raw,
                     re.IGNORECASE,
                 )
@@ -259,7 +262,7 @@ class StructuredWorkflowIntentAnalyzer:
                     "join_plan": None,
                     "join_error": (
                         "집계 조인은 '주문 시트의 매출을 합계 집계해서'처럼 "
-                        "오른쪽 시트·열·합계/평균/건수를 정확히 지정해주세요. "
+                        "오른쪽 시트·열·집계 함수를 정확히 지정해주세요. "
                         "여러 열은 각 집계마다 오른쪽 시트명을 반복해주세요."
                     ),
                 }
@@ -270,6 +273,12 @@ class StructuredWorkflowIntentAnalyzer:
                 "평균": "average",
                 "건수": "count",
                 "개수": "count",
+                "최솟값": "minimum",
+                "최소값": "minimum",
+                "최소": "minimum",
+                "최댓값": "maximum",
+                "최대값": "maximum",
+                "최대": "maximum",
             }
             for aggregation_match in aggregation_matches:
                 aggregation_sheet = cls._join_token(

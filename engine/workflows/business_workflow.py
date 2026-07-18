@@ -468,7 +468,7 @@ def _validated_join_plan(value) -> dict[str, Any] | None:
     if frozenset(value) not in {frozenset(required), frozenset(allowed)}:
         raise WorkflowJoinValidationError(
             "시트 조인 계획에는 두 시트명·두 키·결합 방식과 선택적인 오른쪽 "
-            "합계·평균·건수 집계만 정확히 있어야 합니다."
+            "합계·평균·건수·최솟값·최댓값 집계만 정확히 있어야 합니다."
         )
 
     def clean_name(name, label):
@@ -520,9 +520,12 @@ def _validated_join_plan(value) -> dict[str, Any] | None:
             function = str(
                 aggregation.get("function") or ""
             ).strip().casefold()
-            if function not in {"sum", "average", "count"}:
+            if function not in {
+                "sum", "average", "count", "minimum", "maximum"
+            }:
                 raise WorkflowJoinValidationError(
-                    "오른쪽 집계 방식은 합계·평균·건수 중 하나여야 합니다."
+                    "오른쪽 집계 방식은 합계·평균·건수·최솟값·최댓값 중 "
+                    "하나여야 합니다."
                 )
             item = {
                 "column": clean_name(
@@ -842,6 +845,8 @@ class ExcelSalesAnalyzer:
                 "sum": "합계",
                 "average": "평균",
                 "count": "건수",
+                "minimum": "최솟값",
+                "maximum": "최댓값",
             }
             resolved_identities = set()
             for aggregation_plan in aggregation_plans:
@@ -874,7 +879,12 @@ class ExcelSalesAnalyzer:
                 if key is None:
                     continue
                 states = aggregated.setdefault(key, [
-                    {"sum": 0.0, "count": 0}
+                    {
+                        "sum": 0.0,
+                        "count": 0,
+                        "minimum": None,
+                        "maximum": None,
+                    }
                     for _ in resolved_aggregations
                 ])
                 for index, (
@@ -902,6 +912,16 @@ class ExcelSalesAnalyzer:
                         )
                     states[index]["sum"] += number
                     states[index]["count"] += 1
+                    states[index]["minimum"] = (
+                        number
+                        if states[index]["minimum"] is None
+                        else min(states[index]["minimum"], number)
+                    )
+                    states[index]["maximum"] = (
+                        number
+                        if states[index]["maximum"] is None
+                        else max(states[index]["maximum"], number)
+                    )
                     aggregation_input_rows[index] += 1
             if not aggregated:
                 raise WorkflowJoinValidationError(
@@ -923,6 +943,10 @@ class ExcelSalesAnalyzer:
                                 f"'{aggregation_header}'에 계산할 값이 없습니다."
                             )
                         value = state["sum"] / state["count"]
+                    elif function == "minimum":
+                        value = state["minimum"]
+                    elif function == "maximum":
+                        value = state["maximum"]
                     else:
                         value = state["count"]
                     values.append(value)

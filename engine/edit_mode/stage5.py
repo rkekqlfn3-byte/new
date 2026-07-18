@@ -847,6 +847,8 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
                     "sum": "합계",
                     "average": "평균",
                     "count": "건수",
+                    "minimum": "최솟값",
+                    "maximum": "최댓값",
                 }
                 aggregation_parts = [
                     "{}/{} {}".format(

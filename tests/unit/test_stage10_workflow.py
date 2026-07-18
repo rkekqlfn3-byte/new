@@ -486,6 +486,8 @@ class Stage10WorkflowTests(unittest.TestCase):
                     {"column": "매출", "function": "sum"},
                     {"column": "수량", "function": "average"},
                     {"column": "항목", "function": "count"},
+                    {"column": "매출", "function": "minimum"},
+                    {"column": "매출", "function": "maximum"},
                 ],
             },
         )
@@ -498,14 +500,16 @@ class Stage10WorkflowTests(unittest.TestCase):
                 "주문/매출 합계",
                 "주문/수량 평균",
                 "주문/항목 건수",
+                "주문/매출 최솟값",
+                "주문/매출 최댓값",
             ],
             joined["headers"],
         )
         self.assertEqual(
             [
-                [1, "가", 400, 3, 2],
-                [2, "나", 600, 7, 1],
-                [3, "다", None, None, None],
+                [1, "가", 400, 3, 2, 100, 300],
+                [2, "나", 600, 7, 1, 200, 400],
+                [3, "다", None, None, None, None, None],
             ],
             joined["rows"],
         )
@@ -514,12 +518,16 @@ class Stage10WorkflowTests(unittest.TestCase):
                 {"column": "매출", "function": "sum", "input_rows": 4, "groups": 2},
                 {"column": "수량", "function": "average", "input_rows": 4, "groups": 2},
                 {"column": "항목", "function": "count", "input_rows": 3, "groups": 2},
+                {"column": "매출", "function": "minimum", "input_rows": 4, "groups": 2},
+                {"column": "매출", "function": "maximum", "input_rows": 4, "groups": 2},
             ],
             joined["join"]["right_aggregation"],
         )
         self.assertIn("'매출' 합계", result["insights"][0])
         self.assertIn("'수량' 평균", result["insights"][0])
         self.assertIn("'항목' 건수", result["insights"][0])
+        self.assertIn("'매출' 최솟값", result["insights"][0])
+        self.assertIn("'매출' 최댓값", result["insights"][0])
 
     def test_excel_analyzer_blocks_unsafe_aggregate_join_inputs(self):
         cases = (
@@ -580,6 +588,24 @@ class Stage10WorkflowTests(unittest.TestCase):
                     ),
                 ],
                 join_plan=normalized_duplicate_plan,
+            )
+
+        minimum_plan = dict(plan)
+        minimum_plan["right_aggregation"] = {
+            "column": "매출",
+            "function": "minimum",
+        }
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError, "숫자가 아닌 값"
+        ):
+            self._analyze_sheets(
+                [
+                    FakeWorksheet("고객", (("고객ID",), (1,))),
+                    FakeWorksheet(
+                        "주문", (("구매자ID", "매출"), (1, "미정"))
+                    ),
+                ],
+                join_plan=minimum_plan,
             )
 
     def test_excel_analyzer_left_join_keeps_unmatched_left_rows(self):
@@ -1364,8 +1390,16 @@ class Stage10WorkflowTests(unittest.TestCase):
         multi_aggregated = analyzer.analyze(
             "고객 시트의 고객ID와 주문 시트의 구매자ID로 주문 시트의 "
             "매출을 합계 집계하고 주문 시트의 수량을 평균 집계하고 "
-            "주문 시트의 주문ID를 건수 집계해서 왼쪽 조인해서 Word "
+            "주문 시트의 주문ID를 건수 집계하고 주문 시트의 매출을 "
+            "최솟값 집계하고 주문 시트의 매출을 최댓값 집계해서 왼쪽 "
+            "조인해서 Word "
             "보고서와 5장짜리 PPT 만들어줘",
+            context,
+        )
+        minmax_variants = analyzer.analyze(
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 주문 시트의 "
+            "매출을 최소값 집계하고 주문 시트의 매출을 최대값 집계해서 "
+            "왼쪽 조인해서 Word 보고서와 PPT 만들어줘",
             context,
         )
         wrong_aggregation_side = analyzer.analyze(
@@ -1409,12 +1443,23 @@ class Stage10WorkflowTests(unittest.TestCase):
                 {"column": "매출", "function": "sum"},
                 {"column": "수량", "function": "average"},
                 {"column": "주문ID", "function": "count"},
+                {"column": "매출", "function": "minimum"},
+                {"column": "매출", "function": "maximum"},
             ],
             multi_aggregated.params["join_plan"]["right_aggregation"],
         )
         self.assertIn("주문/매출 합계", multi_aggregated.description)
         self.assertIn("주문/수량 평균", multi_aggregated.description)
         self.assertIn("주문/주문ID 건수", multi_aggregated.description)
+        self.assertIn("주문/매출 최솟값", multi_aggregated.description)
+        self.assertIn("주문/매출 최댓값", multi_aggregated.description)
+        self.assertEqual(
+            [
+                {"column": "매출", "function": "minimum"},
+                {"column": "매출", "function": "maximum"},
+            ],
+            minmax_variants.params["join_plan"]["right_aggregation"],
+        )
         self.assertIsNone(wrong_aggregation_side.params["join_plan"])
         self.assertIn(
             "오른쪽 시트", wrong_aggregation_side.params["join_error"]

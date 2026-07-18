@@ -315,6 +315,8 @@ def _owned_probe(report_format="word", progress=None):
                     {"column": "비용", "function": "sum"},
                     {"column": "비용", "function": "average"},
                     {"column": "항목", "function": "count"},
+                    {"column": "비용", "function": "minimum"},
+                    {"column": "비용", "function": "maximum"},
                 ],
             },
         )
@@ -469,16 +471,30 @@ def _owned_probe(report_format="word", progress=None):
                         "input_rows": 4,
                         "groups": 3,
                     },
+                    {
+                        "column": "비용",
+                        "function": "minimum",
+                        "input_rows": 4,
+                        "groups": 3,
+                    },
+                    {
+                        "column": "비용",
+                        "function": "maximum",
+                        "input_rows": 4,
+                        "groups": 3,
+                    },
                 ]
-                and join_table.get("headers", [])[-3:] == [
+                and join_table.get("headers", [])[-5:] == [
                     "비용/비용 합계",
                     "비용/비용 평균",
                     "비용/항목 건수",
+                    "비용/비용 최솟값",
+                    "비용/비용 최댓값",
                 ]
-                and [row[-3:] for row in join_table.get("rows", [])] == [
-                    [500000, 250000, 2],
-                    [200000, 200000, 1],
-                    [150000, 150000, 1],
+                and [row[-5:] for row in join_table.get("rows", [])] == [
+                    [500000, 250000, 2, 200000, 300000],
+                    [200000, 200000, 1, 200000, 200000],
+                    [150000, 150000, 1, 150000, 150000],
                 ]
             ),
             "all_requested_steps_succeeded": (
