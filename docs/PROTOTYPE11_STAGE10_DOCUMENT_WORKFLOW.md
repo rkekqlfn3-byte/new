@@ -120,8 +120,10 @@ probe에서 Word와 PowerPoint 모두 이 계약을 통과했다.
 상태를 남기지 않는다. 인계는 파일 내용을 수정하지 않고, 후속 편집은 새 문서의
 현재 선택·커서에만 적용된다.
 
-소유 Stage 11 실제 Office probe에서 최근 Word 산출물을 새 편집 세션으로
-전환하고 경로·지문·세션 ID·`ready` 상태를 확인했다.
+소유 Stage 11 실제 Office probe에서 최근 Word와 PowerPoint 산출물을 각각 새
+편집 세션으로 전환하고 경로·지문·세션 ID·`ready` 상태를 확인했다. 이어서
+Word 제목 Range와 PowerPoint 제목 Shape를 각각 선택하고 글자 크기 변경을
+승인해 두 앱 모두 +2pt read-back, 동일 세션 유지와 `ready` 복귀를 검증했다.
 
 ## 공통 업무 데이터
 

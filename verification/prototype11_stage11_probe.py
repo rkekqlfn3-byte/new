@@ -390,6 +390,219 @@ def _owned_probe():
             and file_fingerprint(replay_report_path)
             == latest_report_artifact["fingerprint"]
         )
+        stage = "edit_selected_text_after_recent_report_handoff"
+        import win32com.client
+
+        word_application = win32com.client.GetActiveObject(
+            "Word.Application"
+        )
+        word_document = None
+        for candidate_index in range(1, word_application.Documents.Count + 1):
+            candidate = word_application.Documents(candidate_index)
+            if (
+                Path(str(candidate.FullName)).resolve()
+                == replay_report_path.resolve()
+            ):
+                word_document = candidate
+                break
+        if word_document is None:
+            raise RuntimeError(
+                "인계된 최근 Word 보고서를 다시 찾지 못했습니다."
+            )
+        title_range = word_document.Paragraphs(1).Range.Duplicate
+        if (
+            int(title_range.End) > int(title_range.Start)
+            and str(title_range.Text or "").endswith("\r")
+        ):
+            title_range.End = int(title_range.End) - 1
+        if int(title_range.End) <= int(title_range.Start):
+            raise RuntimeError("후속 편집을 검증할 제목 범위가 비어 있습니다.")
+        title_start = int(title_range.Start)
+        title_end = int(title_range.End)
+        before_title_size = float(title_range.Font.Size)
+        title_range.Select()
+        selected_word_session = dict(
+            handoff_controller.status().get("session") or {}
+        )
+        selected_word_context = handoff_controller.context(
+            selected_word_session["session_id"]
+        )
+        followup_preview = handoff_parser.execute_command_result(
+            "선택한 제목 글자를 조금 크게 해줘",
+            mode="edit",
+            session_id="stage11-word-handoff-followup",
+            edit_context={
+                "edit_session_id": selected_word_session["session_id"],
+                "document_fingerprint": selected_word_session[
+                    "document_fingerprint"
+                ],
+                "context_fingerprint": selected_word_context[
+                    "context_fingerprint"
+                ],
+                "request_id": "stage11-word-handoff-followup",
+            },
+        )
+        if followup_preview.get("status") != "confirmation_required":
+            raise RuntimeError(
+                "인계된 Word 후속 편집 미리보기를 만들지 못했습니다."
+            )
+        followup_confirmation = followup_preview["data"]["confirmation"]
+        followup_result = handoff_parser.resolve_pending_confirmation(
+            "stage11-word-handoff-followup",
+            confirmation_id=followup_confirmation["confirmation_id"],
+            option_id="apply",
+        )
+        after_title_size = float(
+            word_document.Range(title_start, title_end).Font.Size
+        )
+        followup_current = dict(
+            handoff_controller.status().get("session") or {}
+        )
+        recent_word_handoff_followup_verified = bool(
+            followup_result.get("success")
+            and followup_result.get("verified")
+            and followup_current.get("session_id")
+            == selected_word_session.get("session_id")
+            and followup_current.get("state") == "ready"
+            and abs(after_title_size - (before_title_size + 2)) < 0.01
+        )
+        stage = "handoff_recent_presentation_to_edit_session"
+        presentation_source_session = handoff_controller.connect_file(
+            str(source)
+        )
+        presentation_source_context = handoff_controller.context(
+            presentation_source_session["session_id"]
+        )
+        presentation_handoff_result = handoff_parser.execute_command_result(
+            "방금 만든 발표자료를 편집 문서로 연결해줘",
+            mode="edit",
+            session_id="stage11-presentation-artifact-handoff",
+            edit_context={
+                "edit_session_id": presentation_source_session["session_id"],
+                "document_fingerprint": presentation_source_session[
+                    "document_fingerprint"
+                ],
+                "context_fingerprint": presentation_source_context[
+                    "context_fingerprint"
+                ],
+                "request_id": "stage11-presentation-artifact-handoff",
+            },
+        )
+        presentation_handoff_payload = dict(
+            (presentation_handoff_result.get("data") or {}).get(
+                "edit_session_handoff"
+            ) or {}
+        )
+        presentation_handoff_current = dict(
+            handoff_controller.status().get("session") or {}
+        )
+        latest_presentation_artifact = executor.latest_verified_artifact(
+            source,
+            "presentation",
+        )
+        recent_presentation_handoff_verified = bool(
+            presentation_handoff_result.get("success")
+            and presentation_handoff_result.get("verified")
+            and (
+                presentation_handoff_result.get("data") or {}
+            ).get("operation") == "connect_recent_workflow_artifact"
+            and presentation_handoff_payload.get("app_type")
+            == "powerpoint"
+            and presentation_handoff_payload.get("session_id")
+            == presentation_handoff_current.get("session_id")
+            and presentation_handoff_current.get("state") == "ready"
+            and Path(
+                presentation_handoff_payload.get("file_path") or ""
+            ).resolve() == replay_presentation_path.resolve()
+            and file_fingerprint(replay_presentation_path)
+            == latest_presentation_artifact["fingerprint"]
+        )
+        stage = "edit_selected_shape_after_recent_presentation_handoff"
+        powerpoint_application = win32com.client.GetActiveObject(
+            "PowerPoint.Application"
+        )
+        handoff_presentation = None
+        for candidate_index in range(
+            1,
+            powerpoint_application.Presentations.Count + 1,
+        ):
+            candidate = powerpoint_application.Presentations(candidate_index)
+            if (
+                Path(str(candidate.FullName)).resolve()
+                == replay_presentation_path.resolve()
+            ):
+                handoff_presentation = candidate
+                break
+        if handoff_presentation is None:
+            raise RuntimeError(
+                "인계된 최근 PowerPoint 발표자료를 다시 찾지 못했습니다."
+            )
+        powerpoint_application.ActiveWindow.View.GotoSlide(1)
+        handoff_shape = handoff_presentation.Slides(1).Shapes.Title
+        handoff_shape.Select()
+        before_shape_size = float(
+            handoff_shape.TextFrame.TextRange.Font.Size
+        )
+        selected_presentation_session = dict(
+            handoff_controller.status().get("session") or {}
+        )
+        selected_presentation_context = handoff_controller.context(
+            selected_presentation_session["session_id"]
+        )
+        presentation_followup_preview = (
+            handoff_parser.execute_command_result(
+                "선택한 제목 글자를 조금 크게 해줘",
+                mode="edit",
+                session_id="stage11-presentation-handoff-followup",
+                edit_context={
+                    "edit_session_id": selected_presentation_session[
+                        "session_id"
+                    ],
+                    "document_fingerprint": selected_presentation_session[
+                        "document_fingerprint"
+                    ],
+                    "context_fingerprint": selected_presentation_context[
+                        "context_fingerprint"
+                    ],
+                    "request_id": (
+                        "stage11-presentation-handoff-followup"
+                    ),
+                },
+            )
+        )
+        if (
+            presentation_followup_preview.get("status")
+            != "confirmation_required"
+        ):
+            raise RuntimeError(
+                "인계된 PowerPoint 후속 편집 미리보기를 만들지 못했습니다."
+            )
+        presentation_followup_confirmation = (
+            presentation_followup_preview["data"]["confirmation"]
+        )
+        presentation_followup_result = (
+            handoff_parser.resolve_pending_confirmation(
+                "stage11-presentation-handoff-followup",
+                confirmation_id=presentation_followup_confirmation[
+                    "confirmation_id"
+                ],
+                option_id="apply",
+            )
+        )
+        after_shape_size = float(
+            handoff_shape.TextFrame.TextRange.Font.Size
+        )
+        presentation_followup_current = dict(
+            handoff_controller.status().get("session") or {}
+        )
+        recent_presentation_handoff_followup_verified = bool(
+            presentation_followup_result.get("success")
+            and presentation_followup_result.get("verified")
+            and presentation_followup_current.get("session_id")
+            == selected_presentation_session.get("session_id")
+            and presentation_followup_current.get("state") == "ready"
+            and abs(after_shape_size - (before_shape_size + 2)) < 0.01
+        )
         stored = executor.load(state["workflow_id"])
         checks = {
             "three_observations_created_candidate": candidate_ready,
@@ -453,6 +666,15 @@ def _owned_probe():
             ),
             "recent_verified_artifact_edit_session_handoff": (
                 recent_artifact_handoff_verified
+            ),
+            "recent_word_handoff_followup_edit_verified": (
+                recent_word_handoff_followup_verified
+            ),
+            "recent_verified_presentation_edit_session_handoff": (
+                recent_presentation_handoff_verified
+            ),
+            "recent_presentation_handoff_followup_edit_verified": (
+                recent_presentation_handoff_followup_verified
             ),
             "recent_word_artifact_exact_path": bool(
                 opened_artifacts

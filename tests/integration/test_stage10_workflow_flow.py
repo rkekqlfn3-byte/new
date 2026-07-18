@@ -517,7 +517,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual([], self.intake.opened)
         self.assertIn("이동·수정·삭제", blocked["message"])
 
-    def test_recent_report_can_explicitly_replace_the_edit_session(self):
+    def test_recent_artifacts_can_explicitly_replace_the_edit_session(self):
         self.ppt.fail_times = 0
         completed = self.approve(self.command(
             "이거 보고서랑 5장짜리 발표자료 만들어줘",
@@ -560,6 +560,31 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             self.controller.status()["session"]["state"],
         )
         self.assertIn("새 편집 대상으로 연결", handoff["message"])
+
+        self.session = self.controller.connect_file(str(self.source))
+        presentation_handoff = self.command(
+            "방금 만든 발표자료를 편집 문서로 연결해줘",
+            "handoff-presentation-connect",
+        )
+
+        self.assertTrue(presentation_handoff["success"], presentation_handoff)
+        presentation = presentation_handoff["data"]["edit_session_handoff"]
+        presentation_path = completed["data"]["observations"]["output_paths"][
+            "presentation"
+        ]
+        self.assertEqual("powerpoint", presentation["app_type"])
+        self.assertEqual(
+            str(Path(presentation_path).resolve()).casefold(),
+            presentation["file_path"].casefold(),
+        )
+        self.assertEqual(
+            presentation["session_id"],
+            self.controller.status()["session"]["session_id"],
+        )
+        self.assertEqual(
+            "ready",
+            self.controller.status()["session"]["state"],
+        )
 
     def test_failed_handoff_rediscovery_keeps_source_session_ready(self):
         self.ppt.fail_times = 0

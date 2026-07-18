@@ -26,8 +26,10 @@ Stage 11은 승인된 기존값을 상충 후보가 승인 전까지 바꾸지 �
 현재 연결 Excel 전체 업무로 라우팅되고 일회성 PPT 장수가 장기 선호로 새지
 않는 검사도 필수다. 가장 최근 검증 Word·PowerPoint 산출물을 정확한 경로·
 파일 지문으로 열고 각각 전면 포커스하는 실제 Office 검사도 요구한다. 또한
-명시적 연결 요청으로 최근 Word 산출물이 새 편집 세션이 되고 경로·지문·세션
-ID·`ready` 상태가 모두 일치하는 실제 Office 검사도 요구한다.
+명시적 연결 요청으로 최근 Word·PowerPoint 산출물이 각각 새 편집 세션이 되고
+경로·지문·세션 ID·`ready` 상태가 모두 일치하는 실제 Office 검사도 요구한다.
+인계 뒤 선택한 Word Range와 PowerPoint Shape에 승인된 후속 편집이 적용되어
+read-back되고 같은 세션이 `ready`로 복귀하는 증거도 필수다.
 
 ```powershell
 python -m verification.product_goal_acceptance --automated-only

@@ -91,6 +91,9 @@ PROBE_SPECS = {
             "contextual_current_excel_workflow_routed",
             "recent_verified_artifacts_opened_and_focused",
             "recent_verified_artifact_edit_session_handoff",
+            "recent_word_handoff_followup_edit_verified",
+            "recent_verified_presentation_edit_session_handoff",
+            "recent_presentation_handoff_followup_edit_verified",
         ),
     },
     "failure_diagnosis": {
