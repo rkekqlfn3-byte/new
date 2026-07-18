@@ -293,6 +293,50 @@ class Stage11VbaPreferenceFlowTests(unittest.TestCase):
 
 
 class Stage11CrossAppLearningFlowTests(unittest.TestCase):
+    @staticmethod
+    def _activate(manager, preference, value, app_type):
+        candidate = None
+        for index in range(1, 4):
+            candidate = manager.record_evidence(
+                preference,
+                value,
+                scope_kind="app",
+                scope_id=app_type,
+                evidence_id=f"edit-default-{preference}-{index}",
+            )
+        manager.activate(candidate["candidate_id"])
+
+    def _formatting_preview(self, root, app_type, preference, value, command):
+        suffix = ".docx" if app_type == "word" else ".pptx"
+        path = root / f"formatting-default{suffix}"
+        path.write_bytes(b"fixture")
+        manager = UserPreferenceLearningManager(root / f"{app_type}-preferences.json")
+        self._activate(manager, preference, value, app_type)
+        context = OfficeContext(app_type, "선택된 문장")
+        native = OfficeNativeAdapter(path, context)
+        controller = EditModeController(
+            intake_manager=OfficeIntake(path, app_type),
+            session_manager=EditSessionManager(),
+            layout_manager=OfficeLayout(),
+            context_manager=context,
+            native_action_registry=OfficeRegistry(native),
+            user_learning_manager=manager,
+        )
+        parser = CommandParser(edit_mode_controller=controller)
+        session = controller.connect_file(str(path))
+        result = parser.execute_command_result(
+            command,
+            mode="edit",
+            session_id=f"stage11-formatting-{app_type}",
+            edit_context={
+                "edit_session_id": session["session_id"],
+                "document_fingerprint": session["document_fingerprint"],
+                "context_fingerprint": "C" * 64,
+                "request_id": f"formatting-{app_type}-{preference}",
+            },
+        )
+        return parser, native, result
+
     def test_word_session_can_collect_and_confirm_report_style_evidence(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -339,6 +383,74 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
             )
             self.assertEqual("formal", resolved["value"])
             self.assertEqual(0, native.executed)
+
+    def test_omitted_word_alignment_uses_confirmed_default_in_preview(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parser, native, result = self._formatting_preview(
+                Path(temp_dir),
+                "word",
+                "paragraph_align",
+                "center",
+                "정렬해줘",
+            )
+
+            self.assertEqual("confirmation_required", result["status"])
+            self.assertIn("학습 기본값 가운데 정렬", result["message"])
+            pending = parser.pending_confirmation_manager.active_record(
+                "stage11-formatting-word"
+            )
+            prepared = pending["payload"]["prepared_action"]
+            self.assertEqual("set_paragraph_format", prepared["operation"])
+            self.assertEqual(
+                "center",
+                prepared["metadata"]["applied_user_preference"]["value"],
+            )
+            native_params = prepared["arguments"]["native_prepared_action"]["params"]
+            self.assertEqual("가운데", native_params["alignment"])
+
+    def test_omitted_powerpoint_font_size_uses_confirmed_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parser, native, result = self._formatting_preview(
+                Path(temp_dir),
+                "powerpoint",
+                "font_scale",
+                "smaller",
+                "글자 크기 맞춰줘",
+            )
+
+            self.assertEqual("confirmation_required", result["status"])
+            pending = parser.pending_confirmation_manager.active_record(
+                "stage11-formatting-powerpoint"
+            )
+            prepared = pending["payload"]["prepared_action"]
+            self.assertEqual("set_text_format", prepared["operation"])
+            native_params = prepared["arguments"]["native_prepared_action"]["params"]
+            self.assertEqual(-2.0, native_params["font_size_delta"])
+            self.assertEqual(
+                "smaller",
+                prepared["metadata"]["applied_user_preference"]["value"],
+            )
+
+    def test_explicit_alignment_does_not_report_learned_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parser, native, result = self._formatting_preview(
+                Path(temp_dir),
+                "word",
+                "paragraph_align",
+                "center",
+                "오른쪽 정렬해줘",
+            )
+
+            self.assertEqual("confirmation_required", result["status"])
+            pending = parser.pending_confirmation_manager.active_record(
+                "stage11-formatting-word"
+            )
+            prepared = pending["payload"]["prepared_action"]
+            self.assertNotIn(
+                "applied_user_preference", prepared["metadata"]
+            )
+            native_params = prepared["arguments"]["native_prepared_action"]["params"]
+            self.assertEqual("오른쪽", native_params["alignment"])
 
 
 if __name__ == "__main__":

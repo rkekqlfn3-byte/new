@@ -497,6 +497,136 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             request = replace(request, text=command + suffix)
         return request, resolved
 
+    def _apply_omitted_formatting_preference(
+        self,
+        request: EditRequest,
+        context: Mapping[str, Any],
+    ) -> tuple[EditRequest, dict[str, Any] | None]:
+        """Fill one omitted formatting value from an approved local default.
+
+        Explicit formatting words always win.  This is limited to Word and
+        PowerPoint because their captured targets expose enough structural
+        text context for the existing preview/approval/read-back contract.
+        """
+        app_type = str(context.get("app_type") or "").strip().casefold()
+        if app_type not in {"word", "powerpoint"}:
+            return request, None
+        command = re.sub(r"\s+", " ", str(request.text or "")).strip()
+        lower = command.casefold()
+        generic = []
+
+        emphasis_terms = (
+            "강조 방식", "강조 스타일", "기본 강조", "평소 강조", "내 강조"
+        )
+        explicit_emphasis = any(
+            term in lower
+            for term in ("굵게", "볼드", "굵지 않게", "강조 없이")
+        )
+        if any(term in lower for term in emphasis_terms) and not explicit_emphasis:
+            generic.append("emphasis_style")
+
+        font_terms = (
+            "글자 크기", "글씨 크기", "폰트 크기", "텍스트 크기"
+        )
+        explicit_font = bool(re.search(r"\d+(?:\.\d+)?\s*(?:pt)?", lower)) or any(
+            term in lower
+            for term in ("크게", "작게", "키워", "줄여", "늘려")
+        )
+        if (
+            any(term in lower for term in font_terms)
+            and any(term in lower for term in ("맞춰", "기본", "평소", "바꿔", "설정"))
+            and not explicit_font
+        ):
+            generic.append("font_scale")
+
+        explicit_alignment = any(
+            term in lower for term in ("왼쪽", "가운데", "중앙", "오른쪽", "양쪽")
+        )
+        excluded_alignment_target = any(
+            term in lower for term in ("표 정렬", "도형 정렬", "shape 정렬", "슬라이드 정렬")
+        )
+        if "정렬" in lower and not explicit_alignment and not excluded_alignment_target:
+            generic.append("paragraph_align")
+
+        generic = list(dict.fromkeys(generic))
+        if not generic:
+            return request, None
+        if len(generic) != 1:
+            raise Stage11EditError(
+                "학습 기본값을 사용할 서식 항목을 한 번에 하나만 말해주세요. "
+                "예: 글자 크기 맞춰줘, 정렬해줘"
+            )
+        preference = generic[0]
+        try:
+            resolved = self.user_learning_manager.resolve(
+                preference,
+                app_id=app_type,
+                file_path=self.session.get("file_path"),
+            )
+        except Exception:
+            resolved = None
+        if not resolved:
+            return request, None
+
+        value = str(resolved.get("value") or "")
+        suffixes = {
+            ("emphasis_style", "bold"): " 굵게 해줘",
+            ("emphasis_style", "regular"): " 굵게 해제",
+            ("font_scale", "larger"): " 조금 크게",
+            ("font_scale", "smaller"): " 조금 작게",
+            ("paragraph_align", "left"): " 왼쪽 정렬",
+            ("paragraph_align", "center"): " 가운데 정렬",
+            ("paragraph_align", "right"): " 오른쪽 정렬",
+            ("paragraph_align", "justify"): " 양쪽 정렬",
+        }
+        suffix = suffixes.get((preference, value))
+        if not suffix:
+            return request, None
+        return replace(request, text=command + suffix), {
+            "preference": preference,
+            "value": value,
+            "scope": resolved.get("resolved_scope"),
+            "candidate_id": resolved.get("candidate_id"),
+            "reason": "omitted_formatting_value",
+        }
+
+    @staticmethod
+    def _attach_applied_formatting_preference(
+        prepared: EditPreparedAction,
+        applied: Mapping[str, Any] | None,
+    ) -> EditPreparedAction:
+        if not applied:
+            return prepared
+        preference = str(applied.get("preference") or "")
+        expected_operations = {
+            "emphasis_style": {"set_text_format"},
+            "font_scale": {"set_text_format"},
+            "paragraph_align": {"set_paragraph_format", "set_text_alignment"},
+        }
+        if prepared.operation not in expected_operations.get(preference, set()):
+            raise Stage11EditError(
+                "학습 서식 기본값이 요청한 편집 작업과 일치하지 않아 적용하지 않았습니다."
+            )
+        details = dict(applied)
+        preview = dict(prepared.metadata.get("preview") or {})
+        label = _value_label(details.get("value"))
+        description = str(preview.get("description") or "").strip()
+        preview["description"] = (
+            f"{description} · 학습 기본값 {label}" if description
+            else f"학습 기본값 {label}"
+        )
+        preview["applied_user_preference"] = details
+        arguments = dict(prepared.arguments)
+        arguments["preview"] = preview
+        metadata = dict(prepared.metadata)
+        metadata["preview"] = preview
+        metadata["applied_user_preference"] = details
+        return replace(
+            prepared,
+            arguments=arguments,
+            metadata=metadata,
+        )
+
     def _pending_file_candidate_intent(
         self,
         text: str,
@@ -577,6 +707,11 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             intent = self.preference_analyzer.analyze(request.text, context)
         if intent is None:
             resolved_request, applied_vba = self._apply_vba_preference(request, context)
+            resolved_request, applied_formatting = (
+                self._apply_omitted_formatting_preference(
+                    resolved_request, context
+                )
+            )
             prepared = super().prepare(resolved_request, context)
             if applied_vba and prepared.operation == "vba_replace_module":
                 prepared = replace(
@@ -591,6 +726,9 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
                         },
                     },
                 )
+            prepared = self._attach_applied_formatting_preference(
+                prepared, applied_formatting
+            )
             return self._attach_verified_correction_feedback(
                 request, context, prepared
             )
