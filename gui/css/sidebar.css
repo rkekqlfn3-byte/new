@@ -166,6 +166,14 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
 }
 .session-title {
     font-size: 13px;
@@ -189,7 +197,9 @@
     transition: var(--transition-fast);
     padding: 4px;
 }
-.session-item:hover .session-delete {
+.session-item:hover .session-delete,
+.session-item:focus-within .session-delete,
+.session-delete:focus-visible {
     opacity: 1;
 }
 

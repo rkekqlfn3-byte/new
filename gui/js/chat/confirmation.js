@@ -12,9 +12,13 @@ function createConfirmationCard(confirmation) {
     const card = document.createElement('div');
     card.className = 'confirmation-card';
     card.dataset.confirmationId = String(confirmation?.confirmation_id || '');
-    card.appendChild(window.createTextElement(
+    card.setAttribute('role', 'region');
+    const heading = window.createTextElement(
         'div', '선택이 필요합니다', 'confirmation-card-heading'
-    ));
+    );
+    heading.id = `confirmation-heading-${Math.random().toString(36).slice(2, 10)}`;
+    card.setAttribute('aria-labelledby', heading.id);
+    card.appendChild(heading);
 
     const message = document.createElement('div');
     message.className = 'confirmation-card-message';
@@ -170,6 +174,11 @@ function addConfirmationCard(response, existingMessage=null) {
     msgDiv.replaceChildren(content);
     if (!existingMessage) chatArea.appendChild(msgDiv);
     bindConfirmationCard(card);
+    window.requestAnimationFrame(() => {
+        card.querySelector('.confirmation-option.recommended, .confirmation-option')?.focus({
+            preventScroll: true
+        });
+    });
     scrollToBottom();
     return true;
 }

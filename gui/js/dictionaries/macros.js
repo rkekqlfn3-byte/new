@@ -1,11 +1,3 @@
-const modal = document.getElementById('image-modal');
-const span = document.querySelector('#image-modal .close-modal');
-
-if (span) span.addEventListener('click', () => { if (modal) modal.style.display = 'none'; });
-if (modal) modal.addEventListener('click', (event) => {
-    if (event.target === modal) modal.style.display = 'none';
-});
-
 // ===================================================
 // CUSTOM MACRO MANAGEMENT
 // ===================================================

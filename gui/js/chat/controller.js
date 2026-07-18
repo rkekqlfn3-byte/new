@@ -251,14 +251,15 @@ chatInput.addEventListener('input', function() {
     this.style.height = Math.min(this.scrollHeight, 150) + 'px';
 });
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') chatInput.focus();
+    const modalOpen = document.querySelector('.modal[aria-hidden="false"]');
+    if (document.visibilityState === 'visible' && !modalOpen) chatInput.focus();
 });
 
 // Plus Menu Logic
 const btnPlus = document.getElementById('btn-plus');
 const plusMenu = document.getElementById('plus-menu');
 btnPlus.addEventListener('click', (e) => {
-    plusMenu.classList.toggle('show');
+    window.setPlusMenuOpen(!plusMenu.classList.contains('show'));
     e.stopPropagation();
 });
 
@@ -304,14 +305,18 @@ window.switchSidebarTab = function(target) {
     if(!chatHistoryTab || !userMemoryTab) return;
     chatHistoryTab.classList.remove('active');
     userMemoryTab.classList.remove('active');
+    chatHistoryTab.setAttribute('aria-selected', 'false');
+    userMemoryTab.setAttribute('aria-selected', 'false');
     paneHistory.style.display = 'none';
     paneMemory.style.display = 'none';
 
     if (target === 'chat-history-tab') {
         chatHistoryTab.classList.add('active');
+        chatHistoryTab.setAttribute('aria-selected', 'true');
         paneHistory.style.display = 'block';
     } else {
         userMemoryTab.classList.add('active');
+        userMemoryTab.setAttribute('aria-selected', 'true');
         paneMemory.style.display = 'flex';
     }
 };
@@ -399,15 +404,12 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        const modals = document.querySelectorAll('.modal, .modal-overlay, .plus-menu');
+        const modals = document.querySelectorAll('.modal-overlay, .plus-menu');
         modals.forEach(m => {
-            if (m.style.display === 'block' || m.style.display === 'flex' || m.classList.contains('show') || !m.classList.contains('hidden')) {
-                if (m.style.display !== 'none' && m.style.display !== '' && !m.classList.contains('plus-menu')) m.style.display = 'none';
+            if (m.classList.contains('show') || !m.classList.contains('hidden')) {
                 if (m.classList.contains('modal-overlay')) m.classList.add('hidden');
-                if (m.classList.contains('show')) m.classList.remove('show');
                 if (m.classList.contains('plus-menu')) {
-                    m.style.opacity = '';
-                    m.style.pointerEvents = '';
+                    window.setPlusMenuOpen(false);
                 }
             }
         });
@@ -416,27 +418,22 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('click', (e) => {
     // 1. Modal Overlay Click
-    if (e.target.classList.contains('modal') || e.target.classList.contains('modal-overlay')) {
-        e.target.style.display = 'none';
-        if (e.target.classList.contains('modal-overlay')) e.target.classList.add('hidden');
+    if (e.target.classList.contains('modal-overlay')) {
+        e.target.classList.add('hidden');
     }
 
     // 2. Universal Close (X) Button Click
     const closeBtn = e.target.closest('.close-modal');
     if (closeBtn) {
-        const modal = closeBtn.closest('.modal') || closeBtn.closest('.modal-overlay');
-        if (modal) {
-            modal.style.display = 'none';
-        }
+        const modal = closeBtn.closest('.modal-overlay');
+        if (modal) modal.classList.add('hidden');
     }
 
     // 3. Plus Menu Click Outside
     const plusMenu = document.getElementById('plus-menu');
     const btnPlus = document.getElementById('btn-plus');
     if (plusMenu && btnPlus && !plusMenu.contains(e.target) && !btnPlus.contains(e.target)) {
-        plusMenu.classList.remove('show');
-        plusMenu.style.opacity = '';
-        plusMenu.style.pointerEvents = '';
+        window.setPlusMenuOpen(false);
     }
 });
 

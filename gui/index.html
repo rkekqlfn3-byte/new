@@ -26,7 +26,7 @@
             <div class="header-right">
                 <div class="header-actions">
                     <button id="btn_refresh" class="btn btn-refresh" title="자비스 완전 재부팅">🔄 재부팅</button>
-                    <button id="btn_ai_settings" class="btn btn-ai-settings" title="AI 두뇌 설정">⚙️ AI 설정</button>
+                    <button id="btn_ai_settings" class="btn btn-ai-settings" title="AI 두뇌 설정" aria-haspopup="dialog" aria-controls="ai-settings-modal">⚙️ AI 설정</button>
                     <button id="btn_toggle_term" style="display: none;"></button>
                 </div>
             </div>
@@ -34,19 +34,19 @@
 
         <div class="main-content">
             <aside class="sidebar glass-panel">
-                <div class="sidebar-tabs">
-                    <button class="sidebar-tab active" data-target="chat-history-tab">💬 대화 기록</button>
-                    <button class="sidebar-tab" data-target="user-memory-tab">🧠 영구 기억</button>
+                <div class="sidebar-tabs" role="tablist" aria-label="사이드바 보기">
+                    <button id="tab-chat-history" class="sidebar-tab active" data-target="chat-history-tab" role="tab" aria-selected="true" aria-controls="chat-history-tab">💬 대화 기록</button>
+                    <button id="tab-user-memory" class="sidebar-tab" data-target="user-memory-tab" role="tab" aria-selected="false" aria-controls="user-memory-tab">🧠 영구 기억</button>
                 </div>
                 
-                <div id="chat-history-tab" class="sidebar-pane active">
+                <div id="chat-history-tab" class="sidebar-pane active" role="tabpanel" aria-labelledby="tab-chat-history">
                     <button id="btn-new-chat" class="premium-btn w-full" style="margin-bottom: 15px;">+ 새 대화 시작</button>
                     <ul id="chat-session-list" class="session-list">
                         <!-- Sessions populated here -->
                     </ul>
                 </div>
                 
-                <div id="user-memory-tab" class="sidebar-pane" style="display: none; flex-direction: column; height: 100%;">
+                <div id="user-memory-tab" class="sidebar-pane" role="tabpanel" aria-labelledby="tab-user-memory" style="display: none; flex-direction: column; height: 100%;">
                     <div class="memory-subtabs">
                         <button class="memory-subtab active" data-memory-target="mem-user">👤 정보</button>
                         <button class="memory-subtab" data-memory-target="mem-rules">📝 규칙</button>
@@ -70,7 +70,7 @@
                     <span id="edit-target-details" class="edit-target-details">편집 문서를 연결해주세요.</span>
                     <span id="edit-target-preview" class="edit-target-preview"></span>
                 </section>
-                <main class="chat-area" id="chat-area">
+                <main class="chat-area" id="chat-area" role="log" aria-live="polite" aria-relevant="additions text" aria-label="자비스 대화 내용" tabindex="0">
                     <div class="message system-date">오늘</div>
                     <div class="message incoming animate-slide-up">
                         <div class="message-content">
@@ -119,41 +119,41 @@
                                 aria-label="현재 선택 영역 새로고침"
                             >새로고침</button>
                         </div>
-                        <div id="edit-file-drop-zone" class="edit-file-drop-zone" tabindex="0">
+                        <div id="edit-file-drop-zone" class="edit-file-drop-zone" tabindex="0" role="button" aria-label="편집할 문서 파일 선택 또는 끌어놓기">
                             Excel·한글·Word·PowerPoint 파일을 여기에 놓으세요
                         </div>
                     </section>
                     <div class="input-actions-left">
-                        <button id="btn-plus" class="btn-icon btn-plus-menu">➕</button>
-                        <button id="btn-attach" class="btn-icon btn-attach-file" title="파일 첨부">📎</button>
+                        <button id="btn-plus" class="btn-icon btn-plus-menu" type="button" aria-label="추가 기능 메뉴" aria-haspopup="true" aria-expanded="false" aria-controls="plus-menu">➕</button>
+                        <button id="btn-attach" class="btn-icon btn-attach-file" type="button" title="파일 첨부" aria-label="이미지 파일 첨부">📎</button>
                         <input type="file" id="chat-file-upload" accept="image/*" class="hidden-input">
                     </div>
                     
                     <div class="input-main">
                         <div id="chat-preview-container" class="chat-preview-container hidden-input">
-                            <img id="chat-preview-img" src="">
-                            <button id="btn-cancel-preview" class="btn-cancel-preview">&times;</button>
+                            <img id="chat-preview-img" src="" alt="첨부 이미지 미리보기">
+                            <button id="btn-cancel-preview" class="btn-cancel-preview" type="button" aria-label="첨부 이미지 제거">&times;</button>
                         </div>
                         
-                        <div class="segmented-control">
-                            <input type="radio" id="mode-command" name="chat-mode" value="command" checked class="hidden-input">
+                        <div class="segmented-control" role="group" aria-label="자비스 사용 모드">
+                            <input type="radio" id="mode-command" name="chat-mode" value="command" checked class="mode-input">
                             <label for="mode-command" class="mode-tab">⚡ 명령</label>
 
-                            <input type="radio" id="mode-question" name="chat-mode" value="question" class="hidden-input">
+                            <input type="radio" id="mode-question" name="chat-mode" value="question" class="mode-input">
                             <label for="mode-question" class="mode-tab">❓ 질문</label>
 
-                            <input type="radio" id="mode-edit" name="chat-mode" value="edit" class="hidden-input">
+                            <input type="radio" id="mode-edit" name="chat-mode" value="edit" class="mode-input">
                             <label for="mode-edit" class="mode-tab">✏️ 편집</label>
                         </div>
                         
-                        <textarea id="chat-input" class="chat-input-field" placeholder="메시지를 입력하세요…" title="예: 오늘 뭐 했어?, 유튜브 틀어줘, 계산기 켜줘" rows="1" style="resize: none; overflow: hidden; font-family: inherit; line-height: 1.5; padding: 12px;"></textarea>
+                        <textarea id="chat-input" class="chat-input-field" aria-label="자비스에게 요청 입력" placeholder="메시지를 입력하세요…" title="예: 오늘 뭐 했어?, 유튜브 틀어줘, 계산기 켜줘" rows="1" style="resize: none; overflow: hidden; font-family: inherit; line-height: 1.5; padding: 12px;"></textarea>
                     </div>
                     
-                    <button id="send-btn" class="btn-send" title="전송">➤</button>
-                    <button id="cancel-execution-btn" class="btn-send" title="현재 실행 취소" style="display:none;background:#ff5555;">■</button>
+                    <button id="send-btn" class="btn-send" type="button" title="전송" aria-label="요청 전송">➤</button>
+                    <button id="cancel-execution-btn" class="btn-send" type="button" title="현재 실행 취소" aria-label="현재 실행 취소" style="display:none;background:#ff5555;">■</button>
                     
                     <!-- Plus Menu popup -->
-                    <div id="plus-menu" class="plus-menu">
+                    <div id="plus-menu" class="plus-menu" role="region" aria-label="추가 기능">
                         <button id="btn_open_unified_dict">📖 통합 사전 관리 (명사/동사/매크로)</button>
                         <button id="btn-execution-diagnostics">🩺 최근 실행 진단</button>
                         <button id="btn-native-action-candidates">🧩 네이티브 확장 후보</button>
@@ -174,10 +174,10 @@
     </div>
     
     <!-- Unified Dictionary Modal -->
-    <div id="unified-dict-modal" class="modal">
-        <div class="modal-content premium-modal action-modal-wide animate-modal-in" style="max-height: 90vh; display: flex; flex-direction: column;">
-            <span class="close-modal">&times;</span>
-            <h2 style="margin-bottom: 15px;">📖 통합 사전 관리</h2>
+    <div id="unified-dict-modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="unified-dict-title">
+        <div class="modal-content premium-modal action-modal-wide animate-modal-in" style="max-height: 90vh; display: flex; flex-direction: column;" tabindex="-1">
+            <button class="close-modal" type="button" aria-label="통합 사전 닫기">&times;</button>
+            <h2 id="unified-dict-title" style="margin-bottom: 15px;">📖 통합 사전 관리</h2>
             
             <div class="tab-container flex-row" style="margin-bottom: 15px;">
                 <button class="tab-btn unified-tab-btn active" data-unified-tab="noun">📱 명사 사전 (앱/별명)</button>
@@ -281,16 +281,16 @@
     </div>
 
     <!-- Image Modal -->
-    <div id="image-modal" class="modal">
-        <span class="close-modal">&times;</span>
-        <img class="modal-content animate-modal-in" id="modal-img">
+    <div id="image-modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-label="첨부 이미지 확대 보기">
+        <button class="close-modal" type="button" aria-label="확대 이미지 닫기">&times;</button>
+        <img class="modal-content animate-modal-in" id="modal-img" alt="확대된 첨부 이미지" tabindex="-1">
     </div>
 
     <!-- AI Settings Modal -->
-    <div id="learning-review-modal" class="modal">
-        <div class="modal-content premium-modal action-modal-wide animate-modal-in learning-review-modal-content">
-            <span class="close-modal">&times;</span>
-            <h2>🧠 학습 내용 검토</h2>
+    <div id="learning-review-modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="learning-review-title">
+        <div class="modal-content premium-modal action-modal-wide animate-modal-in learning-review-modal-content" tabindex="-1">
+            <button class="close-modal" type="button" aria-label="학습 내용 검토 닫기">&times;</button>
+            <h2 id="learning-review-title">🧠 학습 내용 검토</h2>
             <p class="desc">실행된 행동을 확인하고, 다음부터 사용할 이름과 문장을 수정한 뒤 저장하세요.</p>
             <div id="learning-review-list"></div>
             <div id="learning-review-error" class="learning-review-error" aria-live="polite"></div>
@@ -302,12 +302,12 @@
         </div>
     </div>
 
-    <div id="native-action-candidates-modal" class="modal">
-        <div class="modal-content premium-modal action-modal-wide animate-modal-in native-candidate-modal-content">
-            <span class="close-modal">&times;</span>
+    <div id="native-action-candidates-modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="native-candidate-title">
+        <div class="modal-content premium-modal action-modal-wide animate-modal-in native-candidate-modal-content" tabindex="-1">
+            <button class="close-modal" type="button" aria-label="네이티브 확장 후보 닫기">&times;</button>
             <div class="native-candidate-heading">
                 <div>
-                    <h2>🧩 네이티브 확장 후보</h2>
+                    <h2 id="native-candidate-title">🧩 네이티브 확장 후보</h2>
                     <p class="desc">사용자가 확인한 동적 작업이 반복되면 개발 검토용 후보로만 기록합니다. 후보가 자동 실행 기능으로 바뀌지는 않습니다.</p>
                 </div>
                 <button id="btn-refresh-native-candidates" class="premium-btn">새로고침</button>
@@ -321,17 +321,17 @@
     </div>
 
     <!-- AI Settings Modal -->
-    <div id="ai-settings-modal" class="modal">
-        <div class="modal-content premium-modal animate-modal-in">
-            <span class="close-modal close-ai-settings">&times;</span>
-            <h2 style="margin-bottom: 15px;">⚙️ AI (두뇌) 설정</h2>
+    <div id="ai-settings-modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="ai-settings-title">
+        <div class="modal-content premium-modal animate-modal-in" tabindex="-1">
+            <button class="close-modal close-ai-settings" type="button" aria-label="AI 설정 닫기">&times;</button>
+            <h2 id="ai-settings-title" style="margin-bottom: 15px;">⚙️ AI (두뇌) 설정</h2>
             
             <div id="ai-config-tab" class="modal-tab-pane active" style="margin-top: 10px;">
                 <div class="premium-card">
                     <h3>🧠 AI 모델 (API Key) 연동</h3>
                     <p class="desc">OpenAI 또는 Gemini API 키를 입력하여 챗봇을 똑똑하게 만듭니다.</p>
                     <div class="form-group">
-                        <label>명령 라우팅 방식</label>
+                        <label for="ai-routing-mode">명령 라우팅 방식</label>
                         <select id="ai-routing-mode" class="premium-input">
                             <option value="auto">자동 학습 — 로컬 우선, 실패 시 AI</option>
                             <option value="local_only">로컬 전용 — API 사용 안 함</option>
@@ -340,15 +340,15 @@
                         <p class="desc">AI가 필요할 때 아래에서 선택한 클라우드 제공자를 사용합니다.</p>
                     </div>
                     <div class="form-group">
-                        <label>제공자 (Provider)</label>
+                        <label for="ai-provider">제공자 (Provider)</label>
                         <select id="ai-provider" class="premium-input">
                             <option value="openai">OpenAI (ChatGPT)</option>
                             <option value="gemini">Google Gemini</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>API Key</label>
-                        <input type="password" id="ai-api-key" class="premium-input" autocomplete="new-password" placeholder="API 키 입력">
+                        <label for="ai-api-key">API Key</label>
+                        <input type="password" id="ai-api-key" class="premium-input" autocomplete="new-password" placeholder="API 키 입력" aria-describedby="ai-api-key-status">
                         <p id="ai-api-key-status" class="desc">저장된 키는 이 화면에 다시 표시하지 않습니다.</p>
                     </div>
                 </div>

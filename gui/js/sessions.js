@@ -21,7 +21,8 @@ function createSessionListItem(session) {
     li.className = 'session-item' + (id === currentSessionId ? ' active' : '');
     li.dataset.sessionId = id;
 
-    const info = document.createElement('div');
+    const info = document.createElement('button');
+    info.type = 'button';
     info.className = 'session-info';
     const title = document.createElement('span');
     title.className = 'session-title';
@@ -33,13 +34,17 @@ function createSessionListItem(session) {
         ? new Date(timestamp).toLocaleString()
         : '';
     info.append(title, date);
+    info.setAttribute('aria-label', `${title.textContent}${date.textContent ? `, ${date.textContent}` : ''}`);
+    if (id === currentSessionId) info.setAttribute('aria-current', 'page');
+    info.addEventListener('click', () => switchSession(id));
 
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'session-delete';
     remove.textContent = '🗑️';
+    remove.title = `${title.textContent} 대화 삭제`;
+    remove.setAttribute('aria-label', remove.title);
     remove.addEventListener('click', event => deleteSession(id, event));
-    li.addEventListener('click', () => switchSession(id));
     li.append(info, remove);
     return li;
 }
@@ -67,7 +72,11 @@ async function loadSessions() {
 function updateActiveSessionHighlight() {
     if (!sessionList) return;
     sessionList.querySelectorAll('.session-item').forEach(li => {
-        li.classList.toggle('active', li.dataset.sessionId === currentSessionId);
+        const active = li.dataset.sessionId === currentSessionId;
+        li.classList.toggle('active', active);
+        const info = li.querySelector('.session-info');
+        if (active) info?.setAttribute('aria-current', 'page');
+        else info?.removeAttribute('aria-current');
     });
 }
 

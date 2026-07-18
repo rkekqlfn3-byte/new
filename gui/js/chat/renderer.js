@@ -98,13 +98,22 @@ function appendFormattedMessageContent(bubble, text, isIncoming, imageData = nul
         const image = document.createElement('img');
         image.className = 'chat-image-attachment';
         image.src = imageData;
-        image.addEventListener('click', () => {
+        image.alt = '첨부 이미지. Enter 키로 크게 보기';
+        image.tabIndex = 0;
+        image.setAttribute('role', 'button');
+        const openImageModal = () => {
             const modal = document.getElementById('image-modal');
             const modalImage = document.getElementById('modal-img');
             if (modal && modalImage) {
                 modalImage.src = image.src;
-                modal.style.display = 'block';
+                window.openAccessibleModal(modal, 'block', image);
             }
+        };
+        image.addEventListener('click', openImageModal);
+        image.addEventListener('keydown', event => {
+            if (!['Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
+            openImageModal();
         });
         bubble.append(image, document.createElement('br'));
     }

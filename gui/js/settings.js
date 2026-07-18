@@ -1,6 +1,5 @@
 const btnAiSettings = document.getElementById('btn_ai_settings');
 const aiSettingsModal = document.getElementById('ai-settings-modal');
-const closeAiSettings = document.querySelector('.close-ai-settings');
 const btnSaveAiSettings = document.getElementById('btn-save-ai-settings');
 const btnClearAiApiKey = document.getElementById('btn-clear-ai-api-key');
 const aiProvider = document.getElementById('ai-provider');
@@ -30,10 +29,9 @@ if (btnAiSettings) {
         renderAiApiKeyState(config);
         const routingEl = document.getElementById('ai-routing-mode');
         if (routingEl) routingEl.value = config.routing_mode || "auto";
-        if (aiSettingsModal) aiSettingsModal.style.display = 'block';
+        window.openAccessibleModal(aiSettingsModal, 'block', btnAiSettings);
     });
 }
-if (closeAiSettings) closeAiSettings.addEventListener('click', () => { if (aiSettingsModal) aiSettingsModal.style.display = 'none'; });
 
 if (btnSaveAiSettings) {
     btnSaveAiSettings.addEventListener('click', async () => {
@@ -46,7 +44,7 @@ if (btnSaveAiSettings) {
             alert("AI 설정이 저장되었습니다!");
             window._cachedAiConfig = await eel.get_ai_config()();
             renderAiApiKeyState(window._cachedAiConfig);
-            if (aiSettingsModal) aiSettingsModal.style.display = 'none';
+            window.closeAccessibleModal(aiSettingsModal);
         } else {
             alert("설정 저장에 실패했습니다.");
         }

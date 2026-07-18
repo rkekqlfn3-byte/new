@@ -129,6 +129,69 @@ class ChatBubbleLayoutTests(unittest.TestCase):
         self.assertIn("overflow-x: auto", self.css)
 
 
+class AccessibilityContractTests(unittest.TestCase):
+    def setUp(self):
+        self.html = read_gui_file("index.html")
+        self.chat_css = read_gui_file("css/chat.css")
+        self.globals = read_gui_script("globals.js")
+
+    def test_mode_radios_remain_keyboard_focusable(self):
+        for mode in ("command", "question", "edit"):
+            self.assertRegex(
+                self.html,
+                rf'id="mode-{mode}"[^>]+class="mode-input"',
+            )
+        self.assertIn(".mode-input {", self.chat_css)
+        self.assertIn(".mode-input:focus-visible + .mode-tab", self.chat_css)
+        self.assertNotIn(
+            'name="chat-mode" value="edit" class="hidden-input"',
+            self.html,
+        )
+        edit_mode = read_gui_script("edit_mode.js")
+        self.assertIn("const chatModeInputs = Array.from", edit_mode)
+        self.assertIn("ArrowRight: 1", edit_mode)
+        self.assertIn("target.dispatchEvent(new Event('change'", edit_mode)
+
+    def test_chat_updates_and_icon_buttons_have_accessible_names(self):
+        self.assertIn('id="chat-area" role="log" aria-live="polite"', self.html)
+        for label in (
+            "추가 기능 메뉴", "이미지 파일 첨부", "요청 전송",
+            "현재 실행 취소", "자비스에게 요청 입력",
+        ):
+            self.assertIn(f'aria-label="{label}"', self.html)
+
+    def test_dialogs_trap_focus_close_with_escape_and_restore_origin(self):
+        self.assertEqual(5, self.html.count('class="modal" role="dialog"'))
+        self.assertEqual(5, self.html.count('aria-modal="true" aria-hidden="true"'))
+        self.assertNotIn('<span class="close-modal"', self.html)
+        self.assertIn("window.openAccessibleModal = function", self.globals)
+        self.assertIn("window.closeAccessibleModal = function", self.globals)
+        self.assertIn("modalFocusOrigins.set(modal, trigger)", self.globals)
+        self.assertIn("event.key === 'Escape'", self.globals)
+        self.assertIn("event.key !== 'Tab'", self.globals)
+        self.assertIn("origin.focus({ preventScroll: true })", self.globals)
+
+    def test_history_and_edit_file_controls_have_keyboard_actions(self):
+        sessions = read_gui_script("sessions.js")
+        edit_mode = read_gui_script("edit_mode.js")
+        self.assertIn("const info = document.createElement('button')", sessions)
+        self.assertIn("info.setAttribute('aria-label'", sessions)
+        self.assertIn("remove.setAttribute('aria-label'", sessions)
+        self.assertIn('id="edit-file-drop-zone"', self.html)
+        self.assertIn('role="button"', self.html)
+        self.assertIn("editDropZone.addEventListener('keydown'", edit_mode)
+        self.assertIn("['Enter', ' '].includes(event.key)", edit_mode)
+
+    def test_confirmation_card_moves_focus_to_the_required_choice(self):
+        confirmation = read_gui_script("chat/confirmation.js")
+        self.assertIn("card.setAttribute('role', 'region')", confirmation)
+        self.assertIn("card.setAttribute('aria-labelledby', heading.id)", confirmation)
+        self.assertIn(
+            "card.querySelector('.confirmation-option.recommended, .confirmation-option')?.focus",
+            confirmation,
+        )
+
+
 class EditModeUiContractTests(unittest.TestCase):
     def test_edit_tab_and_local_document_controls_are_shipped(self):
         html = read_gui_file("index.html")

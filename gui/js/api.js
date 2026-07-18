@@ -16,7 +16,7 @@ if (btnAppScan) {
     btnAppScan.addEventListener('click', async () => {
         addMessage("시스템에 있는 앱들을 스캔 중입니다... ⏳", true);
         const plusMenu = document.getElementById('plus-menu');
-        if(plusMenu) plusMenu.classList.remove('show');
+        if(plusMenu) window.setPlusMenuOpen(false);
         const count = await eel.scan_apps(false)();
         if (count === -1) {
             setTimeout(async () => {
@@ -40,7 +40,7 @@ if (btnRecentScan) {
     btnRecentScan.addEventListener('click', async () => {
         addMessage("최근 24시간 내에 새로 설치된 앱을 스캔합니다... ⏳", true);
         const plusMenu = document.getElementById('plus-menu');
-        if(plusMenu) plusMenu.classList.remove('show');
+        if(plusMenu) window.setPlusMenuOpen(false);
         const count = await eel.scan_recent_apps()();
         setTimeout(() => {
             if (count > 0) {
@@ -56,7 +56,7 @@ if (btnWebScan) {
     btnWebScan.addEventListener('click', async () => {
         addMessage("Chrome 웹 북마크를 시스템에 동기화합니다... 🌐", true);
         const plusMenu = document.getElementById('plus-menu');
-        if(plusMenu) plusMenu.classList.remove('show');
+        if(plusMenu) window.setPlusMenuOpen(false);
         const count = await eel.scan_web_bookmarks()();
         setTimeout(() => {
             if (count > 0) {
@@ -69,5 +69,4 @@ if (btnWebScan) {
         }, 1000);
     });
 }
-
 

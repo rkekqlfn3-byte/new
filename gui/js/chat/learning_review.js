@@ -99,7 +99,7 @@ async function openLearningReview() {
         review.candidates.forEach((candidate, index) => {
             list.appendChild(createLearningReviewCard(candidate, index));
         });
-        modal.style.display = 'block';
+        window.openAccessibleModal(modal, 'block', document.activeElement);
     } catch (reviewError) {
         addSystemError(reviewError.message || String(reviewError));
     }
@@ -121,7 +121,7 @@ async function approveLearningReview() {
             if (error) error.textContent = result?.message || '학습 저장에 실패했습니다.';
             return;
         }
-        if (modal) modal.style.display = 'none';
+        window.closeAccessibleModal(modal);
         addMessage(result.message, true);
         if (typeof updateLearnedMacroList === 'function') {
             await updateLearnedMacroList();
@@ -136,7 +136,7 @@ async function discardPendingLearning(reason = 'discard') {
     try {
         const result = await eel.reject_pending_learning(reason)();
         const modal = document.getElementById('learning-review-modal');
-        if (modal) modal.style.display = 'none';
+        window.closeAccessibleModal(modal);
         addMessage(result?.message || '학습 후보를 저장하지 않았습니다.', true);
     } catch (discardError) {
         addSystemError(discardError.message || String(discardError));

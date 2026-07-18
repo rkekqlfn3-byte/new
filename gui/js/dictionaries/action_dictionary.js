@@ -1,9 +1,5 @@
 const actionDictList = document.getElementById('action-dict-list');
 
-window.addEventListener('click', (e) => {
-    if (e.target === aiSettingsModal) aiSettingsModal.style.display = 'none';
-});
-
 // ===================================================
 // ACTION DICTIONARY RENDER
 // ===================================================

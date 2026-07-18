@@ -177,8 +177,8 @@ async function updateSynonymList() {
 if (btnUnifiedDict && unifiedDictModal) {
     btnUnifiedDict.addEventListener('click', async () => {
         const pm = document.getElementById('plus-menu');
-        if (pm) pm.classList.remove('show');
-        unifiedDictModal.style.display = 'flex'; // show the modal
+        if (pm) window.setPlusMenuOpen(false);
+        window.openAccessibleModal(unifiedDictModal, 'flex', btnUnifiedDict);
 
         // Load all data
         currentNouns = await eel.get_nouns()();

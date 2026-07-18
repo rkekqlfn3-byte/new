@@ -160,8 +160,8 @@ async function loadNativeActionCandidates() {
 }
 
 document.getElementById('btn-native-action-candidates')?.addEventListener('click', async () => {
-    document.getElementById('plus-menu')?.classList.remove('show');
-    if (nativeCandidateModal) nativeCandidateModal.style.display = 'flex';
+    window.setPlusMenuOpen(false);
+    window.openAccessibleModal(nativeCandidateModal, 'flex', document.activeElement);
     await loadNativeActionCandidates();
 });
 document.getElementById('btn-refresh-native-candidates')?.addEventListener('click', loadNativeActionCandidates);

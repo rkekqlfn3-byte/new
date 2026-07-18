@@ -458,6 +458,18 @@
     width: fit-content;
 }
 
+.mode-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .mode-tab {
     padding: 6px 16px;
     border-radius: 8px;
@@ -472,6 +484,11 @@
     background: white;
     color: var(--primary) !important;
     box-shadow: var(--shadow-sm);
+}
+
+.mode-input:focus-visible + .mode-tab {
+    outline: 3px solid rgba(108, 92, 231, 0.34);
+    outline-offset: 2px;
 }
 
 .chat-input-field {

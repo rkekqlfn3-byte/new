@@ -354,8 +354,33 @@ function syncEditSelectionOverlay(enabled) {
     });
 }
 
-document.querySelectorAll('input[name="chat-mode"]').forEach(input => {
+const chatModeInputs = Array.from(document.querySelectorAll('input[name="chat-mode"]'));
+
+chatModeInputs.forEach((input, index) => {
     input.addEventListener('change', updateEditPanelVisibility);
+    input.addEventListener('keydown', event => {
+        const keyDirections = {
+            ArrowRight: 1,
+            ArrowDown: 1,
+            ArrowLeft: -1,
+            ArrowUp: -1,
+        };
+        let targetIndex = index;
+        if (event.key === 'Home') targetIndex = 0;
+        else if (event.key === 'End') targetIndex = chatModeInputs.length - 1;
+        else if (keyDirections[event.key]) {
+            targetIndex = (
+                index + keyDirections[event.key] + chatModeInputs.length
+            ) % chatModeInputs.length;
+        } else {
+            return;
+        }
+        event.preventDefault();
+        const target = chatModeInputs[targetIndex];
+        target.checked = true;
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+        target.focus();
+    });
 });
 
 editChooseButton.addEventListener('click', chooseEditDocument);
@@ -395,6 +420,12 @@ editDropZone.addEventListener('drop', event => {
         return;
     }
     connectDroppedEditDocument(files[0]);
+});
+
+editDropZone.addEventListener('keydown', event => {
+    if (!['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    chooseEditDocument();
 });
 
 window.addEventListener('DOMContentLoaded', async () => {
