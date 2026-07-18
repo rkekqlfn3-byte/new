@@ -66,8 +66,15 @@ class StructuredWorkflowIntentAnalyzer:
     )
     CREATE_SLIDE_TERMS = ("ppt", "파워포인트", "프레젠테이션", "발표자료", "슬라이드")
     REPORT_ONLY_PATTERNS = (
-        r"(?:word|워드|한글|hwp|hwpx)?\s*(?:보고서|리포트|report)\s*만(?!\s*(?:아니|말고))",
+        r"(?:word|워드|한글|hwp|hwpx)?\s*(?:보고서|리포트|report)"
+        r"\s*만(?=\s|$|[.,!?]|\d)(?!\s*(?:아니|말고))",
         r"(?:ppt|파워포인트|프레젠테이션|발표자료|슬라이드)(?:는|은)?\s*"
+        r"(?:빼|제외|없이|필요\s*없)",
+    )
+    PRESENTATION_ONLY_PATTERNS = (
+        r"(?:ppt|파워포인트|프레젠테이션|발표자료|슬라이드)"
+        r"\s*만(?=\s|$|[.,!?]|\d)(?!\s*(?:아니|말고))",
+        r"(?:word|워드|한글|hwp|hwpx|보고서|리포트|report)(?:는|은)?\s*"
         r"(?:빼|제외|없이|필요\s*없)",
     )
     RELATIONSHIP_INSPECTION_TERMS = (
@@ -400,8 +407,21 @@ class StructuredWorkflowIntentAnalyzer:
             command,
             re.IGNORECASE,
         )
+        presentation_only_match = re.search(
+            cls.PRESENTATION_ONLY_PATTERNS[0],
+            command,
+            re.IGNORECASE,
+        )
+        report_exclusion_match = re.search(
+            cls.PRESENTATION_ONLY_PATTERNS[1],
+            command,
+            re.IGNORECASE,
+        )
         presentation_term_present = any(
             term in command for term in cls.CREATE_SLIDE_TERMS
+        )
+        report_term_present = any(
+            term in command for term in cls.CREATE_REPORT_TERMS
         )
         presentation_excluded = bool(
             report_only_match or presentation_exclusion_match
@@ -419,6 +439,29 @@ class StructuredWorkflowIntentAnalyzer:
             )
             else None
         )
+        report_excluded = bool(
+            presentation_only_match or report_exclusion_match
+        )
+        include_report = (
+            False
+            if report_excluded
+            else (True if report_term_present else None)
+        )
+        report_selection_error = None
+        if (
+            presentation_only_match
+            and report_term_present
+            and not report_exclusion_match
+        ):
+            report_selection_error = (
+                "PowerPoint만 생성과 보고서 생성 요청이 함께 있습니다. "
+                "PowerPoint만 또는 보고서와 PowerPoint 중 하나로 다시 말해주세요."
+            )
+        if presentation_excluded and report_excluded:
+            report_selection_error = (
+                "보고서와 PowerPoint를 모두 제외할 수 없습니다. "
+                "만들 산출물을 하나 이상 지정해주세요."
+            )
         if presentation_excluded:
             slide_count = None
         include_presentation = (
@@ -434,6 +477,11 @@ class StructuredWorkflowIntentAnalyzer:
             "include_presentation": include_presentation,
             "explicit_include_presentation": presentation_explicit,
             "presentation_selection_error": presentation_selection_error,
+            "include_report": include_report,
+            "explicit_include_report": bool(
+                report_excluded or report_term_present
+            ),
+            "report_selection_error": report_selection_error,
         }
 
     @staticmethod
@@ -642,6 +690,7 @@ class StructuredWorkflowIntentAnalyzer:
             default_report_format="word",
         )
         report_only = creation_params.get("include_presentation") is False
+        presentation_only = creation_params.get("include_report") is False
         contextual_current_document = bool(
             any(term in command for term in self.CURRENT_DOCUMENT_TERMS)
             and any(term in command for term in self.CREATE_ACTION_TERMS)
@@ -663,14 +712,24 @@ class StructuredWorkflowIntentAnalyzer:
             and any(term in command for term in self.CREATE_ACTION_TERMS)
             and not workflow_question_like
         )
+        explicit_presentation_only_request = bool(
+            presentation_only
+            and has_slides
+            and any(term in command for term in self.CREATE_ACTION_TERMS)
+            and not workflow_question_like
+        )
         if (
             (
                 has_analysis
                 or contextual_current_document
                 or explicit_report_only_request
+                or explicit_presentation_only_request
             )
-            and has_report
-            and (has_slides or report_only)
+            and (
+                (has_report and has_slides)
+                or report_only
+                or presentation_only
+            )
             and not workflow_question_like
         ):
             params = creation_params
@@ -681,6 +740,7 @@ class StructuredWorkflowIntentAnalyzer:
                 params["join_requested"] = True
             params["contextual_current_document"] = bool(
                 contextual_current_document or explicit_report_only_request
+                or explicit_presentation_only_request
             )
             report_format = str(params["report_format"])
             report_label = {
@@ -698,7 +758,17 @@ class StructuredWorkflowIntentAnalyzer:
                     else "Excel 읽기 전용 분석"
                 )
             )
-            if params.get("include_presentation") is False:
+            if params.get("include_report") is False:
+                description = (
+                    f"{source_label} → PowerPoint {slide_count}장 요약만 생성 "
+                    "· 보고서 제외"
+                    if slide_count is not None
+                    else (
+                        f"{source_label} → PowerPoint 요약만 생성 "
+                        "· 보고서 제외"
+                    )
+                )
+            elif params.get("include_presentation") is False:
                 description = (
                     f"{source_label} → {report_label} 보고서만 생성 "
                     "· PowerPoint 제외"
@@ -1072,6 +1142,8 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
         }.get(str(template.get("report_format") or ""), "보고서")
         if template.get("include_presentation") is False:
             return f"Excel 분석 → {report_label} 보고서만"
+        if template.get("include_report") is False:
+            return f"Excel 분석 → PowerPoint {template.get('slide_count')}장만"
         return f"Excel 분석 → {report_label} 보고서 → PowerPoint {template.get('slide_count')}장"
 
     def _prepare_workflow_skill_action(
@@ -1154,9 +1226,13 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def _workflow_state(self, intent: WorkflowIntent) -> dict[str, Any]:
         source_path = self._path(self.session.get("file_path"))
         if intent.operation == "create_business_workflow":
-            if intent.params.get("presentation_selection_error"):
+            output_selection_error = (
+                intent.params.get("presentation_selection_error")
+                or intent.params.get("report_selection_error")
+            )
+            if output_selection_error:
                 raise Stage10EditError(
-                    str(intent.params["presentation_selection_error"])
+                    str(output_selection_error)
                 )
             join_plan = intent.params.get("join_plan")
             if intent.params.get("relationship_candidate_requested"):
@@ -1236,6 +1312,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 )
             else:
                 include_presentation = True
+            if intent.params.get("explicit_include_report"):
+                include_report = bool(intent.params.get("include_report"))
+            elif reuse:
+                include_report = bool(template.get("include_report", True))
+            else:
+                include_report = True
             if intent.params.get("explicit_slide_count"):
                 preferences = self._without_applied_preference(
                     preferences, "ppt_slide_count"
@@ -1256,6 +1338,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
                 explicit_slide_count=bool(intent.params.get("explicit_slide_count")),
                 report_format=report_format,
                 include_presentation=include_presentation,
+                include_report=include_report,
                 join_plan=join_plan,
                 source_scope=intent.params.get("source_scope"),
             )
@@ -1431,7 +1514,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             + (f" · 실패 단계 {failed_step}" if failed_step else "")
         )
         report_format = str(state.get("report_format") or "word")
-        after_lines = self._report_preview_lines(report_format, outputs)
+        include_report = state.get("include_report") is not False
+        after_lines = (
+            self._report_preview_lines(report_format, outputs)
+            if include_report
+            else ["보고서: 생성하지 않음"]
+        )
         include_presentation = state.get("include_presentation") is not False
         if include_presentation:
             after_lines.append(
@@ -1524,6 +1612,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "read_only_source": True,
             "report_format": report_format,
             "include_presentation": include_presentation,
+            "include_report": include_report,
             "workflow_skill_reused": bool(reused_skill),
             "workflow_skill": reused_skill,
             "join_plan": join_plan or None,
@@ -1769,9 +1858,16 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
         )
         if type(include_presentation) is not bool:
             return False
-        expected_artifacts = (2 if report_format == "both" else 1) + int(
-            include_presentation
+        include_report = (
+            result.get("include_report")
+            if type(result.get("include_report")) is bool
+            else prepared_action.arguments.get("include_report")
         )
+        if type(include_report) is not bool:
+            return False
+        expected_artifacts = (
+            (2 if report_format == "both" else 1) if include_report else 0
+        ) + int(include_presentation)
         verified = bool(
             result.get("success")
             and result.get("verified")

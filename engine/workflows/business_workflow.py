@@ -29,7 +29,7 @@ from engine.workflow_step_registry import (
 )
 
 
-WORKFLOW_SCHEMA_VERSION = 5
+WORKFLOW_SCHEMA_VERSION = 6
 WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION = 1
 STEP_NAMES = registered_workflow_step_names()
 EXECUTABLE_STEP_NAMES = frozenset({
@@ -324,15 +324,23 @@ def _include_presentation(value) -> bool:
     return value
 
 
+def _include_report(value) -> bool:
+    if type(value) is not bool:
+        raise WorkflowError("보고서 포함 여부는 참/거짓이어야 합니다.")
+    return value
+
+
 def _step_order(
     report_format,
     include_presentation=True,
+    include_report=True,
 ) -> tuple[str, ...]:
     normalized = _report_format(report_format)
     try:
         return report_workflow_step_order(
             normalized,
             _include_presentation(include_presentation),
+            _include_report(include_report),
         )
     except ValueError as error:
         raise WorkflowError(str(error)) from error
@@ -343,6 +351,7 @@ def _workflow_step_contracts(
     report_format,
     source_fingerprint,
     include_presentation=True,
+    include_report=True,
 ) -> dict[str, dict[str, Any]]:
     """Build deterministic, content-free execution contracts for every step."""
     source_sha256 = str(
@@ -356,6 +365,7 @@ def _workflow_step_contracts(
     for definition in report_workflow_step_recipe(
         _report_format(report_format),
         _include_presentation(include_presentation),
+        _include_report(include_report),
     ):
         step_name = definition["step_name"]
         depends_on = list(definition["depends_on"])
@@ -394,6 +404,7 @@ def _validated_state_step_contracts(
         state.get("report_format") or "word",
         state.get("source_fingerprint"),
         state.get("include_presentation"),
+        state.get("include_report"),
     )
     try:
         schema_version = int(state.get("step_contract_schema_version") or 0)
@@ -410,14 +421,17 @@ def _validated_state_step_contracts(
 def _expected_output_suffixes(
     report_format,
     include_presentation=True,
+    include_report=True,
 ) -> dict[str, str]:
     normalized = _report_format(report_format)
     include_presentation = _include_presentation(include_presentation)
-    if normalized == "both":
-        expected = {
-            "report_word": ".docx",
-            "report_hwp": ".hwp",
-        }
+    include_report = _include_report(include_report)
+    if not include_report and not include_presentation:
+        raise WorkflowError("보고서와 발표자료를 모두 제외할 수 없습니다.")
+    if not include_report:
+        expected = {}
+    elif normalized == "both":
+        expected = {"report_word": ".docx", "report_hwp": ".hwp"}
     else:
         expected = {"report": REPORT_FORMATS[normalized]["suffix"]}
     if include_presentation:
@@ -2853,8 +2867,15 @@ class WorkflowExecutor:
             )
         return copy.deepcopy(dict(candidates[index - 1]))
 
-    def _preflight_report_environment(self, report_format: str) -> None:
-        if "hwp" not in _report_kinds(report_format):
+    def _preflight_report_environment(
+        self,
+        report_format: str,
+        include_report=True,
+    ) -> None:
+        if (
+            not _include_report(include_report)
+            or "hwp" not in _report_kinds(report_format)
+        ):
             return
         preflight = getattr(self.hwp_writer, "preflight", None)
         if callable(preflight):
@@ -2877,7 +2898,7 @@ class WorkflowExecutor:
         if str(state.get("workflow_id") or "") != str(workflow_id):
             raise WorkflowError("저장된 워크플로 ID가 파일 ID와 일치하지 않습니다.")
         schema_version = int(state.get("schema_version") or 0)
-        if schema_version not in {1, 2, 3, 4, WORKFLOW_SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, 5, WORKFLOW_SCHEMA_VERSION}:
             raise WorkflowError("지원하지 않는 워크플로 저장 형식입니다.")
         if schema_version < WORKFLOW_SCHEMA_VERSION:
             state = copy.deepcopy(state)
@@ -2905,11 +2926,25 @@ class WorkflowExecutor:
             state["schema_version"] = WORKFLOW_SCHEMA_VERSION
             state["migrated_from_schema"] = schema_version
             state["report_format"] = report_format
-            state["include_presentation"] = True
-            state["step_order"] = list(_step_order(report_format, True))
+            if schema_version < 5:
+                state["include_presentation"] = True
+            elif type(state.get("include_presentation")) is not bool:
+                raise WorkflowError(
+                    "저장된 워크플로의 발표자료 포함 계약이 불완전합니다."
+                )
+            state["include_report"] = True
+            state["step_order"] = list(_step_order(
+                report_format,
+                state["include_presentation"],
+                True,
+            ))
         elif type(state.get("include_presentation")) is not bool:
             raise WorkflowError(
                 "저장된 워크플로의 발표자료 포함 계약이 불완전합니다."
+            )
+        elif type(state.get("include_report")) is not bool:
+            raise WorkflowError(
+                "저장된 워크플로의 보고서 포함 계약이 불완전합니다."
             )
         state.setdefault("report_format", "word")
         state.setdefault(
@@ -2917,6 +2952,7 @@ class WorkflowExecutor:
             list(_step_order(
                 state.get("report_format") or "word",
                 state.get("include_presentation"),
+                state.get("include_report"),
             )),
         )
         state.setdefault("join_plan", None)
@@ -2936,6 +2972,7 @@ class WorkflowExecutor:
                 state.get("report_format") or "word",
                 state.get("source_fingerprint"),
                 state.get("include_presentation"),
+                state.get("include_report"),
             )
         elif not (has_contract_version and has_contracts):
             raise WorkflowError("저장된 워크플로 단계 실행 계약이 불완전합니다.")
@@ -2952,6 +2989,7 @@ class WorkflowExecutor:
         explicit_slide_count=False,
         report_format="word",
         include_presentation=True,
+        include_report=True,
         join_plan=None,
         source_scope=None,
     ) -> dict:
@@ -2967,13 +3005,20 @@ class WorkflowExecutor:
             raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
         report_format = _report_format(report_format)
         include_presentation = _include_presentation(include_presentation)
+        include_report = _include_report(include_report)
+        if not include_report and not include_presentation:
+            raise WorkflowError("보고서와 발표자료를 모두 제외할 수 없습니다.")
+        if not include_report:
+            # A presentation-only recipe has no meaningful report format.
+            # Normalize it so equivalent requests learn one stable structure.
+            report_format = "word"
         join_plan = _validated_join_plan(join_plan)
         source_scope = _validated_source_scope(source_scope)
         if join_plan is not None and source_scope is not None:
             raise WorkflowSourceScopeValidationError(
                 "시트 조인과 선택 범위만 분석은 한 요청에서 함께 사용할 수 없습니다."
             )
-        self._preflight_report_environment(report_format)
+        self._preflight_report_environment(report_format, include_report)
         destination = Path(_absolute_path(output_dir or source.parent))
         if not destination.is_dir():
             raise WorkflowError("산출물 폴더를 찾을 수 없습니다.")
@@ -2981,20 +3026,21 @@ class WorkflowExecutor:
         token = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + workflow_id
         source_stem = _safe_stem(source.stem)
         output_paths = {}
-        for report_kind in _report_kinds(report_format):
-            output_key = _report_output_key(report_format, report_kind)
-            label = "Word" if report_kind == "word" else "한글"
-            stem = (
-                f"{source_stem}_JARVIS_보고서"
-                if report_format != "both"
-                else f"{source_stem}_JARVIS_{label}_보고서"
-            )
-            output_paths[output_key] = str(_reserve_output(
-                destination,
-                stem,
-                REPORT_FORMATS[report_kind]["suffix"],
-                token,
-            ))
+        if include_report:
+            for report_kind in _report_kinds(report_format):
+                output_key = _report_output_key(report_format, report_kind)
+                label = "Word" if report_kind == "word" else "한글"
+                stem = (
+                    f"{source_stem}_JARVIS_보고서"
+                    if report_format != "both"
+                    else f"{source_stem}_JARVIS_{label}_보고서"
+                )
+                output_paths[output_key] = str(_reserve_output(
+                    destination,
+                    stem,
+                    REPORT_FORMATS[report_kind]["suffix"],
+                    token,
+                ))
         if include_presentation:
             presentation_path = _reserve_output(
                 destination,
@@ -3003,7 +3049,11 @@ class WorkflowExecutor:
                 token,
             )
             output_paths["presentation"] = str(presentation_path)
-        step_order = _step_order(report_format, include_presentation)
+        step_order = _step_order(
+            report_format,
+            include_presentation,
+            include_report,
+        )
         now = _timestamp()
         if title is None:
             style = str(learned.get("title_style") or "default")
@@ -3024,6 +3074,7 @@ class WorkflowExecutor:
             "output_paths": output_paths,
             "report_format": report_format,
             "include_presentation": include_presentation,
+            "include_report": include_report,
             "join_plan": join_plan,
             "source_scope": source_scope,
             "step_order": list(step_order),
@@ -3035,6 +3086,7 @@ class WorkflowExecutor:
                 report_format,
                 source_fingerprint,
                 include_presentation,
+                include_report,
             ),
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
@@ -3103,6 +3155,14 @@ class WorkflowExecutor:
             state.get("include_presentation")
         )
         state["include_presentation"] = include_presentation
+        include_report = _include_report(state.get("include_report"))
+        state["include_report"] = include_report
+        if not include_report and not include_presentation:
+            raise WorkflowError("보고서와 발표자료를 모두 제외할 수 없습니다.")
+        if not include_report and report_format != "word":
+            raise WorkflowError(
+                "발표자료 전용 계획의 내부 보고서 형식이 올바르지 않습니다."
+            )
         state["join_plan"] = _validated_join_plan(state.get("join_plan"))
         state["source_scope"] = _validated_source_scope(
             state.get("source_scope")
@@ -3111,7 +3171,11 @@ class WorkflowExecutor:
             raise WorkflowSourceScopeValidationError(
                 "승인된 계획에서 시트 조인과 선택 범위 분석이 충돌합니다."
             )
-        expected_steps = _step_order(report_format, include_presentation)
+        expected_steps = _step_order(
+            report_format,
+            include_presentation,
+            include_report,
+        )
         if (
             tuple(state.get("step_order") or ()) != expected_steps
             or set(state.get("steps") or {}) != set(expected_steps)
@@ -3119,11 +3183,12 @@ class WorkflowExecutor:
             raise WorkflowError("워크플로 단계 구성이 올바르지 않습니다.")
         state["step_order"] = list(expected_steps)
         _validated_state_step_contracts(state)
-        self._preflight_report_environment(report_format)
+        self._preflight_report_environment(report_format, include_report)
         outputs = dict(state.get("output_paths") or {})
         expected = _expected_output_suffixes(
             report_format,
             include_presentation,
+            include_report,
         )
         if set(outputs) != set(expected):
             raise WorkflowError("워크플로 산출물 계획이 불완전합니다.")
@@ -3362,9 +3427,14 @@ class WorkflowExecutor:
     @staticmethod
     def _state_step_order(state: Mapping[str, Any]) -> tuple[str, ...]:
         report_format = _report_format(state.get("report_format") or "word")
+        if state.get("include_report") is False and report_format != "word":
+            raise WorkflowError(
+                "저장된 발표자료 전용 계획의 내부 보고서 형식이 올바르지 않습니다."
+            )
         expected = _step_order(
             report_format,
             state.get("include_presentation"),
+            state.get("include_report"),
         )
         actual = tuple(state.get("step_order") or ())
         if actual != expected or set(state.get("steps") or {}) != set(expected):
@@ -3416,6 +3486,7 @@ class WorkflowExecutor:
             "include_presentation": _include_presentation(
                 state.get("include_presentation")
             ),
+            "include_report": _include_report(state.get("include_report")),
             "join_plan": _validated_join_plan(state.get("join_plan")),
             "source_scope": _validated_source_scope(
                 state.get("source_scope")
@@ -3588,6 +3659,7 @@ class WorkflowExecutor:
         step_recipe = report_workflow_step_recipe(
             _report_format(state.get("report_format") or "word"),
             _include_presentation(state.get("include_presentation")),
+            _include_report(state.get("include_report")),
         )
         return {
             "success": True,
@@ -3622,12 +3694,15 @@ class WorkflowExecutor:
             "include_presentation": _include_presentation(
                 state.get("include_presentation")
             ),
+            "include_report": _include_report(state.get("include_report")),
             "join_plan": _validated_join_plan(state.get("join_plan")),
             "source_scope": _validated_source_scope(
                 state.get("source_scope")
             ),
-            "report_formats": list(
-                _report_kinds(state.get("report_format") or "word")
+            "report_formats": (
+                list(_report_kinds(state.get("report_format") or "word"))
+                if _include_report(state.get("include_report"))
+                else []
             ),
             "applied_preferences": dict(state.get("applied_preferences") or {}),
             "work_product_summary": {

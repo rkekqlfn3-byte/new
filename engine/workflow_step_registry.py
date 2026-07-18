@@ -55,6 +55,7 @@ def registered_workflow_step_names() -> tuple[str, ...]:
 def report_workflow_step_order(
     report_format,
     include_presentation=True,
+    include_report=True,
 ) -> tuple[str, ...]:
     normalized = str(report_format or "").strip().casefold()
     try:
@@ -63,6 +64,12 @@ def report_workflow_step_order(
         raise ValueError("지원하지 않는 보고서 워크플로 형식입니다.") from error
     if type(include_presentation) is not bool:
         raise ValueError("발표자료 포함 여부는 참/거짓이어야 합니다.")
+    if type(include_report) is not bool:
+        raise ValueError("보고서 포함 여부는 참/거짓이어야 합니다.")
+    if not include_report and not include_presentation:
+        raise ValueError("보고서와 발표자료를 모두 제외할 수 없습니다.")
+    if not include_report:
+        return ("analyze_excel", "create_powerpoint_summary")
     if include_presentation:
         return order
     if (
@@ -77,6 +84,7 @@ def report_workflow_step_order(
 def report_workflow_step_recipe(
     report_format,
     include_presentation=True,
+    include_report=True,
 ) -> list[dict[str, Any]]:
     """Build a path- and content-free, sequential recipe from registered steps."""
     recipe = []
@@ -84,6 +92,7 @@ def report_workflow_step_recipe(
     for step_name in report_workflow_step_order(
         report_format,
         include_presentation,
+        include_report,
     ):
         definition = _STEP_DEFINITIONS[step_name]
         recipe.append({
@@ -101,6 +110,7 @@ def validate_report_workflow_step_recipe(
     value,
     report_format,
     include_presentation=True,
+    include_report=True,
 ) -> list[dict[str, Any]]:
     """Accept only the exact registered recipe for one supported report format."""
     if not isinstance(value, list) or not all(
@@ -110,6 +120,7 @@ def validate_report_workflow_step_recipe(
     expected = report_workflow_step_recipe(
         report_format,
         include_presentation,
+        include_report,
     )
     if value != expected:
         raise ValueError("워크플로 단계 레시피가 허용 목록과 다릅니다.")

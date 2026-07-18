@@ -94,6 +94,40 @@ class WorkflowStepRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "참/거짓"):
             report_workflow_step_order("word", 1)
 
+    def test_presentation_only_recipe_excludes_every_report_step(self):
+        for report_format in ("word", "hwp", "both"):
+            with self.subTest(report_format=report_format):
+                order = report_workflow_step_order(
+                    report_format,
+                    True,
+                    False,
+                )
+                recipe = report_workflow_step_recipe(
+                    report_format,
+                    True,
+                    False,
+                )
+                self.assertEqual(
+                    ("analyze_excel", "create_powerpoint_summary"),
+                    order,
+                )
+                self.assertEqual(
+                    list(order),
+                    [item["step_name"] for item in recipe],
+                )
+                self.assertEqual(
+                    recipe,
+                    validate_report_workflow_step_recipe(
+                        recipe,
+                        report_format,
+                        True,
+                        False,
+                    ),
+                )
+
+        with self.assertRaisesRegex(ValueError, "모두 제외"):
+            report_workflow_step_order("word", False, False)
+
 
 if __name__ == "__main__":
     unittest.main()

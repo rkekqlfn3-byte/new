@@ -62,6 +62,9 @@ Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개�
 같은 Word 실제 probe는 `Word 보고서만 만들어줘`를 자연어로 해석한 별도 승인
 계획에서 PowerPoint 단계·경로·작성기 호출 없이 Word 한 개만 생성·재열기 검증한
 `explicit_report_only_recipe_verified`도 남겨야 한다.
+같은 probe는 `PPT만 5장으로 만들어줘`를 별도 승인 계획으로 해석하고 Word·한글
+단계·경로·작성기 호출 없이 정확히 5장인 PowerPoint 하나만 생성·재열기 검증한
+`explicit_presentation_only_recipe_verified`도 남겨야 한다.
 Stage 11 실제 재사용 probe도 승인된 내용 없는 스킬 레시피가 공용 레지스트리와
 일치하고 새 산출물 재생이 같은 계약을 검증했다는
 `workflow_skill_registered_recipe_verified`를 남겨야 한다.

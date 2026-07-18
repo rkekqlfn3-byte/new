@@ -17,13 +17,16 @@ def verified_result(
     slide_count=5,
     workflow_id="workflow-1",
     include_presentation=True,
+    include_report=True,
 ):
     report_step = {
         "word": ["create_word_report"],
         "hwp": ["create_hwp_report"],
         "both": ["create_word_report", "create_hwp_report"],
     }[report_format]
-    successful_steps = ["analyze_excel", *report_step]
+    successful_steps = ["analyze_excel"]
+    if include_report:
+        successful_steps.extend(report_step)
     if include_presentation:
         successful_steps.append("create_powerpoint_summary")
     return {
@@ -33,6 +36,7 @@ def verified_result(
         "report_format": report_format,
         "slide_count": slide_count,
         "include_presentation": include_presentation,
+        "include_report": include_report,
         "successful_steps": successful_steps,
         "step_contracts_verified": True,
         "step_contract_count": len(successful_steps),
@@ -65,6 +69,7 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         self.assertFalse(candidate["raw_paths_or_content_stored"])
         self.assertEqual("word", candidate["template"]["report_format"])
         self.assertTrue(candidate["template"]["include_presentation"])
+        self.assertTrue(candidate["template"]["include_report"])
         self.assertTrue(candidate["template"]["requires_approval_each_run"])
         self.assertEqual(1, candidate["template"]["step_registry_schema_version"])
         self.assertEqual(
@@ -168,6 +173,7 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         record = raw["candidates"].pop(candidate["candidate_id"])
         active = raw["active_skill"]
         for template in (record["template"], active["template"]):
+            template.pop("include_report")
             template.pop("include_presentation")
             template.pop("step_registry_schema_version")
             template.pop("step_recipe")
@@ -249,6 +255,7 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         record = raw["candidates"].pop(candidate["candidate_id"])
         active = raw["active_skill"]
         for template in (record["template"], active["template"]):
+            template.pop("include_report")
             template.pop("include_presentation")
         schema_two_payload = json.dumps(
             record["template"],
@@ -270,6 +277,57 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         self.assertIsNotNone(migrated)
         self.assertNotEqual(schema_two_id, migrated["candidate_id"])
         self.assertTrue(migrated["template"]["include_presentation"])
+        self.assertTrue(migrated["template"]["include_report"])
+
+    def test_schema_three_report_only_skill_migrates_with_report_enabled(self):
+        candidate = self.manager.record_verified_success(
+            verified_result(include_presentation=False),
+            evidence_id="schema-three-workflow",
+        )
+        self.manager.activate(candidate["candidate_id"])
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        record = raw["candidates"].pop(candidate["candidate_id"])
+        active = raw["active_skill"]
+        for template in (record["template"], active["template"]):
+            template.pop("include_report")
+        schema_three_payload = json.dumps(
+            record["template"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        schema_three_id = hashlib.sha256(
+            schema_three_payload.encode("utf-8")
+        ).hexdigest()[:24]
+        record["candidate_id"] = schema_three_id
+        active["candidate_id"] = schema_three_id
+        raw["candidates"][schema_three_id] = record
+        raw["schema_version"] = 3
+        self.path.write_text(json.dumps(raw), encoding="utf-8")
+
+        migrated = BusinessWorkflowSkillManager(self.path).active_skill()
+
+        self.assertIsNotNone(migrated)
+        self.assertNotEqual(schema_three_id, migrated["candidate_id"])
+        self.assertTrue(migrated["template"]["include_report"])
+        self.assertFalse(migrated["template"]["include_presentation"])
+
+    def test_presentation_only_result_is_a_distinct_content_free_skill(self):
+        candidate = self.manager.record_verified_success(
+            verified_result(include_report=False),
+            evidence_id="presentation-only",
+        )
+        active = self.manager.activate(candidate["candidate_id"])
+
+        self.assertFalse(active["template"]["include_report"])
+        self.assertTrue(active["template"]["include_presentation"])
+        self.assertEqual(
+            ["analyze_excel", "create_powerpoint_summary"],
+            active["template"]["step_order"],
+        )
+        raw = self.path.read_text(encoding="utf-8")
+        self.assertNotIn("Private", raw)
+        self.assertNotIn("고객", raw)
 
 
 if __name__ == "__main__":

@@ -1284,6 +1284,31 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual("approval_required", state["status"])
         self.assertEqual(0, hwp.preflight_calls)
 
+    def test_presentation_only_hwp_label_does_not_require_hwp_environment(self):
+        hwp = PreflightWriter("hwp", fail_on_call=1)
+        executor = WorkflowExecutor(
+            self.root / "presentation-only-preflight-state",
+            analyzer=FakeAnalyzer(),
+            word_writer=FakeWriter("word"),
+            hwp_writer=hwp,
+            powerpoint_writer=FakeWriter("ppt", slides=5),
+        )
+
+        state = executor.prepare(
+            self.source,
+            report_format="hwp",
+            include_report=False,
+        )
+
+        self.assertEqual({"presentation"}, set(state["output_paths"]))
+        self.assertEqual(0, hwp.preflight_calls)
+        with self.assertRaisesRegex(Exception, "모두 제외"):
+            executor.prepare(
+                self.source,
+                include_report=False,
+                include_presentation=False,
+            )
+
     def test_hwp_approval_rechecks_environment_before_analysis_or_state_save(self):
         analyzer = FakeAnalyzer()
         hwp = PreflightWriter("hwp", fail_on_call=2)
@@ -1657,6 +1682,18 @@ class Stage10WorkflowTests(unittest.TestCase):
             "Word 보고서만 만들고 PPT도 만들어줘",
             {"app_type": "excel"},
         )
+        presentation_only = analyzer.analyze(
+            "PPT만 7장으로 만들어줘",
+            {"app_type": "excel"},
+        )
+        no_report = analyzer.analyze(
+            "보고서 없이 발표자료 6장 만들어줘",
+            {"app_type": "excel"},
+        )
+        presentation_conflict = analyzer.analyze(
+            "PPT만 만들고 Word 보고서도 만들어줘",
+            {"app_type": "excel"},
+        )
         self.assertEqual("create_business_workflow", report_only.operation)
         self.assertFalse(report_only.params["include_presentation"])
         self.assertTrue(report_only.params["explicit_include_presentation"])
@@ -1669,6 +1706,16 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertIn(
             "하나로 다시 말해주세요",
             conflicting.params["presentation_selection_error"],
+        )
+        self.assertFalse(presentation_only.params["include_report"])
+        self.assertTrue(presentation_only.params["include_presentation"])
+        self.assertEqual(7, presentation_only.params["slide_count"])
+        self.assertIn("보고서 제외", presentation_only.description)
+        self.assertFalse(no_report.params["include_report"])
+        self.assertEqual(6, no_report.params["slide_count"])
+        self.assertIn(
+            "하나로 다시 말해주세요",
+            presentation_conflict.params["report_selection_error"],
         )
         self.assertIsNone(
             analyzer.analyze(
@@ -2139,8 +2186,9 @@ class Stage10WorkflowTests(unittest.TestCase):
             include_presentation=False,
         )
 
-        self.assertEqual(5, state["schema_version"])
+        self.assertEqual(6, state["schema_version"])
         self.assertFalse(state["include_presentation"])
+        self.assertTrue(state["include_report"])
         self.assertEqual({"report"}, set(state["output_paths"]))
         self.assertEqual(
             ["analyze_excel", "create_word_report"],
@@ -2157,6 +2205,67 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertEqual(1, len(result["created_files"]))
         self.assertEqual(1, self.analyzer.calls)
         self.assertEqual(1, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
+    def test_presentation_only_plan_has_no_report_path_step_or_writer_call(self):
+        state = self.executor.prepare(
+            self.source,
+            report_format="both",
+            include_report=False,
+        )
+
+        self.assertEqual(6, state["schema_version"])
+        self.assertFalse(state["include_report"])
+        self.assertTrue(state["include_presentation"])
+        self.assertEqual({"presentation"}, set(state["output_paths"]))
+        self.assertEqual(
+            ["analyze_excel", "create_powerpoint_summary"],
+            state["step_order"],
+        )
+        with self.assertRaises(WorkflowExecutionError) as captured:
+            self.executor.start(state)
+
+        self.assertEqual(
+            "create_powerpoint_summary",
+            captured.exception.failed_step,
+        )
+        failed = self.executor.load(state["workflow_id"])
+        self.assertEqual(
+            ["analyze_excel"],
+            failed["successful_steps"],
+        )
+        self.assertEqual({"presentation"}, set(failed["output_paths"]))
+        self.assertEqual(1, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
+        self.assertEqual(1, self.ppt.calls)
+
+        result = self.executor.run(state["workflow_id"])
+
+        self.assertTrue(result["verified"])
+        self.assertFalse(result["include_report"])
+        self.assertEqual([], result["report_formats"])
+        self.assertEqual(2, result["step_contract_count"])
+        self.assertEqual(1, len(result["created_files"]))
+        self.assertEqual(1, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
+        self.assertEqual(2, self.ppt.calls)
+
+    def test_approval_rejects_tampered_report_inclusion_before_analysis(self):
+        plan = self.executor.prepare(
+            self.source,
+            include_report=False,
+        )
+        plan["include_report"] = True
+
+        with self.assertRaisesRegex(Exception, "단계 구성이 올바르지"):
+            self.executor.start(plan)
+
+        self.assertFalse(self.executor._path(plan["workflow_id"]).exists())
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
         self.assertEqual(0, self.ppt.calls)
 
     def test_both_report_resume_keeps_verified_word_when_hwp_failed(self):
@@ -2209,7 +2318,7 @@ class Stage10WorkflowTests(unittest.TestCase):
 
         migrated = self.executor.load(state["workflow_id"])
 
-        self.assertEqual(5, migrated["schema_version"])
+        self.assertEqual(6, migrated["schema_version"])
         self.assertEqual(2, migrated["migrated_from_schema"])
         self.assertEqual(
             [
@@ -2318,7 +2427,7 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.executor._save(failed)
 
         migrated = self.executor.load(state["workflow_id"])
-        self.assertEqual(5, migrated["schema_version"])
+        self.assertEqual(6, migrated["schema_version"])
         self.assertEqual(3, migrated["migrated_from_schema"])
         self.assertEqual(1, migrated["step_contract_schema_version"])
         self.assertEqual(migrated["step_order"], list(migrated["step_contracts"]))
@@ -2350,19 +2459,43 @@ class Stage10WorkflowTests(unittest.TestCase):
         legacy = self.executor.prepare(self.source)
         legacy["schema_version"] = 4
         legacy.pop("include_presentation")
+        legacy.pop("include_report")
         self.executor._save(legacy)
 
         migrated = self.executor.load(legacy["workflow_id"])
 
-        self.assertEqual(5, migrated["schema_version"])
+        self.assertEqual(6, migrated["schema_version"])
         self.assertEqual(4, migrated["migrated_from_schema"])
         self.assertTrue(migrated["include_presentation"])
+        self.assertTrue(migrated["include_report"])
         self.assertIn("create_powerpoint_summary", migrated["step_order"])
 
         current = self.executor.prepare(self.source)
         current.pop("include_presentation")
         self.executor._save(current)
         with self.assertRaisesRegex(Exception, "발표자료 포함 계약이 불완전"):
+            self.executor.load(current["workflow_id"])
+
+    def test_schema_five_defaults_to_report_but_current_missing_report_flag_fails(self):
+        legacy = self.executor.prepare(
+            self.source,
+            include_presentation=False,
+        )
+        legacy["schema_version"] = 5
+        legacy.pop("include_report")
+        self.executor._save(legacy)
+
+        migrated = self.executor.load(legacy["workflow_id"])
+
+        self.assertEqual(6, migrated["schema_version"])
+        self.assertEqual(5, migrated["migrated_from_schema"])
+        self.assertTrue(migrated["include_report"])
+        self.assertFalse(migrated["include_presentation"])
+
+        current = self.executor.prepare(self.source)
+        current.pop("include_report")
+        self.executor._save(current)
+        with self.assertRaisesRegex(Exception, "보고서 포함 계약이 불완전"):
             self.executor.load(current["workflow_id"])
 
     def test_stored_workflow_identity_mismatch_fails_closed(self):

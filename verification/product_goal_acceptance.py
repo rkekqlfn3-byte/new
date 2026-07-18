@@ -88,6 +88,7 @@ PROBE_SPECS = {
             "step_contracts_verified",
             "registered_step_recipe_verified",
             "explicit_report_only_recipe_verified",
+            "explicit_presentation_only_recipe_verified",
             "powerpoint_formatting_verified",
             "bounded_pivot_summaries_created",
             "explicit_join_verified",

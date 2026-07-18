@@ -847,6 +847,103 @@ def _owned_probe(report_format="word", progress=None):
                     and file_fingerprint(source) == source_before
                 ),
             })
+            stage = "execute_explicit_presentation_only_recipe"
+            _publish_progress(progress, stage)
+
+            class ForbiddenReportWriter:
+                def __init__(self, label):
+                    self.label = label
+                    self.calls = 0
+
+                def run(self, _context, _work_product):
+                    self.calls += 1
+                    raise AssertionError(
+                        "발표자료 전용 레시피가 "
+                        f"{self.label} 보고서 실행기를 호출했습니다."
+                    )
+
+            presentation_only_intent = (
+                StructuredWorkflowIntentAnalyzer().analyze(
+                    "PPT만 5장으로 만들어줘",
+                    {"app_type": "excel"},
+                )
+            )
+            forbidden_word = ForbiddenReportWriter("Word")
+            forbidden_hwp = ForbiddenReportWriter("한글")
+            presentation_only_dir = temp_dir / "presentation-only-output"
+            presentation_only_dir.mkdir()
+            presentation_only_executor = WorkflowExecutor(
+                temp_dir / "workflow-state-presentation-only",
+                word_writer=forbidden_word,
+                hwp_writer=forbidden_hwp,
+            )
+            presentation_only_state = presentation_only_executor.prepare(
+                source,
+                title="Stage 10 발표자료 전용 분석",
+                output_dir=presentation_only_dir,
+                report_format=presentation_only_intent.params["report_format"],
+                include_presentation=presentation_only_intent.params[
+                    "include_presentation"
+                ],
+                include_report=presentation_only_intent.params["include_report"],
+                slide_count=presentation_only_intent.params["slide_count"],
+                explicit_slide_count=presentation_only_intent.params[
+                    "explicit_slide_count"
+                ],
+                preferences=expected_formatting,
+            )
+            presentation_only_preview_created_nothing = all(
+                not Path(path).exists()
+                for path in presentation_only_state["output_paths"].values()
+            )
+            presentation_only_result = presentation_only_executor.start(
+                presentation_only_state
+            )
+            presentation_only_path = Path(
+                presentation_only_result["output_paths"]["presentation"]
+            )
+            presentation_only_stored = presentation_only_executor.load(
+                presentation_only_state["workflow_id"]
+            )
+            presentation_only_powerpoint = _verify_powerpoint(
+                presentation_only_path,
+                expected_formatting,
+            )
+            checks.update({
+                "explicit_presentation_only_recipe_verified": bool(
+                    presentation_only_intent.operation
+                    == "create_business_workflow"
+                    and presentation_only_intent.params.get(
+                        "explicit_include_report"
+                    ) is True
+                    and presentation_only_intent.params.get(
+                        "include_report"
+                    ) is False
+                    and presentation_only_intent.params.get(
+                        "include_presentation"
+                    ) is True
+                    and presentation_only_preview_created_nothing
+                    and presentation_only_result.get("verified") is True
+                    and presentation_only_result.get("include_report") is False
+                    and presentation_only_result.get(
+                        "registered_step_recipe_verified"
+                    ) is True
+                    and presentation_only_stored.get("step_order")
+                    == ["analyze_excel", "create_powerpoint_summary"]
+                    and set(presentation_only_result.get("output_paths") or {})
+                    == {"presentation"}
+                    and len(
+                        presentation_only_result.get("created_files") or []
+                    ) == 1
+                    and forbidden_word.calls == 0
+                    and forbidden_hwp.calls == 0
+                    and not list(presentation_only_dir.glob("*.docx"))
+                    and not list(presentation_only_dir.glob("*.hwp"))
+                    and presentation_only_powerpoint.get("slide_count") is True
+                    and presentation_only_powerpoint.get("formatting") is True
+                    and file_fingerprint(source) == source_before
+                ),
+            })
         return {
             "status": "passed" if all(checks.values()) else "failed",
             "owned_fixture_only": True,

@@ -20,7 +20,7 @@ from engine.workflow_step_registry import (
 )
 
 
-WORKFLOW_SKILL_SCHEMA_VERSION = 3
+WORKFLOW_SKILL_SCHEMA_VERSION = 4
 DEFAULT_WORKFLOW_SKILL_PATH = user_data_path("business_workflow_skills.json")
 EVIDENCE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
 
@@ -45,9 +45,9 @@ def _validate_template(
     if not isinstance(value, Mapping):
         raise BusinessWorkflowSkillError("업무 스킬 구조가 올바르지 않습니다.")
     report_format = str(value.get("report_format") or "").strip().casefold()
-    if source_schema not in {1, 2, WORKFLOW_SKILL_SCHEMA_VERSION}:
+    if source_schema not in {1, 2, 3, WORKFLOW_SKILL_SCHEMA_VERSION}:
         raise BusinessWorkflowSkillError("업무 스킬 저장 형식이 올바르지 않습니다.")
-    if source_schema < WORKFLOW_SKILL_SCHEMA_VERSION:
+    if source_schema < 3:
         if "include_presentation" in value:
             raise BusinessWorkflowSkillError(
                 "이전 업무 스킬에 새 발표자료 계약이 섞여 있습니다."
@@ -59,10 +59,31 @@ def _validate_template(
             raise BusinessWorkflowSkillError(
                 "업무 스킬의 발표자료 포함 여부가 올바르지 않습니다."
             )
+    if source_schema < WORKFLOW_SKILL_SCHEMA_VERSION:
+        if "include_report" in value:
+            raise BusinessWorkflowSkillError(
+                "이전 업무 스킬에 새 보고서 계약이 섞여 있습니다."
+            )
+        include_report = True
+    else:
+        include_report = value.get("include_report")
+        if type(include_report) is not bool:
+            raise BusinessWorkflowSkillError(
+                "업무 스킬의 보고서 포함 여부가 올바르지 않습니다."
+            )
+    if not include_report and not include_presentation:
+        raise BusinessWorkflowSkillError(
+            "업무 스킬은 보고서나 발표자료를 하나 이상 만들어야 합니다."
+        )
+    if not include_report and report_format != "word":
+        raise BusinessWorkflowSkillError(
+            "발표자료 전용 스킬의 내부 보고서 형식이 올바르지 않습니다."
+        )
     try:
         expected_step_order = report_workflow_step_order(
             report_format,
             include_presentation,
+            include_report,
         )
     except ValueError as error:
         raise BusinessWorkflowSkillError(
@@ -88,6 +109,7 @@ def _validate_template(
         step_recipe = report_workflow_step_recipe(
             report_format,
             include_presentation,
+            include_report,
         )
     else:
         try:
@@ -95,6 +117,7 @@ def _validate_template(
                 value.get("step_recipe"),
                 report_format,
                 include_presentation,
+                include_report,
             )
         except ValueError as error:
             raise BusinessWorkflowSkillError(
@@ -117,6 +140,7 @@ def _validate_template(
         "kind": "business_report",
         "report_format": report_format,
         "include_presentation": include_presentation,
+        "include_report": include_report,
         "slide_count": slide_count,
         "step_order": list(step_order),
         "step_registry_schema_version": WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
@@ -151,9 +175,18 @@ def _schema_two_template_id(template: Mapping[str, Any]) -> str:
     schema_two = {
         key: copy.deepcopy(value)
         for key, value in template.items()
-        if key != "include_presentation"
+        if key not in {"include_presentation", "include_report"}
     }
     return _template_id(schema_two)
+
+
+def _schema_three_template_id(template: Mapping[str, Any]) -> str:
+    schema_three = {
+        key: copy.deepcopy(value)
+        for key, value in template.items()
+        if key != "include_report"
+    }
+    return _template_id(schema_three)
 
 
 def workflow_skill_template(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -173,6 +206,11 @@ def workflow_skill_template(result: Mapping[str, Any]) -> dict[str, Any]:
         raise BusinessWorkflowSkillError(
             "검증된 업무 결과의 발표자료 포함 계약이 올바르지 않습니다."
         )
+    include_report = result.get("include_report")
+    if type(include_report) is not bool:
+        raise BusinessWorkflowSkillError(
+            "검증된 업무 결과의 보고서 포함 계약이 올바르지 않습니다."
+        )
     step_order = tuple(str(item) for item in result.get("successful_steps") or ())
     try:
         step_contract_count = int(result.get("step_contract_count") or 0)
@@ -186,6 +224,7 @@ def workflow_skill_template(result: Mapping[str, Any]) -> dict[str, Any]:
         step_recipe = report_workflow_step_recipe(
             report_format,
             include_presentation,
+            include_report,
         )
     except ValueError as error:
         raise BusinessWorkflowSkillError(
@@ -194,6 +233,7 @@ def workflow_skill_template(result: Mapping[str, Any]) -> dict[str, Any]:
     return _validate_template({
         "report_format": report_format,
         "include_presentation": include_presentation,
+        "include_report": include_report,
         "slide_count": result.get("slide_count"),
         "step_order": step_order,
         "step_registry_schema_version": WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
@@ -232,6 +272,7 @@ class BusinessWorkflowSkillManager:
         if stored_schema_version not in {
             1,
             2,
+            3,
             WORKFLOW_SKILL_SCHEMA_VERSION,
         }:
             raw = {}
@@ -258,6 +299,7 @@ class BusinessWorkflowSkillManager:
             accepted_id = {
                 1: _schema_one_template_id,
                 2: _schema_two_template_id,
+                3: _schema_three_template_id,
                 WORKFLOW_SKILL_SCHEMA_VERSION: _template_id,
             }[stored_schema_version](template)
             if str(identifier) != accepted_id:
