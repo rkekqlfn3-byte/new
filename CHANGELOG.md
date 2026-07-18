@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-18 — UI Automation 실행 전 1회 대상 재탐색
+
+- `uia_click`·`uia_set_text`가 컨트롤을 못 찾았고 외부 동작이 시작되지 않은
+  경우에만 공통 `PreExecutionRecoveryContract`로 캐시를 비운 뒤 한 번 새로
+  탐색한다.
+- 앱·selector를 해시한 대상 서명을 유지하고, 첫 탐색에서 창을 확인했다면 같은
+  handle·process·제목 digest의 창만 허용한다. 다른 창은 클릭·입력 전에
+  `context_changed`로 차단한다.
+- 재탐색 뒤에도 없으면 1회 소진으로 종료하고, 모호한 후보는 기존 선택 확인으로
+  넘긴다. 실제 click·focus·입력이 시작된 뒤의 오류는 자동 재실행하지 않는다.
+- 전체 자동 회귀 791개 중 788개 통과(unit 268·integration 317·windows 203),
+  외부 AI 라이브 3개 skip, 실패 0을 확인했다.
+
 ## 2026-07-18 — 명령 참조 문맥과 학습 스킬 대상 계약
 
 - 일반 명령 모드에서 사용하지 않던 `conversation_state`를 최근 3회 구조화 결과로

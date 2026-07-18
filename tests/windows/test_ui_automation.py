@@ -12,6 +12,7 @@ from engine.ui_automation import (
     UIAutomationError,
     UIAutomationSearchLimit,
     UIAutomationSearchTimeout,
+    UIAutomationTargetChanged,
     UIAutomationTargetNotFound,
     WindowsUIAutomation,
     normalize_accessible_name,
@@ -299,6 +300,83 @@ class StructuredUIAutomationTests(unittest.TestCase):
             "matched_name", "matched_control_type", "matched_automation_id",
             "search_duration_ms",
         }, set(diagnostic))
+
+    def test_click_rediscovery_retries_once_on_the_same_window_before_action(self):
+        missing = FakeWindow([FakeControl("열기")])
+        wanted = FakeControl("저장")
+        recovered = FakeWindow([wanted])
+        with mock.patch.object(
+            self.adapter, "find_window", side_effect=[missing, recovered]
+        ) as find:
+            result = self.adapter.click(
+                "테스트",
+                {"name": "저장", "control_type": "Button", "match_mode": "exact"},
+            )
+
+        self.assertEqual(2, find.call_count)
+        self.assertEqual(1, wanted.click_count)
+        recovery = result["pre_execution_recovery"]
+        self.assertEqual("recovered", recovery["outcome"])
+        self.assertEqual(1, recovery["retry_count"])
+        self.assertFalse(recovery["execution_started"])
+        self.assertTrue(recovery["target_unchanged"])
+
+    def test_click_rediscovery_blocks_a_different_window_before_action(self):
+        missing = FakeWindow([FakeControl("열기")])
+        wanted = FakeControl("저장")
+        changed = FakeWindow([wanted])
+        changed.handle = 999
+        with mock.patch.object(
+            self.adapter, "find_window", side_effect=[missing, changed]
+        ) as find:
+            with self.assertRaises(UIAutomationTargetChanged) as raised:
+                self.adapter.click("테스트", "저장")
+
+        self.assertEqual(2, find.call_count)
+        self.assertEqual(0, wanted.click_count)
+        recovery = raised.exception.diagnostic["pre_execution_recovery"]
+        self.assertEqual("target_changed", recovery["outcome"])
+        self.assertFalse(recovery["target_resolved"])
+
+    def test_click_rediscovery_exhausts_after_one_fresh_search(self):
+        first = FakeWindow([FakeControl("열기")])
+        second = FakeWindow([FakeControl("닫기")])
+        with mock.patch.object(
+            self.adapter, "find_window", side_effect=[first, second]
+        ) as find:
+            with self.assertRaises(UIAutomationTargetNotFound) as raised:
+                self.adapter.click("테스트", "저장")
+
+        self.assertEqual(2, find.call_count)
+        self.assertEqual(2, self.adapter._search_count)
+        recovery = raised.exception.diagnostic["pre_execution_recovery"]
+        self.assertEqual("not_found", recovery["outcome"])
+        self.assertEqual(1, recovery["retry_limit"])
+        self.assertEqual(1, recovery["retry_count"])
+
+    def test_click_failure_after_action_start_is_never_rediscovered(self):
+        control = FakeControl("저장")
+        control.click_input = mock.Mock(side_effect=RuntimeError("click failed"))
+        window = FakeWindow([control])
+        with mock.patch.object(
+            self.adapter, "find_window", return_value=window
+        ) as find:
+            with self.assertRaises(RuntimeError):
+                self.adapter.click("테스트", "저장")
+
+        find.assert_called_once_with("테스트")
+
+    def test_set_text_uses_the_same_pre_execution_recovery_contract(self):
+        missing = FakeWindow([FakeControl("저장")])
+        editor = FakeControl("내용", "Edit")
+        recovered = FakeWindow([editor])
+        with mock.patch.object(
+            self.adapter, "find_window", side_effect=[missing, recovered]
+        ):
+            result = self.adapter.set_text("테스트", "내용", "안녕하세요")
+
+        self.assertEqual("안녕하세요", editor.text)
+        self.assertEqual("recovered", result["pre_execution_recovery"]["outcome"])
 
     def test_structured_selector_is_rendered_and_dispatched(self):
         executor = ActionExecutor({"테스트": "test.exe"})

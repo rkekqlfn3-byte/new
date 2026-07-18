@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -16,6 +18,10 @@ import win32gui
 from pywinauto import Desktop
 
 from engine.hotkeys import press_hotkey
+from engine.recovery import (
+    PreExecutionRecoveryContract,
+    recovery_target_signature,
+)
 
 
 CLICKABLE_CONTROL_TYPES = frozenset({
@@ -40,6 +46,17 @@ class UIAutomationError(RuntimeError):
 class UIAutomationTargetNotFound(UIAutomationError):
     error_type = "target_not_found"
     route_failure_code = "target_not_found"
+    state_changed = False
+
+    def __init__(self, message, diagnostic=None):
+        super().__init__(message)
+        self.diagnostic = dict(diagnostic or {})
+
+
+class UIAutomationTargetChanged(UIAutomationError):
+    error_type = "validation_error"
+    status = "context_changed"
+    route_failure_code = "target_contract_mismatch"
     state_changed = False
 
     def __init__(self, message, diagnostic=None):
@@ -645,10 +662,131 @@ class WindowsUIAutomation:
         self.last_diagnostic = dict(diagnostic)
         return control
 
+    @staticmethod
+    def _selector_runtime_value(selector):
+        return selector.name if selector.legacy else selector.to_dict()
+
+    @staticmethod
+    def _recovery_signature(app_name, selector, editable, window_fingerprint=None):
+        material = {
+            "app": str(app_name or "").strip().casefold(),
+            "selector": selector.to_dict(),
+            "legacy": bool(selector.legacy),
+            "editable": bool(editable),
+        }
+        if window_fingerprint is not None:
+            handle, process_id, title = window_fingerprint
+            material["window"] = {
+                "handle": int(handle or 0),
+                "process_id": int(process_id or 0),
+                "title_digest": hashlib.sha256(
+                    str(title or "").encode("utf-8")
+                ).hexdigest(),
+            }
+        encoded = json.dumps(
+            material, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return recovery_target_signature(
+            "uia_control", [hashlib.sha256(encoded).hexdigest()]
+        )
+
+    @staticmethod
+    def _attach_recovery(error, contract):
+        diagnostic = dict(getattr(error, "diagnostic", {}) or {})
+        diagnostic["pre_execution_recovery"] = contract.to_dict()
+        error.diagnostic = diagnostic
+        return error
+
+    def _prepare_control_with_recovery(
+        self, app_name, selector_value, *, editable=False
+    ):
+        """Locate once more only while no UI action has started.
+
+        If the first search had already identified a window, the retry is
+        bound to that exact handle/process/title fingerprint. A different
+        window is a changed target and is never acted on automatically.
+        """
+        selector = UIASelector.from_value(selector_value)
+        runtime_selector = self._selector_runtime_value(selector)
+        initial_window = None
+        initial_fingerprint = None
+        try:
+            initial_window = self.find_window(app_name)
+            initial_fingerprint = self._window_fingerprint(initial_window)
+            control, diagnostic = self._locate_control(
+                initial_window, runtime_selector, editable=editable
+            )
+            return initial_window, control, diagnostic
+        except UIAutomationTargetNotFound:
+            signature = self._recovery_signature(
+                app_name, selector, editable, initial_fingerprint
+            )
+            contract = PreExecutionRecoveryContract(
+                strategy="uia_target_rediscovery",
+                target_kind="uia_control",
+                target_signature=signature,
+                retry_limit=1,
+            )
+            if not contract.begin(signature):  # pragma: no cover - defensive
+                error = UIAutomationTargetChanged(
+                    "UI 대상을 다시 찾기 위한 안전 계약을 시작하지 못했습니다."
+                )
+                raise self._attach_recovery(error, contract)
+
+        # The first failure happened before click/focus/text input. Clear only
+        # locator wrappers and perform the contract's single fresh discovery.
+        self._control_cache.clear()
+        try:
+            current_window = self.find_window(app_name)
+            current_fingerprint = self._window_fingerprint(current_window)
+            current_signature = self._recovery_signature(
+                app_name,
+                selector,
+                editable,
+                current_fingerprint if initial_fingerprint is not None else None,
+            )
+            if current_signature != signature:
+                contract.complete(
+                    "unavailable",
+                    current_target_signature=current_signature,
+                    target_resolved=False,
+                )
+                error = UIAutomationTargetChanged(
+                    "UI 요소를 다시 찾는 동안 대상 창이 달라져 실행하지 않았습니다."
+                )
+                raise self._attach_recovery(error, contract)
+            control, diagnostic = self._locate_control(
+                current_window, runtime_selector, editable=editable
+            )
+            contract.complete(
+                "recovered",
+                current_target_signature=signature,
+                target_resolved=True,
+            )
+            diagnostic = dict(diagnostic)
+            diagnostic["pre_execution_recovery"] = contract.to_dict()
+            self.last_diagnostic = dict(diagnostic)
+            return current_window, control, diagnostic
+        except UIAutomationTargetChanged:
+            raise
+        except UIAutomationTargetNotFound as error:
+            contract.complete(
+                "not_found",
+                current_target_signature=signature,
+                target_resolved=False,
+            )
+            raise self._attach_recovery(error, contract)
+        except UIAutomationError as error:
+            contract.complete(
+                "unavailable",
+                current_target_signature=signature,
+                target_resolved=False,
+            )
+            raise self._attach_recovery(error, contract)
+
     def click(self, app_name, selector):
-        window = self.find_window(app_name)
-        control, diagnostic = self._locate_control(
-            window, selector, editable=False
+        window, control, diagnostic = self._prepare_control_with_recovery(
+            app_name, selector, editable=False
         )
         control.click_input()
         return {
@@ -660,9 +798,8 @@ class WindowsUIAutomation:
         }
 
     def set_text(self, app_name, selector, text):
-        window = self.find_window(app_name)
-        control, diagnostic = self._locate_control(
-            window, selector, editable=True
+        window, control, diagnostic = self._prepare_control_with_recovery(
+            app_name, selector, editable=True
         )
         control.set_focus()
         try:
