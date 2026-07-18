@@ -670,6 +670,71 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
         self.assertEqual("excel", current["app_type"])
         self.assertEqual("ready", current["state"])
 
+    def test_report_only_recipe_is_approved_executed_and_reused_without_powerpoint(self):
+        conflict = self.command(
+            "Word 보고서만 만들고 PPT도 만들어줘",
+            "stage10-report-only-conflict",
+        )
+        self.assertFalse(conflict["success"])
+        self.assertEqual("blocked", conflict["status"])
+        self.assertIn("하나로 다시", conflict["message"])
+        self.assertEqual(0, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
+        preview = self.command(
+            "Word 보고서만 만들어줘",
+            "stage10-report-only-create",
+        )
+        pending = self.parser.pending_confirmation_manager.active_record(
+            "stage10-chat"
+        )
+        plan = pending["payload"]["prepared_action"]["arguments"][
+            "workflow_plan"
+        ]
+
+        self.assertEqual("confirmation_required", preview["status"])
+        self.assertIn("현재 연결 Excel 전체", preview["message"])
+        self.assertIn("PowerPoint: 생성하지 않음", preview["message"])
+        self.assertFalse(plan["include_presentation"])
+        self.assertEqual({"report"}, set(plan["output_paths"]))
+        self.assertEqual(
+            ["analyze_excel", "create_word_report"],
+            plan["step_order"],
+        )
+        completed = self.approve(preview)
+
+        self.assertTrue(completed["success"], completed)
+        observations = completed["data"]["observations"]
+        self.assertFalse(observations["include_presentation"])
+        self.assertEqual(1, len(observations["created_files"]))
+        self.assertEqual(1, self.analyzer.calls)
+        self.assertEqual(1, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+        candidate = self.workflow_skills.latest_candidate()
+        self.assertFalse(candidate["template"]["include_presentation"])
+
+        remember = self.command(
+            "이 워크플로 기억해",
+            "stage10-report-only-remember",
+        )
+        self.assertIn("Excel 분석 → Word 보고서만", remember["message"])
+        self.assertTrue(self.approve(remember)["success"])
+        reuse = self.command(
+            "지난번처럼 해줘",
+            "stage10-report-only-reuse",
+        )
+        self.assertIn("Excel 분석 → Word 보고서만", reuse["message"])
+        reused = self.approve(reuse)
+
+        self.assertTrue(reused["success"], reused)
+        self.assertFalse(
+            reused["data"]["observations"]["include_presentation"]
+        )
+        self.assertEqual(2, self.analyzer.calls)
+        self.assertEqual(2, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
+
     def test_verified_workflow_becomes_approved_content_free_reusable_skill(self):
         self.ppt.fail_times = 0
         first_preview = self.command(

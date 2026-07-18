@@ -11,23 +11,28 @@ from engine.learning import (
 )
 
 
-def verified_result(*, report_format="word", slide_count=5, workflow_id="workflow-1"):
+def verified_result(
+    *,
+    report_format="word",
+    slide_count=5,
+    workflow_id="workflow-1",
+    include_presentation=True,
+):
     report_step = {
         "word": ["create_word_report"],
         "hwp": ["create_hwp_report"],
         "both": ["create_word_report", "create_hwp_report"],
     }[report_format]
-    successful_steps = [
-        "analyze_excel",
-        *report_step,
-        "create_powerpoint_summary",
-    ]
+    successful_steps = ["analyze_excel", *report_step]
+    if include_presentation:
+        successful_steps.append("create_powerpoint_summary")
     return {
         "verified": True,
         "status": "completed",
         "workflow_id": workflow_id,
         "report_format": report_format,
         "slide_count": slide_count,
+        "include_presentation": include_presentation,
         "successful_steps": successful_steps,
         "step_contracts_verified": True,
         "step_contract_count": len(successful_steps),
@@ -59,6 +64,7 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         self.assertEqual("candidate", candidate["status"])
         self.assertFalse(candidate["raw_paths_or_content_stored"])
         self.assertEqual("word", candidate["template"]["report_format"])
+        self.assertTrue(candidate["template"]["include_presentation"])
         self.assertTrue(candidate["template"]["requires_approval_each_run"])
         self.assertEqual(1, candidate["template"]["step_registry_schema_version"])
         self.assertEqual(
@@ -162,6 +168,7 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         record = raw["candidates"].pop(candidate["candidate_id"])
         active = raw["active_skill"]
         for template in (record["template"], active["template"]):
+            template.pop("include_presentation")
             template.pop("step_registry_schema_version")
             template.pop("step_recipe")
         legacy_payload = json.dumps(
@@ -206,6 +213,63 @@ class BusinessWorkflowSkillManagerTests(unittest.TestCase):
         reloaded = BusinessWorkflowSkillManager(self.path)
 
         self.assertEqual([], reloaded.status()["candidates"])
+
+    def test_report_only_result_stores_and_reloads_exact_registered_recipe(self):
+        candidate = self.manager.record_verified_success(
+            verified_result(include_presentation=False),
+            evidence_id="report-only",
+        )
+        active = self.manager.activate(candidate["candidate_id"])
+        reloaded = BusinessWorkflowSkillManager(self.path).active_skill()
+
+        self.assertFalse(active["template"]["include_presentation"])
+        self.assertEqual(
+            ["analyze_excel", "create_word_report"],
+            active["template"]["step_order"],
+        )
+        self.assertEqual(active["template"], reloaded["template"])
+
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        raw["candidates"][candidate["candidate_id"]]["template"][
+            "include_presentation"
+        ] = True
+        self.path.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertEqual(
+            [],
+            BusinessWorkflowSkillManager(self.path).status()["candidates"],
+        )
+
+    def test_schema_two_active_skill_migrates_with_presentation_enabled(self):
+        candidate = self.manager.record_verified_success(
+            verified_result(report_format="word", slide_count=6),
+            evidence_id="schema-two-workflow",
+        )
+        self.manager.activate(candidate["candidate_id"])
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        record = raw["candidates"].pop(candidate["candidate_id"])
+        active = raw["active_skill"]
+        for template in (record["template"], active["template"]):
+            template.pop("include_presentation")
+        schema_two_payload = json.dumps(
+            record["template"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        schema_two_id = hashlib.sha256(
+            schema_two_payload.encode("utf-8")
+        ).hexdigest()[:24]
+        record["candidate_id"] = schema_two_id
+        active["candidate_id"] = schema_two_id
+        raw["candidates"][schema_two_id] = record
+        raw["schema_version"] = 2
+        self.path.write_text(json.dumps(raw), encoding="utf-8")
+
+        migrated = BusinessWorkflowSkillManager(self.path).active_skill()
+
+        self.assertIsNotNone(migrated)
+        self.assertNotEqual(schema_two_id, migrated["candidate_id"])
+        self.assertTrue(migrated["template"]["include_presentation"])
 
 
 if __name__ == "__main__":

@@ -52,19 +52,39 @@ def registered_workflow_step_names() -> tuple[str, ...]:
     return tuple(_STEP_DEFINITIONS)
 
 
-def report_workflow_step_order(report_format) -> tuple[str, ...]:
+def report_workflow_step_order(
+    report_format,
+    include_presentation=True,
+) -> tuple[str, ...]:
     normalized = str(report_format or "").strip().casefold()
     try:
-        return _REPORT_STEP_ORDERS[normalized]
+        order = _REPORT_STEP_ORDERS[normalized]
     except KeyError as error:
         raise ValueError("지원하지 않는 보고서 워크플로 형식입니다.") from error
+    if type(include_presentation) is not bool:
+        raise ValueError("발표자료 포함 여부는 참/거짓이어야 합니다.")
+    if include_presentation:
+        return order
+    if (
+        not order
+        or order[-1] != "create_powerpoint_summary"
+        or order.count("create_powerpoint_summary") != 1
+    ):
+        raise RuntimeError("보고서 워크플로의 발표자료 단계 위치가 올바르지 않습니다.")
+    return order[:-1]
 
 
-def report_workflow_step_recipe(report_format) -> list[dict[str, Any]]:
+def report_workflow_step_recipe(
+    report_format,
+    include_presentation=True,
+) -> list[dict[str, Any]]:
     """Build a path- and content-free, sequential recipe from registered steps."""
     recipe = []
     previous = None
-    for step_name in report_workflow_step_order(report_format):
+    for step_name in report_workflow_step_order(
+        report_format,
+        include_presentation,
+    ):
         definition = _STEP_DEFINITIONS[step_name]
         recipe.append({
             "registry_schema_version": WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
@@ -80,13 +100,17 @@ def report_workflow_step_recipe(report_format) -> list[dict[str, Any]]:
 def validate_report_workflow_step_recipe(
     value,
     report_format,
+    include_presentation=True,
 ) -> list[dict[str, Any]]:
     """Accept only the exact registered recipe for one supported report format."""
     if not isinstance(value, list) or not all(
         isinstance(item, Mapping) for item in value
     ):
         raise ValueError("워크플로 단계 레시피가 JSON 목록이 아닙니다.")
-    expected = report_workflow_step_recipe(report_format)
+    expected = report_workflow_step_recipe(
+        report_format,
+        include_presentation,
+    )
     if value != expected:
         raise ValueError("워크플로 단계 레시피가 허용 목록과 다릅니다.")
     return copy.deepcopy(expected)

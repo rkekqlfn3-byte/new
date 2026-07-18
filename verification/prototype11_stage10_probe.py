@@ -16,6 +16,7 @@ from pathlib import Path
 
 import psutil
 
+from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
 
@@ -768,6 +769,82 @@ def _owned_probe(report_format="word", progress=None):
                 ),
                 "selection_scope_source_unchanged": (
                     file_fingerprint(source) == source_before
+                ),
+            })
+            stage = "execute_explicit_report_only_recipe"
+            _publish_progress(progress, stage)
+
+            class ForbiddenPowerPointWriter:
+                def __init__(self):
+                    self.calls = 0
+
+                def run(self, _context, _work_product):
+                    self.calls += 1
+                    raise AssertionError(
+                        "보고서 전용 레시피가 PowerPoint 실행기를 호출했습니다."
+                    )
+
+            report_only_intent = StructuredWorkflowIntentAnalyzer().analyze(
+                "Word 보고서만 만들어줘",
+                {"app_type": "excel"},
+            )
+            forbidden_powerpoint = ForbiddenPowerPointWriter()
+            report_only_dir = temp_dir / "report-only-output"
+            report_only_dir.mkdir()
+            report_only_executor = WorkflowExecutor(
+                temp_dir / "workflow-state-report-only",
+                powerpoint_writer=forbidden_powerpoint,
+            )
+            report_only_state = report_only_executor.prepare(
+                source,
+                title="Stage 10 보고서 전용 분석",
+                output_dir=report_only_dir,
+                report_format=report_only_intent.params["report_format"],
+                include_presentation=report_only_intent.params[
+                    "include_presentation"
+                ],
+                preferences=expected_formatting,
+            )
+            report_only_preview_created_nothing = all(
+                not Path(path).exists()
+                for path in report_only_state["output_paths"].values()
+            )
+            report_only_result = report_only_executor.start(
+                report_only_state
+            )
+            report_only_path = Path(
+                report_only_result["output_paths"]["report"]
+            )
+            report_only_stored = report_only_executor.load(
+                report_only_state["workflow_id"]
+            )
+            checks.update({
+                "explicit_report_only_recipe_verified": bool(
+                    report_only_intent.operation
+                    == "create_business_workflow"
+                    and report_only_intent.params.get(
+                        "explicit_include_presentation"
+                    ) is True
+                    and report_only_intent.params.get(
+                        "include_presentation"
+                    ) is False
+                    and report_only_preview_created_nothing
+                    and report_only_result.get("verified") is True
+                    and report_only_result.get(
+                        "include_presentation"
+                    ) is False
+                    and report_only_result.get(
+                        "registered_step_recipe_verified"
+                    ) is True
+                    and report_only_stored.get("step_order")
+                    == ["analyze_excel", "create_word_report"]
+                    and set(report_only_result.get("output_paths") or {})
+                    == {"report"}
+                    and len(report_only_result.get("created_files") or []) == 1
+                    and forbidden_powerpoint.calls == 0
+                    and not list(report_only_dir.glob("*.pptx"))
+                    and _verify_word(report_only_path, expected_formatting)
+                    and file_fingerprint(source) == source_before
                 ),
             })
         return {

@@ -29,7 +29,7 @@ from engine.workflow_step_registry import (
 )
 
 
-WORKFLOW_SCHEMA_VERSION = 4
+WORKFLOW_SCHEMA_VERSION = 5
 WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION = 1
 STEP_NAMES = registered_workflow_step_names()
 EXECUTABLE_STEP_NAMES = frozenset({
@@ -318,10 +318,22 @@ def _report_kinds(report_format) -> tuple[str, ...]:
     return ("word", "hwp") if normalized == "both" else (normalized,)
 
 
-def _step_order(report_format) -> tuple[str, ...]:
+def _include_presentation(value) -> bool:
+    if type(value) is not bool:
+        raise WorkflowError("발표자료 포함 여부는 참/거짓이어야 합니다.")
+    return value
+
+
+def _step_order(
+    report_format,
+    include_presentation=True,
+) -> tuple[str, ...]:
     normalized = _report_format(report_format)
     try:
-        return report_workflow_step_order(normalized)
+        return report_workflow_step_order(
+            normalized,
+            _include_presentation(include_presentation),
+        )
     except ValueError as error:
         raise WorkflowError(str(error)) from error
 
@@ -330,6 +342,7 @@ def _workflow_step_contracts(
     workflow_id,
     report_format,
     source_fingerprint,
+    include_presentation=True,
 ) -> dict[str, dict[str, Any]]:
     """Build deterministic, content-free execution contracts for every step."""
     source_sha256 = str(
@@ -340,7 +353,10 @@ def _workflow_step_contracts(
     if not re.fullmatch(r"[A-F0-9]{64}", source_sha256):
         raise WorkflowError("워크플로 원본 지문이 올바르지 않습니다.")
     contracts = {}
-    for definition in report_workflow_step_recipe(_report_format(report_format)):
+    for definition in report_workflow_step_recipe(
+        _report_format(report_format),
+        _include_presentation(include_presentation),
+    ):
         step_name = definition["step_name"]
         depends_on = list(definition["depends_on"])
         identity = {
@@ -377,6 +393,7 @@ def _validated_state_step_contracts(
         state.get("workflow_id"),
         state.get("report_format") or "word",
         state.get("source_fingerprint"),
+        state.get("include_presentation"),
     )
     try:
         schema_version = int(state.get("step_contract_schema_version") or 0)
@@ -390,18 +407,22 @@ def _validated_state_step_contracts(
     return expected
 
 
-def _expected_output_suffixes(report_format) -> dict[str, str]:
+def _expected_output_suffixes(
+    report_format,
+    include_presentation=True,
+) -> dict[str, str]:
     normalized = _report_format(report_format)
+    include_presentation = _include_presentation(include_presentation)
     if normalized == "both":
-        return {
+        expected = {
             "report_word": ".docx",
             "report_hwp": ".hwp",
-            "presentation": ".pptx",
         }
-    return {
-        "report": REPORT_FORMATS[normalized]["suffix"],
-        "presentation": ".pptx",
-    }
+    else:
+        expected = {"report": REPORT_FORMATS[normalized]["suffix"]}
+    if include_presentation:
+        expected["presentation"] = ".pptx"
+    return expected
 
 
 def _report_output_key(report_format, kind: str) -> str:
@@ -2856,9 +2877,9 @@ class WorkflowExecutor:
         if str(state.get("workflow_id") or "") != str(workflow_id):
             raise WorkflowError("저장된 워크플로 ID가 파일 ID와 일치하지 않습니다.")
         schema_version = int(state.get("schema_version") or 0)
-        if schema_version not in {1, 2, 3, WORKFLOW_SCHEMA_VERSION}:
+        if schema_version not in {1, 2, 3, 4, WORKFLOW_SCHEMA_VERSION}:
             raise WorkflowError("지원하지 않는 워크플로 저장 형식입니다.")
-        if schema_version in {1, 2, 3}:
+        if schema_version < WORKFLOW_SCHEMA_VERSION:
             state = copy.deepcopy(state)
             report_format = _report_format(state.get("report_format") or "word")
             if schema_version in {1, 2} and report_format == "hwp":
@@ -2884,10 +2905,19 @@ class WorkflowExecutor:
             state["schema_version"] = WORKFLOW_SCHEMA_VERSION
             state["migrated_from_schema"] = schema_version
             state["report_format"] = report_format
-            state["step_order"] = list(_step_order(report_format))
+            state["include_presentation"] = True
+            state["step_order"] = list(_step_order(report_format, True))
+        elif type(state.get("include_presentation")) is not bool:
+            raise WorkflowError(
+                "저장된 워크플로의 발표자료 포함 계약이 불완전합니다."
+            )
         state.setdefault("report_format", "word")
         state.setdefault(
-            "step_order", list(_step_order(state.get("report_format") or "word"))
+            "step_order",
+            list(_step_order(
+                state.get("report_format") or "word",
+                state.get("include_presentation"),
+            )),
         )
         state.setdefault("join_plan", None)
         state.setdefault("source_scope", None)
@@ -2905,6 +2935,7 @@ class WorkflowExecutor:
                 state.get("workflow_id"),
                 state.get("report_format") or "word",
                 state.get("source_fingerprint"),
+                state.get("include_presentation"),
             )
         elif not (has_contract_version and has_contracts):
             raise WorkflowError("저장된 워크플로 단계 실행 계약이 불완전합니다.")
@@ -2920,6 +2951,7 @@ class WorkflowExecutor:
         slide_count=5,
         explicit_slide_count=False,
         report_format="word",
+        include_presentation=True,
         join_plan=None,
         source_scope=None,
     ) -> dict:
@@ -2934,6 +2966,7 @@ class WorkflowExecutor:
         if not 3 <= slide_count <= 20:
             raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
         report_format = _report_format(report_format)
+        include_presentation = _include_presentation(include_presentation)
         join_plan = _validated_join_plan(join_plan)
         source_scope = _validated_source_scope(source_scope)
         if join_plan is not None and source_scope is not None:
@@ -2962,14 +2995,15 @@ class WorkflowExecutor:
                 REPORT_FORMATS[report_kind]["suffix"],
                 token,
             ))
-        presentation_path = _reserve_output(
-            destination,
-            f"{source_stem}_JARVIS_{slide_count}장_요약",
-            ".pptx",
-            token,
-        )
-        output_paths["presentation"] = str(presentation_path)
-        step_order = _step_order(report_format)
+        if include_presentation:
+            presentation_path = _reserve_output(
+                destination,
+                f"{source_stem}_JARVIS_{slide_count}장_요약",
+                ".pptx",
+                token,
+            )
+            output_paths["presentation"] = str(presentation_path)
+        step_order = _step_order(report_format, include_presentation)
         now = _timestamp()
         if title is None:
             style = str(learned.get("title_style") or "default")
@@ -2989,6 +3023,7 @@ class WorkflowExecutor:
             "output_dir": str(destination),
             "output_paths": output_paths,
             "report_format": report_format,
+            "include_presentation": include_presentation,
             "join_plan": join_plan,
             "source_scope": source_scope,
             "step_order": list(step_order),
@@ -2999,6 +3034,7 @@ class WorkflowExecutor:
                 workflow_id,
                 report_format,
                 source_fingerprint,
+                include_presentation,
             ),
             "slide_count": slide_count,
             "explicit_slide_count": bool(explicit_slide_count),
@@ -3063,6 +3099,10 @@ class WorkflowExecutor:
 
         report_format = _report_format(state.get("report_format") or "word")
         state["report_format"] = report_format
+        include_presentation = _include_presentation(
+            state.get("include_presentation")
+        )
+        state["include_presentation"] = include_presentation
         state["join_plan"] = _validated_join_plan(state.get("join_plan"))
         state["source_scope"] = _validated_source_scope(
             state.get("source_scope")
@@ -3071,7 +3111,7 @@ class WorkflowExecutor:
             raise WorkflowSourceScopeValidationError(
                 "승인된 계획에서 시트 조인과 선택 범위 분석이 충돌합니다."
             )
-        expected_steps = _step_order(report_format)
+        expected_steps = _step_order(report_format, include_presentation)
         if (
             tuple(state.get("step_order") or ()) != expected_steps
             or set(state.get("steps") or {}) != set(expected_steps)
@@ -3081,7 +3121,10 @@ class WorkflowExecutor:
         _validated_state_step_contracts(state)
         self._preflight_report_environment(report_format)
         outputs = dict(state.get("output_paths") or {})
-        expected = _expected_output_suffixes(report_format)
+        expected = _expected_output_suffixes(
+            report_format,
+            include_presentation,
+        )
         if set(outputs) != set(expected):
             raise WorkflowError("워크플로 산출물 계획이 불완전합니다.")
         normalized_outputs = {}
@@ -3241,6 +3284,7 @@ class WorkflowExecutor:
                 "자동으로 선택하지 않았습니다. 원하는 파일을 직접 열어주세요."
             )
         self._state_step_order(state)
+        state = self.load(str(state.get("workflow_id") or ""))
         report_format = _report_format(state.get("report_format") or "word")
         requested = str(artifact_kind or "").strip().casefold()
         if requested == "report":
@@ -3318,7 +3362,10 @@ class WorkflowExecutor:
     @staticmethod
     def _state_step_order(state: Mapping[str, Any]) -> tuple[str, ...]:
         report_format = _report_format(state.get("report_format") or "word")
-        expected = _step_order(report_format)
+        expected = _step_order(
+            report_format,
+            state.get("include_presentation"),
+        )
         actual = tuple(state.get("step_order") or ())
         if actual != expected or set(state.get("steps") or {}) != set(expected):
             raise WorkflowError("저장된 워크플로 단계 구성이 올바르지 않습니다.")
@@ -3366,6 +3413,9 @@ class WorkflowExecutor:
             "preferences": dict(state.get("applied_preferences") or {}),
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
+            "include_presentation": _include_presentation(
+                state.get("include_presentation")
+            ),
             "join_plan": _validated_join_plan(state.get("join_plan")),
             "source_scope": _validated_source_scope(
                 state.get("source_scope")
@@ -3536,7 +3586,8 @@ class WorkflowExecutor:
     def _result(state: dict, *, changed: bool) -> dict[str, Any]:
         step_contracts = _validated_state_step_contracts(state)
         step_recipe = report_workflow_step_recipe(
-            _report_format(state.get("report_format") or "word")
+            _report_format(state.get("report_format") or "word"),
+            _include_presentation(state.get("include_presentation")),
         )
         return {
             "success": True,
@@ -3568,6 +3619,9 @@ class WorkflowExecutor:
             "output_paths": dict(state.get("output_paths") or {}),
             "slide_count": int(state.get("slide_count") or 5),
             "report_format": _report_format(state.get("report_format") or "word"),
+            "include_presentation": _include_presentation(
+                state.get("include_presentation")
+            ),
             "join_plan": _validated_join_plan(state.get("join_plan")),
             "source_scope": _validated_source_scope(
                 state.get("source_scope")

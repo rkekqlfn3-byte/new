@@ -258,6 +258,7 @@ def _owned_probe():
         registered_workflow_recipe = validate_report_workflow_step_recipe(
             workflow_template.get("step_recipe"),
             workflow_template.get("report_format"),
+            workflow_template.get("include_presentation"),
         )
         contextual_intent = StructuredWorkflowIntentAnalyzer().analyze(
             "이거 보고서랑 7장짜리 발표자료 만들어줘",
@@ -269,6 +270,7 @@ def _owned_probe():
             preferences=preferences,
             slide_count=workflow_template["slide_count"],
             report_format=workflow_template["report_format"],
+            include_presentation=workflow_template["include_presentation"],
         )
         workflow_skill_fresh_plan = bool(
             replay_plan.get("status") == "approval_required"
@@ -642,6 +644,7 @@ def _owned_probe():
             ),
             "workflow_skill_registered_recipe_verified": bool(
                 workflow_template.get("step_registry_schema_version") == 1
+                and workflow_template.get("include_presentation") is True
                 and workflow_template.get("step_order")
                 == [item["step_name"] for item in registered_workflow_recipe]
                 and replay_result.get("registered_step_recipe_verified") is True
