@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from engine.workflows import (
+    ExcelSalesAnalyzer,
     PowerPointSummaryWriter,
     WordReportWriter,
     WorkProductData,
@@ -76,6 +77,68 @@ class FakeWriter:
         }
 
 
+class FakeComRuntime:
+    def CoInitialize(self):
+        return None
+
+    def CoUninitialize(self):
+        return None
+
+
+class FakeLease:
+    def __init__(self):
+        self.cleaned = False
+
+    def cleanup(self):
+        self.cleaned = True
+
+
+class FakeUsedRange:
+    def __init__(self, value, rows=None, columns=None):
+        self._value = value
+        self.value_reads = 0
+        matrix = list(value) if isinstance(value, (tuple, list)) else []
+        inferred_rows = len(matrix) or 1
+        first = matrix[0] if matrix and isinstance(matrix[0], (tuple, list)) else []
+        inferred_columns = len(first) or 1
+        self.Rows = SimpleNamespace(Count=rows or inferred_rows)
+        self.Columns = SimpleNamespace(Count=columns or inferred_columns)
+
+    @property
+    def Value2(self):
+        self.value_reads += 1
+        return self._value
+
+
+class FakeCharts:
+    Count = 0
+
+
+class FakeWorksheet:
+    def __init__(self, name, value, *, visible=-1, rows=None, columns=None):
+        self.Name = name
+        self.Visible = visible
+        self.UsedRange = FakeUsedRange(value, rows=rows, columns=columns)
+
+    def ChartObjects(self):
+        return FakeCharts()
+
+
+class FakeWorksheets:
+    def __init__(self, worksheets):
+        self._worksheets = list(worksheets)
+        self.Count = len(self._worksheets)
+
+    def Item(self, index):
+        return self._worksheets[index - 1]
+
+
+class FakeWorkbook:
+    def __init__(self, path, worksheets):
+        self.FullName = str(path)
+        self.Worksheets = FakeWorksheets(worksheets)
+
+
 class Stage10WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -108,6 +171,104 @@ class Stage10WorkflowTests(unittest.TestCase):
                 insights=[],
                 source_files=[],
             )
+
+    def _analyze_sheets(self, worksheets):
+        lease = FakeLease()
+        workbook = FakeWorkbook(self.source, worksheets)
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+        result = analyzer.run({
+            "source_path": str(self.source),
+            "title": "다중 시트 분석",
+            "preferences": {"summary_lines": 8},
+        })
+        self.assertTrue(lease.cleaned)
+        return result
+
+    def test_excel_analyzer_builds_one_bounded_table_per_visible_sheet(self):
+        result = self._analyze_sheets([
+            FakeWorksheet("매출", (
+                ("지역", "금액"), ("서울", 100), ("부산", 200),
+            )),
+            FakeWorksheet("비용", (
+                ("항목", "금액"), ("인건비", 70), ("임대료", 30),
+            )),
+            FakeWorksheet("숨김", (("비밀",), (999,)), visible=0),
+        ])
+
+        self.assertEqual(["매출", "비용"], [table["name"] for table in result["tables"]])
+        self.assertEqual(2, len(result["tables"]))
+        self.assertEqual(2, result["tables"][0]["included_rows"])
+        self.assertEqual(6, result["tables"][0]["used_cells"])
+        metric_names = [metric["name"] for metric in result["metrics"]]
+        self.assertIn("매출/금액", metric_names)
+        self.assertIn("비용/금액", metric_names)
+        self.assertTrue(all("숨김" not in name for name in metric_names))
+        slides = PowerPointSummaryWriter._slide_content(
+            WorkProductData.from_value(result), slide_count=5
+        )
+        self.assertIn("분석 시트: 2개 (매출, 비용)", slides[2][1])
+        self.assertIn("전체 데이터 행: 4", slides[2][1])
+
+    def test_excel_analyzer_rejects_one_oversized_sheet_before_reading_values(self):
+        lease = FakeLease()
+        workbook = FakeWorkbook(self.source, [
+            FakeWorksheet("대용량", "값", rows=2001, columns=25),
+        ])
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        with self.assertRaisesRegex(Exception, "대용량.*50,000셀"):
+            analyzer.run({"source_path": str(self.source), "preferences": {}})
+        self.assertTrue(lease.cleaned)
+
+    def test_excel_analyzer_rejects_total_visible_range_over_workbook_limit(self):
+        lease = FakeLease()
+        worksheets = [
+            FakeWorksheet(name, "값", rows=2000, columns=25)
+            for name in ("시트1", "시트2", "시트3")
+        ]
+        workbook = FakeWorkbook(self.source, worksheets)
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        with self.assertRaisesRegex(Exception, "전체 분석 범위는 100,000셀"):
+            analyzer.run({"source_path": str(self.source), "preferences": {}})
+        self.assertTrue(lease.cleaned)
+        self.assertEqual(0, sum(sheet.UsedRange.value_reads for sheet in worksheets))
+
+    def test_excel_analyzer_rejects_more_than_twenty_visible_sheets_before_read(self):
+        lease = FakeLease()
+        worksheets = [
+            FakeWorksheet(f"시트{index}", (("값",), (index,)))
+            for index in range(1, 22)
+        ]
+        workbook = FakeWorkbook(self.source, worksheets)
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        with self.assertRaisesRegex(Exception, "표시 시트는 20개까지"):
+            analyzer.run({"source_path": str(self.source), "preferences": {}})
+        self.assertTrue(lease.cleaned)
+        self.assertEqual(0, sum(sheet.UsedRange.value_reads for sheet in worksheets))
+
+    def test_excel_analyzer_caps_combined_preview_rows_at_five_hundred(self):
+        worksheets = [
+            FakeWorksheet(
+                f"시트{sheet_index}",
+                tuple([("순번", "값")] + [
+                    (row_index, sheet_index * 1000 + row_index)
+                    for row_index in range(1, 102)
+                ]),
+            )
+            for sheet_index in range(1, 7)
+        ]
+
+        result = self._analyze_sheets(worksheets)
+
+        included = [table["included_rows"] for table in result["tables"]]
+        self.assertEqual([100, 100, 100, 100, 100, 0], included)
+        self.assertEqual(500, sum(included))
 
     def test_approval_prepare_does_not_create_outputs(self):
         state = self.executor.prepare(self.source)

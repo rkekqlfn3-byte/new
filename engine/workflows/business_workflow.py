@@ -26,8 +26,11 @@ STEP_NAMES = (
     "create_word_report",
     "create_powerpoint_summary",
 )
-MAX_SOURCE_CELLS = 50_000
+MAX_WORKSHEETS = 20
+MAX_SOURCE_CELLS_PER_SHEET = 50_000
+MAX_SOURCE_CELLS = 100_000
 MAX_TABLE_ROWS = 100
+MAX_TOTAL_TABLE_ROWS = 500
 MAX_TABLE_COLUMNS = 30
 MAX_METRICS = 50
 MAX_INSIGHTS = 50
@@ -320,11 +323,11 @@ class ExcelSalesAnalyzer:
         return number if math.isfinite(number) else None
 
     @staticmethod
-    def _chart_data(worksheet) -> list[dict[str, Any]]:
+    def _chart_data(worksheet, limit=MAX_CHARTS) -> list[dict[str, Any]]:
         charts = []
         try:
             objects = worksheet.ChartObjects()
-            count = min(int(objects.Count), MAX_CHARTS)
+            count = min(int(objects.Count), max(0, int(limit)))
             for index in range(1, count + 1):
                 chart = objects.Item(index).Chart
                 title = ""
@@ -337,6 +340,7 @@ class ExcelSalesAnalyzer:
                     "name": str(getattr(objects.Item(index), "Name", "") or f"Chart {index}"),
                     "title": title,
                     "chart_type": int(getattr(chart, "ChartType", 0) or 0),
+                    "sheet_name": str(getattr(worksheet, "Name", "") or ""),
                 })
         except Exception:
             pass
@@ -353,50 +357,122 @@ class ExcelSalesAnalyzer:
                 lease, workbook = self._open(source_path)
                 if _path_key(self._workbook_path(workbook)) != _path_key(source_path):
                     raise WorkflowError("연결된 Excel 원본과 다른 통합문서는 분석하지 않습니다.")
-                worksheet = workbook.Worksheets.Item(1)
-                used = worksheet.UsedRange
-                rows = int(used.Rows.Count)
-                columns = int(used.Columns.Count)
-                if rows < 1 or columns < 1:
-                    raise WorkflowError("첫 번째 Excel 시트에 분석할 데이터가 없습니다.")
-                if rows * columns > MAX_SOURCE_CELLS:
+                worksheets = workbook.Worksheets
+                visible_sheets = []
+                for index in range(1, int(worksheets.Count) + 1):
+                    worksheet = worksheets.Item(index)
+                    try:
+                        visible = int(getattr(worksheet, "Visible", -1)) == -1
+                    except Exception:
+                        visible = True
+                    if visible:
+                        visible_sheets.append(worksheet)
+                if not visible_sheets:
+                    raise WorkflowError("표시된 Excel 시트가 없어 분석할 수 없습니다.")
+                if len(visible_sheets) > MAX_WORKSHEETS:
                     raise WorkflowError(
-                        f"한 번에 분석할 수 있는 범위는 {MAX_SOURCE_CELLS:,}셀까지입니다."
+                        f"한 번에 분석할 수 있는 표시 시트는 {MAX_WORKSHEETS}개까지입니다."
                     )
-                if columns > MAX_TABLE_COLUMNS:
-                    raise WorkflowError(
-                        f"한 번에 분석할 수 있는 열은 {MAX_TABLE_COLUMNS}개까지입니다."
-                    )
-                matrix = self._matrix(used.Value2, rows, columns)
-                if not matrix:
-                    raise WorkflowError("Excel에서 읽을 수 있는 값이 없습니다.")
-                raw_headers = matrix[0]
-                headers = [
-                    str(value).strip() if value not in (None, "") else f"열 {index}"
-                    for index, value in enumerate(raw_headers, 1)
-                ]
-                data_rows = matrix[1:]
-                metrics = []
-                for column, header in enumerate(headers):
-                    numbers = [
-                        number
-                        for row in data_rows
-                        for number in [self._number(row[column] if column < len(row) else None)]
-                        if number is not None
-                    ]
-                    if not numbers:
+
+                sheet_ranges = []
+                total_source_cells = 0
+                for worksheet in visible_sheets:
+                    sheet_name = str(getattr(worksheet, "Name", "") or "Sheet")
+                    used = worksheet.UsedRange
+                    rows = int(used.Rows.Count)
+                    columns = int(used.Columns.Count)
+                    if rows < 1 or columns < 1:
                         continue
-                    summary = {
-                        "name": header,
-                        "count": len(numbers),
-                        "sum": round(sum(numbers), 6),
-                        "average": round(sum(numbers) / len(numbers), 6),
-                        "minimum": min(numbers),
-                        "maximum": max(numbers),
-                    }
-                    metrics.append(summary)
-                    if len(metrics) >= MAX_METRICS:
-                        break
+                    sheet_cells = rows * columns
+                    if sheet_cells > MAX_SOURCE_CELLS_PER_SHEET:
+                        raise WorkflowError(
+                            f"'{sheet_name}' 시트는 {MAX_SOURCE_CELLS_PER_SHEET:,}셀을 넘어 "
+                            "한 번에 분석할 수 없습니다."
+                        )
+                    if columns > MAX_TABLE_COLUMNS:
+                        raise WorkflowError(
+                            f"'{sheet_name}' 시트는 {MAX_TABLE_COLUMNS}열을 넘어 "
+                            "한 번에 분석할 수 없습니다."
+                        )
+                    total_source_cells += sheet_cells
+                    if total_source_cells > MAX_SOURCE_CELLS:
+                        raise WorkflowError(
+                            f"표시 시트 전체 분석 범위는 {MAX_SOURCE_CELLS:,}셀까지입니다."
+                        )
+                    sheet_ranges.append(
+                        (worksheet, used, sheet_name, rows, columns, sheet_cells)
+                    )
+
+                metrics = []
+                tables = []
+                charts = []
+                remaining_table_rows = MAX_TOTAL_TABLE_ROWS
+                qualify_metrics = len(visible_sheets) > 1
+                for (
+                    worksheet,
+                    used,
+                    sheet_name,
+                    rows,
+                    columns,
+                    sheet_cells,
+                ) in sheet_ranges:
+                    matrix = self._matrix(used.Value2, rows, columns)
+                    if not matrix or not any(
+                        item not in (None, "") for row in matrix for item in row
+                    ):
+                        continue
+                    raw_headers = matrix[0]
+                    headers = [
+                        str(value).strip() if value not in (None, "") else f"열 {index}"
+                        for index, value in enumerate(raw_headers, 1)
+                    ]
+                    data_rows = matrix[1:]
+                    for column, header in enumerate(headers):
+                        if len(metrics) >= MAX_METRICS:
+                            break
+                        numbers = [
+                            number
+                            for row in data_rows
+                            for number in [self._number(
+                                row[column] if column < len(row) else None
+                            )]
+                            if number is not None
+                        ]
+                        if not numbers:
+                            continue
+                        metric_name = f"{sheet_name}/{header}" if qualify_metrics else header
+                        metrics.append({
+                            "name": metric_name,
+                            "sheet_name": sheet_name,
+                            "column_name": header,
+                            "count": len(numbers),
+                            "sum": round(sum(numbers), 6),
+                            "average": round(sum(numbers) / len(numbers), 6),
+                            "minimum": min(numbers),
+                            "maximum": max(numbers),
+                        })
+                    included_count = min(
+                        len(data_rows), MAX_TABLE_ROWS, remaining_table_rows
+                    )
+                    table_rows = [
+                        (row + [None] * columns)[:columns]
+                        for row in data_rows[:included_count]
+                    ]
+                    remaining_table_rows -= included_count
+                    tables.append({
+                        "name": sheet_name,
+                        "headers": headers,
+                        "rows": table_rows,
+                        "total_rows": max(0, rows - 1),
+                        "included_rows": len(table_rows),
+                        "used_cells": sheet_cells,
+                    })
+                    charts.extend(self._chart_data(
+                        worksheet, MAX_CHARTS - len(charts)
+                    ))
+
+                if not tables:
+                    raise WorkflowError("표시된 Excel 시트에 분석할 데이터가 없습니다.")
                 summary_lines = max(1, min(int(context.get("preferences", {}).get("summary_lines", 8)), 20))
                 insights = [
                     f"{item['name']} 합계는 {item['sum']:,}, 평균은 {item['average']:,}입니다."
@@ -404,26 +480,21 @@ class ExcelSalesAnalyzer:
                 ]
                 if not insights:
                     insights.append("숫자형 열이 없어 표 구조와 원본 행 수를 중심으로 정리했습니다.")
-                table_rows = [
-                    (row + [None] * columns)[:columns]
-                    for row in data_rows[:MAX_TABLE_ROWS]
-                ]
                 product = WorkProductData(
                     title=str(context.get("title") or f"{Path(source_path).stem} 분석"),
                     metrics=metrics,
-                    tables=[{
-                        "name": str(getattr(worksheet, "Name", "Sheet1")),
-                        "headers": headers,
-                        "rows": table_rows,
-                        "total_rows": max(0, rows - 1),
-                        "included_rows": len(table_rows),
-                    }],
-                    charts=self._chart_data(worksheet),
+                    tables=tables,
+                    charts=charts,
                     insights=insights,
                     source_files=[source_path],
                 )
                 return product.to_dict()
             finally:
+                used = None
+                worksheet = None
+                worksheets = None
+                sheet_ranges = []
+                visible_sheets = []
                 workbook = None
                 if lease is not None:
                     lease.cleanup()
@@ -616,10 +687,15 @@ class PowerPointSummaryWriter:
             f"평균 {_format_number(item.get('average'), number_style)}"
             for item in product.metrics[:8]
         ) or "• 숫자형 핵심 지표 없음"
-        table = product.tables[0] if product.tables else {}
+        tables = product.tables
+        table = tables[0] if tables else {}
+        sheet_names = ", ".join(
+            str(item.get("name") or "-") for item in tables[:10]
+        )
+        total_rows = sum(int(item.get("total_rows") or 0) for item in tables)
         table_summary = (
-            f"• 시트: {table.get('name', '-')}\r\n"
-            f"• 전체 데이터 행: {table.get('total_rows', 0):,}\r\n"
+            f"• 분석 시트: {len(tables)}개 ({sheet_names or '-'})\r\n"
+            f"• 전체 데이터 행: {total_rows:,}\r\n"
             f"• 주요 열: {', '.join(str(item) for item in list(table.get('headers') or [])[:10])}"
         )
         insights = "\r\n".join(f"• {item}" for item in product.insights[:8])
@@ -1044,6 +1120,8 @@ class WorkflowExecutor:
                         "valid_common_model": True,
                         "metric_count": len(artifact["metrics"]),
                         "table_count": len(artifact["tables"]),
+                        "sheet_count": len(artifact["tables"]),
+                        "chart_count": len(artifact["charts"]),
                     }
                     stored_artifact = None
                 else:

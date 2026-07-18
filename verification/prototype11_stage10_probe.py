@@ -56,7 +56,7 @@ def _stop_created_processes(baseline):
 def _create_source(path):
     import win32com.client
 
-    application = workbook = sheet = None
+    application = workbook = sheet = cost_sheet = None
     try:
         application = win32com.client.DispatchEx("Excel.Application")
         application.Visible = False
@@ -71,8 +71,17 @@ def _create_source(path):
             ("서울", "박", 12, 1500000),
             ("대전", "최", 5, 600000),
         )
+        cost_sheet = workbook.Worksheets.Add(After=sheet)
+        cost_sheet.Name = "비용"
+        cost_sheet.Range("A1:C4").Value2 = (
+            ("항목", "분기", "비용"),
+            ("인건비", "1분기", 500000),
+            ("임대료", "1분기", 200000),
+            ("광고비", "1분기", 150000),
+        )
         workbook.SaveAs(str(path), FileFormat=51)
     finally:
+        cost_sheet = None
         sheet = None
         if workbook is not None:
             try:
@@ -196,9 +205,19 @@ def _owned_probe():
         word_verified = _verify_word(report_path)
         powerpoint_verified = _verify_powerpoint(presentation_path)
         stored = executor.load(state["workflow_id"])
+        analyzed_tables = (stored.get("work_product") or {}).get("tables", [])
+        analyzed_sheet_names = {table.get("name") for table in analyzed_tables}
+        analyzed_sheet_count = (
+            stored.get("verification_results", {})
+            .get("analyze_excel", {})
+            .get("sheet_count")
+        )
         checks = {
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),
+            "two_tables_created": len(analyzed_tables) == 2,
+            "both_fixture_sheet_names_present": analyzed_sheet_names == {"매출", "비용"},
+            "verification_sheet_count_is_two": analyzed_sheet_count == 2,
             "all_three_steps_succeeded": stored.get("successful_steps") == [
                 "analyze_excel",
                 "create_word_report",
