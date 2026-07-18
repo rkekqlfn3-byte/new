@@ -931,6 +931,56 @@ class Stage10WorkflowTests(unittest.TestCase):
             for insight in result["insights"]
         ))
 
+    def test_excel_relationship_inspection_returns_only_schema_candidates(self):
+        lease = FakeLease()
+        workbook = FakeWorkbook(self.source, [
+            FakeWorksheet("고객", (
+                ("고객ID", "고객명"),
+                (1, "가"),
+                (2, "나"),
+                (3, "다"),
+            )),
+            FakeWorksheet("주문", (
+                ("고객 ID", "주문액"),
+                (1, 100),
+                (2, 200),
+                (3, 300),
+            )),
+        ])
+        analyzer = ExcelSalesAnalyzer(com_runtime=FakeComRuntime())
+        analyzer._open = lambda source_path: (lease, workbook)
+
+        result = analyzer.relationship_candidates({
+            "source_path": str(self.source),
+        })
+
+        self.assertTrue(lease.cleaned)
+        self.assertEqual("candidate_found", result["status"])
+        self.assertEqual(1, result["candidate_count"])
+        self.assertEqual(
+            {
+                "left_sheet": "고객",
+                "right_sheet": "주문",
+                "left_key": "고객ID",
+                "right_key": "고객 ID",
+                "cardinality": "one_to_one",
+                "matched_key_count": 3,
+                "left_distinct_count": 3,
+                "right_distinct_count": 3,
+                "left_coverage": 1.0,
+                "right_coverage": 1.0,
+                "sample_limited": False,
+                "requires_preaggregation": False,
+                "confidence": "high",
+            },
+            result["candidates"][0],
+        )
+        self.assertFalse(result["automatic_execution_allowed"])
+        self.assertFalse(result["raw_cell_values_stored"])
+        self.assertFalse(result["document_paths_reported"])
+        self.assertNotIn("rows", result)
+        self.assertNotIn("source_path", result)
+
     def test_excel_analyzer_never_treats_shared_measure_as_join_key(self):
         result = self._analyze_sheets([
             FakeWorksheet("매출", (
@@ -1425,6 +1475,7 @@ class Stage10WorkflowTests(unittest.TestCase):
         analyzer = StructuredWorkflowIntentAnalyzer()
         context = {"app_type": "excel"}
 
+        inspection = analyzer.analyze("조인 키 후보 알려줘", context)
         joined = analyzer.analyze(
             "고객 시트와 주문 시트를 고객ID로 내부 조인해서 "
             "Word 보고서와 5장짜리 PPT 만들어줘",
@@ -1483,6 +1534,7 @@ class Stage10WorkflowTests(unittest.TestCase):
             context,
         )
 
+        self.assertEqual("inspect_excel_relationships", inspection.operation)
         self.assertEqual(
             {
                 "left_sheet": "고객",

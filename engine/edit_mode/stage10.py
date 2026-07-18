@@ -33,10 +33,14 @@ WORKFLOW_ARTIFACT_OPERATIONS = frozenset({
     "open_recent_workflow_artifact",
     "connect_recent_workflow_artifact",
 })
+WORKFLOW_INSPECTION_OPERATIONS = frozenset({
+    "inspect_excel_relationships",
+})
 WORKFLOW_OPERATIONS = (
     WORKFLOW_EXECUTION_OPERATIONS
     | WORKFLOW_SKILL_OPERATIONS
     | WORKFLOW_ARTIFACT_OPERATIONS
+    | WORKFLOW_INSPECTION_OPERATIONS
 )
 
 
@@ -58,6 +62,17 @@ class StructuredWorkflowIntentAnalyzer:
         "보고서", "리포트", "report", "word", "워드", "한글", "hwp", "hwpx"
     )
     CREATE_SLIDE_TERMS = ("ppt", "파워포인트", "프레젠테이션", "발표자료", "슬라이드")
+    RELATIONSHIP_INSPECTION_TERMS = (
+        "조인 키 후보",
+        "조인 키 찾아",
+        "공통 키 후보",
+        "공통 키 찾아",
+        "연결 키 후보",
+        "조인할 키 찾아",
+        "연결할 키 찾아",
+        "시트 관계 후보",
+        "시트 관계 찾아",
+    )
     RESUME_TERMS = (
         "실패한 워크플로 이어서",
         "실패 단계부터",
@@ -436,6 +451,11 @@ class StructuredWorkflowIntentAnalyzer:
                 "resume_business_workflow",
                 "저장된 성공 단계는 건너뛰고 실패한 문서 워크플로 단계부터 재개",
             )
+        if any(term in command for term in self.RELATIONSHIP_INSPECTION_TERMS):
+            return WorkflowIntent(
+                "inspect_excel_relationships",
+                "현재 Excel의 시트 간 조인 키 후보를 읽기 전용으로 검사",
+            )
         recent_artifact = any(
             term in command for term in self.RECENT_ARTIFACT_TERMS
         )
@@ -606,6 +626,172 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     @staticmethod
     def _path(value) -> str:
         return os.path.normcase(os.path.abspath(str(value or "")))
+
+    @staticmethod
+    def _validated_relationship_inspection(value) -> dict[str, Any]:
+        if not isinstance(value, Mapping) or set(value) != {
+            "status",
+            "candidate_count",
+            "candidates",
+            "automatic_execution_allowed",
+            "raw_cell_values_stored",
+            "document_paths_reported",
+        }:
+            raise Stage10EditError("시트 관계 후보 검사 결과 형식이 올바르지 않습니다.")
+        raw_candidates = value.get("candidates")
+        if not isinstance(raw_candidates, list) or len(raw_candidates) > 10:
+            raise Stage10EditError("시트 관계 후보는 최대 10개여야 합니다.")
+        if (
+            not isinstance(value.get("candidate_count"), int)
+            or isinstance(value.get("candidate_count"), bool)
+        ):
+            raise Stage10EditError("시트 관계 후보 개수 형식이 올바르지 않습니다.")
+        if value.get("automatic_execution_allowed") is not False:
+            raise Stage10EditError("키 후보 검사만으로 조인을 자동 실행할 수 없습니다.")
+        if (
+            value.get("raw_cell_values_stored") is not False
+            or value.get("document_paths_reported") is not False
+        ):
+            raise Stage10EditError("키 후보 결과에는 셀 값이나 파일 경로를 넣을 수 없습니다.")
+        required = {
+            "left_sheet",
+            "right_sheet",
+            "left_key",
+            "right_key",
+            "cardinality",
+            "matched_key_count",
+            "left_distinct_count",
+            "right_distinct_count",
+            "left_coverage",
+            "right_coverage",
+            "sample_limited",
+            "requires_preaggregation",
+            "confidence",
+        }
+        candidates = []
+        identities = set()
+        for raw_candidate in raw_candidates:
+            if not isinstance(raw_candidate, Mapping) or set(raw_candidate) != required:
+                raise Stage10EditError("시트 관계 후보 항목이 불완전합니다.")
+            candidate = dict(raw_candidate)
+            for name in ("left_sheet", "right_sheet", "left_key", "right_key"):
+                text = re.sub(r"\s+", " ", str(candidate.get(name) or "")).strip()
+                if (
+                    not text
+                    or len(text) > 80
+                    or any(ord(character) < 32 for character in text)
+                ):
+                    raise Stage10EditError("시트 관계 후보 이름이 올바르지 않습니다.")
+                candidate[name] = text
+            if candidate["left_sheet"].casefold() == candidate["right_sheet"].casefold():
+                raise Stage10EditError("서로 다른 두 시트의 관계 후보만 허용합니다.")
+            left_key = re.sub(
+                r"[\s_\-]+", "", candidate["left_key"]
+            ).casefold()
+            right_key = re.sub(
+                r"[\s_\-]+", "", candidate["right_key"]
+            ).casefold()
+            if left_key != right_key:
+                raise Stage10EditError("현재 후보 조회는 같은 이름 키만 허용합니다.")
+            identity = (
+                tuple(sorted((
+                    candidate["left_sheet"].casefold(),
+                    candidate["right_sheet"].casefold(),
+                ))),
+                left_key,
+            )
+            if identity in identities:
+                raise Stage10EditError("같은 시트 관계 후보를 중복 표시할 수 없습니다.")
+            identities.add(identity)
+            cardinality = str(candidate.get("cardinality") or "")
+            if cardinality not in {
+                "one_to_one",
+                "one_to_many",
+                "many_to_one",
+                "many_to_many",
+            }:
+                raise Stage10EditError("시트 관계 형태가 올바르지 않습니다.")
+            candidate["cardinality"] = cardinality
+            for name in (
+                "matched_key_count",
+                "left_distinct_count",
+                "right_distinct_count",
+            ):
+                number = candidate.get(name)
+                if (
+                    not isinstance(number, int)
+                    or isinstance(number, bool)
+                    or number < 1
+                ):
+                    raise Stage10EditError("시트 관계 후보 개수는 양의 정수여야 합니다.")
+            if candidate["matched_key_count"] > min(
+                candidate["left_distinct_count"],
+                candidate["right_distinct_count"],
+            ):
+                raise Stage10EditError("겹치는 키 수가 고유 키 수를 넘을 수 없습니다.")
+            for name in ("left_coverage", "right_coverage"):
+                coverage = candidate.get(name)
+                if (
+                    not isinstance(coverage, (int, float))
+                    or isinstance(coverage, bool)
+                ):
+                    raise Stage10EditError("시트 관계 후보 겹침 비율 형식이 올바르지 않습니다.")
+                coverage = float(coverage)
+                if not 0.0 <= coverage <= 1.0:
+                    raise Stage10EditError("시트 관계 후보 겹침 비율이 올바르지 않습니다.")
+                candidate[name] = round(coverage, 4)
+            expected_left_coverage = round(
+                candidate["matched_key_count"]
+                / candidate["left_distinct_count"],
+                4,
+            )
+            expected_right_coverage = round(
+                candidate["matched_key_count"]
+                / candidate["right_distinct_count"],
+                4,
+            )
+            if (
+                candidate["left_coverage"] != expected_left_coverage
+                or candidate["right_coverage"] != expected_right_coverage
+            ):
+                raise Stage10EditError("시트 관계 후보 겹침 비율 검증에 실패했습니다.")
+            if not isinstance(candidate.get("sample_limited"), bool):
+                raise Stage10EditError("시트 관계 후보 표본 상태가 올바르지 않습니다.")
+            if not isinstance(candidate.get("requires_preaggregation"), bool):
+                raise Stage10EditError("시트 관계 후보 집계 필요 형식이 올바르지 않습니다.")
+            if candidate["requires_preaggregation"] is not (
+                cardinality == "many_to_many"
+            ):
+                raise Stage10EditError("시트 관계 후보 집계 필요 상태가 올바르지 않습니다.")
+            confidence = str(candidate.get("confidence") or "")
+            expected_confidence = (
+                "high"
+                if (
+                    not candidate["sample_limited"]
+                    and min(
+                        candidate["left_coverage"],
+                        candidate["right_coverage"],
+                    ) >= 0.8
+                    and not candidate["requires_preaggregation"]
+                )
+                else "review_required"
+            )
+            if confidence != expected_confidence:
+                raise Stage10EditError("시트 관계 후보 신뢰 상태가 올바르지 않습니다.")
+            candidate["confidence"] = confidence
+            candidates.append(candidate)
+        status = str(value.get("status") or "")
+        expected_status = "candidate_found" if candidates else "no_candidate"
+        if status != expected_status or int(value.get("candidate_count") or 0) != len(candidates):
+            raise Stage10EditError("시트 관계 후보 개수 검증에 실패했습니다.")
+        return {
+            "status": status,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "automatic_execution_allowed": False,
+            "raw_cell_values_stored": False,
+            "document_paths_reported": False,
+        }
 
     @staticmethod
     def _report_preview_lines(
@@ -896,6 +1082,70 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             },
         )
 
+    def _prepare_relationship_inspection_action(
+        self,
+        request: EditRequest,
+        context: Mapping[str, Any],
+        intent: WorkflowIntent,
+    ) -> EditPreparedAction:
+        source_path = self._path(self.session.get("file_path"))
+        source_fingerprint = file_fingerprint(source_path)
+        preview = {
+            "description": intent.description,
+            "before": "현재 표시 시트의 머리글·키 겹침·고유성만 검사",
+            "after": (
+                "후보 시트·키·관계 형태·표본 제한 여부만 표시하고 "
+                "셀 값·파일 경로는 보관하지 않음"
+            ),
+            "target": str(context.get("document_name") or Path(source_path).name),
+            "estimated_changes": 0,
+            "noop": False,
+        }
+        return EditPreparedAction(
+            action_id=f"edit-workflow-relationship-{uuid.uuid4().hex}",
+            request_id=request.request_id,
+            edit_session_id=request.edit_session_id,
+            app_type="excel",
+            operation=intent.operation,
+            target={
+                "context_target": dict(context.get("target") or {}),
+                "selection_reference": context.get("selection_reference"),
+                "native_target": source_path,
+            },
+            arguments={
+                "source_path": source_path,
+                "source_fingerprint": source_fingerprint,
+                "preview": preview,
+                "read_only_source": True,
+            },
+            preconditions=(
+                {
+                    "kind": "document_fingerprint",
+                    "value": context["document_fingerprint"],
+                },
+                {
+                    "kind": "context_fingerprint",
+                    "value": context["context_fingerprint"],
+                },
+                {"kind": "source_fingerprint", "value": source_fingerprint},
+            ),
+            risk_level=RiskLevel.LOW,
+            requires_approval=False,
+            verification_plan={
+                "method": "source_fingerprint_and_schema_only_relationships"
+            },
+            rollback_plan={"strategy": "no_document_or_file_change"},
+            context_fingerprint=str(context["context_fingerprint"]),
+            metadata={
+                "preview": preview,
+                "estimated_changes": 0,
+                "workflow_relationship_inspection": True,
+                "raw_cell_values_stored": False,
+                "document_paths_reported": False,
+                "rewrite_supported": False,
+            },
+        )
+
     def prepare(
         self,
         request: EditRequest,
@@ -912,6 +1162,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             )
         if intent.operation in WORKFLOW_ARTIFACT_OPERATIONS:
             return self._prepare_recent_artifact_action(
+                request,
+                context,
+                intent,
+            )
+        if intent.operation in WORKFLOW_INSPECTION_OPERATIONS:
+            return self._prepare_relationship_inspection_action(
                 request,
                 context,
                 intent,
@@ -1065,6 +1321,40 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def execute(self, prepared_action: EditPreparedAction) -> Mapping[str, Any]:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().execute(prepared_action)
+        if prepared_action.operation in WORKFLOW_INSPECTION_OPERATIONS:
+            source_path = self._path(
+                prepared_action.arguments.get("source_path")
+            )
+            expected_fingerprint = dict(
+                prepared_action.arguments.get("source_fingerprint") or {}
+            )
+            if (
+                source_path != self._path(self.session.get("file_path"))
+                or file_fingerprint(source_path) != expected_fingerprint
+            ):
+                raise Stage10EditError(
+                    "관계 후보 검사 준비 이후 Excel 원본이 바뀌어 중단했습니다."
+                )
+            inspector = getattr(
+                self.workflow_executor.analyzer,
+                "relationship_candidates",
+                None,
+            )
+            if not callable(inspector):
+                raise Stage10EditError("Excel 관계 후보 검사기를 사용할 수 없습니다.")
+            inspection = self._validated_relationship_inspection(inspector({
+                "source_path": source_path,
+            }))
+            if file_fingerprint(source_path) != expected_fingerprint:
+                raise Stage10EditError(
+                    "관계 후보 검사 중 Excel 원본 파일이 바뀌어 결과를 폐기했습니다."
+                )
+            return {
+                **inspection,
+                "changed": False,
+                "verified": True,
+                "source_unchanged": True,
+            }
         if prepared_action.operation in WORKFLOW_ARTIFACT_OPERATIONS:
             artifact = dict(prepared_action.arguments.get("artifact") or {})
             path = str(artifact.get("path") or "")
@@ -1165,6 +1455,34 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     ) -> bool:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().verify(prepared_action, result)
+        if prepared_action.operation in WORKFLOW_INSPECTION_OPERATIONS:
+            try:
+                inspection = self._validated_relationship_inspection({
+                    key: result.get(key)
+                    for key in (
+                        "status",
+                        "candidate_count",
+                        "candidates",
+                        "automatic_execution_allowed",
+                        "raw_cell_values_stored",
+                        "document_paths_reported",
+                    )
+                })
+                source_unchanged = file_fingerprint(
+                    prepared_action.arguments.get("source_path")
+                ) == dict(
+                    prepared_action.arguments.get("source_fingerprint") or {}
+                )
+            except Exception:
+                return False
+            return bool(
+                result.get("verified") is True
+                and result.get("changed") is False
+                and result.get("source_unchanged") is True
+                and source_unchanged
+                and inspection["candidate_count"]
+                == int(result.get("candidate_count") or 0)
+            )
         if prepared_action.operation in WORKFLOW_ARTIFACT_OPERATIONS:
             artifact = dict(prepared_action.arguments.get("artifact") or {})
             return bool(

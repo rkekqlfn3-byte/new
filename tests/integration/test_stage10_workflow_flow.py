@@ -175,6 +175,32 @@ class Analyzer:
             )
         return value
 
+    def relationship_candidates(self, context):
+        self.calls += 1
+        self.contexts.append(dict(context))
+        return {
+            "status": "candidate_found",
+            "candidate_count": 1,
+            "candidates": [{
+                "left_sheet": "고객",
+                "right_sheet": "주문",
+                "left_key": "고객ID",
+                "right_key": "고객ID",
+                "cardinality": "many_to_many",
+                "matched_key_count": 2,
+                "left_distinct_count": 2,
+                "right_distinct_count": 2,
+                "left_coverage": 1.0,
+                "right_coverage": 1.0,
+                "sample_limited": False,
+                "requires_preaggregation": True,
+                "confidence": "review_required",
+            }],
+            "automatic_execution_allowed": False,
+            "raw_cell_values_stored": False,
+            "document_paths_reported": False,
+        }
+
 
 class Writer:
     def __init__(self, fail_times=0, slide_count=None):
@@ -283,6 +309,54 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             confirmation_id=confirmation["confirmation_id"],
             option_id="cancel",
         )
+
+    def test_relationship_candidates_are_read_only_and_never_auto_execute(self):
+        inspected = self.command(
+            "시트 관계 후보 찾아줘",
+            "stage10-relationship-inspection",
+        )
+
+        self.assertTrue(inspected["success"], inspected)
+        self.assertEqual(
+            "inspect_excel_relationships",
+            inspected["data"]["operation"],
+        )
+        self.assertIn("고객 ↔ 주문", inspected["message"])
+        self.assertIn("양쪽 사전 집계 필요", inspected["message"])
+        self.assertIn("별도 미리보기", inspected["message"])
+        self.assertNotIn(str(self.source), inspected["message"])
+        self.assertNotIn("서울", inspected["message"])
+        self.assertEqual(1, self.analyzer.calls)
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.hwp.calls)
+        self.assertEqual(0, self.ppt.calls)
+        self.assertEqual([], list(self.executor.store_dir.glob("*.json")))
+        self.assertEqual("ready", self.controller.status()["session"]["state"])
+
+    def test_relationship_inspection_rejects_auto_execution_claim(self):
+        cases = []
+        unsafe_auto = Analyzer().relationship_candidates({
+            "source_path": str(self.source),
+        })
+        unsafe_auto["automatic_execution_allowed"] = True
+        cases.append((unsafe_auto, "자동 실행할 수 없습니다"))
+        unsafe_counts = Analyzer().relationship_candidates({
+            "source_path": str(self.source),
+        })
+        unsafe_counts["candidates"][0]["matched_key_count"] = 3
+        cases.append((unsafe_counts, "고유 키 수를 넘을 수 없습니다"))
+
+        for index, (unsafe, message) in enumerate(cases, 1):
+            self.analyzer.relationship_candidates = lambda _context, value=unsafe: value
+            blocked = self.command(
+                "공통 키 후보 알려줘",
+                f"stage10-unsafe-relationship-inspection-{index}",
+            )
+            with self.subTest(message=message):
+                self.assertFalse(blocked["success"])
+                self.assertIn(message, blocked["message"])
+        self.assertEqual(0, self.word.calls)
+        self.assertEqual(0, self.ppt.calls)
 
     def test_cancelled_preview_creates_no_state_and_is_not_resumable(self):
         preview = self.command(

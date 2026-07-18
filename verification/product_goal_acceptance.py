@@ -83,6 +83,7 @@ PROBE_SPECS = {
         "probe": "prototype11_stage10_document_workflow",
         "report_format": "word",
         "required_checks": (
+            "relationship_inspection_verified",
             "powerpoint_formatting_verified",
             "bounded_pivot_summaries_created",
             "explicit_join_verified",

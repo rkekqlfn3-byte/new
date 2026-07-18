@@ -82,11 +82,11 @@ def _create_source(path):
         cost_sheet = workbook.Worksheets.Add(After=sheet)
         cost_sheet.Name = "비용"
         cost_sheet.Range("A1:D5").Value2 = (
-            ("참조항목ID", "항목", "분기", "비용"),
-            (1, "인건비", "1분기", 300000),
-            (1, "교통비", "1분기", 200000),
-            (3, "임대료", "1분기", 200000),
-            (4, "광고비", "1분기", 150000),
+            ("참조항목ID", "항목", "담당자", "비용"),
+            (1, "인건비", "김", 300000),
+            (1, "교통비", "정", 200000),
+            (3, "임대료", "박", 200000),
+            (4, "광고비", "최", 150000),
         )
         workbook.SaveAs(str(path), FileFormat=51)
     finally:
@@ -293,9 +293,27 @@ def _owned_probe(report_format="word", progress=None):
             raise RuntimeError("원본 생성용 Excel 프로세스가 종료되지 않았습니다.")
         source_before = file_fingerprint(source)
 
-        stage = "prepare_approval_state"
+        stage = "inspect_relationship_candidates"
         _publish_progress(progress, stage)
         executor = WorkflowExecutor(temp_dir / "workflow-state")
+        inspection_entries_before = {
+            path.name for path in temp_dir.iterdir()
+        }
+        relationship_inspection = executor.analyzer.relationship_candidates({
+            "source_path": str(source),
+        })
+        inspection_entries_after = {
+            path.name for path in temp_dir.iterdir()
+        }
+        relationship_inspection_created_nothing = (
+            inspection_entries_before == inspection_entries_after
+        )
+        relationship_inspection_source_unchanged = (
+            file_fingerprint(source) == source_before
+        )
+
+        stage = "prepare_approval_state"
+        _publish_progress(progress, stage)
         expected_formatting = {
             "emphasis_style": "bold",
             "font_scale": "larger",
@@ -430,6 +448,32 @@ def _owned_probe(report_format="word", progress=None):
             else [dict(item) for item in raw_aggregations]
         )
         checks = {
+            "relationship_inspection_verified": (
+                relationship_inspection == {
+                    "status": "candidate_found",
+                    "candidate_count": 1,
+                    "candidates": [{
+                        "left_sheet": "비용",
+                        "right_sheet": "매출",
+                        "left_key": "담당자",
+                        "right_key": "담당자",
+                        "cardinality": "one_to_one",
+                        "matched_key_count": 4,
+                        "left_distinct_count": 4,
+                        "right_distinct_count": 5,
+                        "left_coverage": 1.0,
+                        "right_coverage": 0.8,
+                        "sample_limited": False,
+                        "requires_preaggregation": False,
+                        "confidence": "high",
+                    }],
+                    "automatic_execution_allowed": False,
+                    "raw_cell_values_stored": False,
+                    "document_paths_reported": False,
+                }
+                and relationship_inspection_created_nothing
+                and relationship_inspection_source_unchanged
+            ),
             "approval_preview_created_nothing": preview_created_nothing,
             "common_model_verified": bool(stored.get("work_product")),
             "two_source_tables_and_one_join_created": (

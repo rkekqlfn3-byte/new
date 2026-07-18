@@ -1199,7 +1199,7 @@ class ExcelSalesAnalyzer:
                     ):
                         continue
                     left_column, display_header = left_headers[header_key][0]
-                    right_column, _ = right_headers[header_key][0]
+                    right_column, right_display_header = right_headers[header_key][0]
                     left_profile = cls._relation_column_profile(
                         left["rows"], left_column
                     )
@@ -1245,6 +1245,7 @@ class ExcelSalesAnalyzer:
                     relationship = {
                         "other_sheet": right["sheet_name"],
                         "column": str(display_header),
+                        "other_column": str(right_display_header),
                         "cardinality": cardinality,
                         "matched_key_count": matched,
                         "left_distinct_count": len(left_values),
@@ -1273,6 +1274,103 @@ class ExcelSalesAnalyzer:
                     )
                     relationship_count += 1
         return insights
+
+    def relationship_candidates(
+        self,
+        context: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Return schema-only join-key candidates without persisting cell values."""
+        product = self.run({
+            "source_path": context["source_path"],
+            "title": "Excel 시트 관계 후보 검사",
+            "preferences": {"summary_lines": 20},
+            "join_plan": None,
+            "source_scope": None,
+        })
+        candidates = []
+        for table in list(product.get("tables") or []):
+            if table.get("derived"):
+                continue
+            left_sheet = str(table.get("name") or "").strip()
+            for relationship in list(table.get("relationships") or []):
+                item = dict(relationship or {})
+                right_sheet = str(item.get("other_sheet") or "").strip()
+                column = str(item.get("column") or "").strip()
+                other_column = str(
+                    item.get("other_column") or column
+                ).strip()
+                cardinality = str(item.get("cardinality") or "").strip()
+                if (
+                    not left_sheet
+                    or not right_sheet
+                    or not column
+                    or not other_column
+                    or cardinality not in {
+                        "one_to_one",
+                        "one_to_many",
+                        "many_to_one",
+                        "many_to_many",
+                    }
+                ):
+                    continue
+                left_coverage = float(item.get("left_coverage") or 0.0)
+                right_coverage = float(item.get("right_coverage") or 0.0)
+                sample_limited = bool(item.get("sample_limited"))
+                requires_preaggregation = cardinality == "many_to_many"
+                confidence = (
+                    "high"
+                    if (
+                        not sample_limited
+                        and min(left_coverage, right_coverage) >= 0.8
+                        and not requires_preaggregation
+                    )
+                    else "review_required"
+                )
+                candidates.append({
+                    "left_sheet": left_sheet,
+                    "right_sheet": right_sheet,
+                    "left_key": column,
+                    "right_key": other_column,
+                    "cardinality": cardinality,
+                    "matched_key_count": int(
+                        item.get("matched_key_count") or 0
+                    ),
+                    "left_distinct_count": int(
+                        item.get("left_distinct_count") or 0
+                    ),
+                    "right_distinct_count": int(
+                        item.get("right_distinct_count") or 0
+                    ),
+                    "left_coverage": round(left_coverage, 4),
+                    "right_coverage": round(right_coverage, 4),
+                    "sample_limited": sample_limited,
+                    "requires_preaggregation": requires_preaggregation,
+                    "confidence": confidence,
+                })
+        cardinality_rank = {
+            "one_to_one": 0,
+            "one_to_many": 1,
+            "many_to_one": 1,
+            "many_to_many": 2,
+        }
+        candidates.sort(key=lambda item: (
+            item["sample_limited"],
+            cardinality_rank[item["cardinality"]],
+            -min(item["left_coverage"], item["right_coverage"]),
+            -item["matched_key_count"],
+            item["left_sheet"].casefold(),
+            item["right_sheet"].casefold(),
+            item["left_key"].casefold(),
+        ))
+        candidates = candidates[:MAX_RELATIONSHIPS]
+        return {
+            "status": "candidate_found" if candidates else "no_candidate",
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "automatic_execution_allowed": False,
+            "raw_cell_values_stored": False,
+            "document_paths_reported": False,
+        }
 
     @classmethod
     def _pivot_insights(cls, profiles) -> list[str]:

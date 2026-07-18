@@ -785,6 +785,51 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             "확인해 열고 새 편집 대상으로 연결했습니다. 다음 편집 명령은 이 "
             "문서의 현재 선택 영역에 적용됩니다."
         )
+    if prepared.operation == "inspect_excel_relationships":
+        observations = result.observations
+        candidates = [
+            dict(item)
+            for item in (observations.get("candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        if not candidates:
+            return (
+                "현재 Excel을 읽기 전용으로 검사했지만 안전 기준을 충족하는 "
+                "공통 키 후보를 찾지 못했습니다. 셀 값과 파일 경로는 저장하지 "
+                "않았고 Excel 원본도 변경하지 않았습니다."
+            )
+        cardinality_labels = {
+            "one_to_one": "1:1",
+            "one_to_many": "1:N",
+            "many_to_one": "N:1",
+            "many_to_many": "N:M",
+        }
+        lines = [
+            f"현재 Excel에서 조인 키 후보 {len(candidates)}개를 읽기 전용으로 "
+            "확인했습니다."
+        ]
+        for index, candidate in enumerate(candidates, 1):
+            flags = []
+            if candidate.get("requires_preaggregation"):
+                flags.append("양쪽 사전 집계 필요")
+            if candidate.get("sample_limited"):
+                flags.append("표본 제한")
+            if candidate.get("confidence") != "high":
+                flags.append("사용자 검토 필요")
+            suffix = f" · {' · '.join(flags)}" if flags else ""
+            lines.append(
+                f"{index}. {candidate.get('left_sheet')} ↔ "
+                f"{candidate.get('right_sheet')} · 키 "
+                f"{candidate.get('left_key')} · "
+                f"{cardinality_labels.get(candidate.get('cardinality'), '?')} · "
+                f"겹치는 키 {candidate.get('matched_key_count', 0)}개{suffix}"
+            )
+        lines.append(
+            "셀 값과 파일 경로는 저장하지 않았고 Excel 원본도 변경하지 "
+            "않았습니다. 실제 조인은 두 시트·양쪽 키·내부/왼쪽 방식을 말한 뒤 "
+            "별도 미리보기를 승인해야 합니다."
+        )
+        return "\n".join(lines)
     if prepared.operation in {"create_business_workflow", "resume_business_workflow"}:
         observations = result.observations
         outputs = dict(observations.get("output_paths") or {})
