@@ -288,7 +288,13 @@ btnToggleTerm.addEventListener('click', () => {
         window.resizeBy(-320, 0);
     }
     const rightToggle = document.querySelector('.toggle-right');
-    if (rightToggle) rightToggle.innerText = termVisible ? '›' : '‹';
+    terminalPane.setAttribute('aria-hidden', String(!termVisible));
+    if (rightToggle) {
+        rightToggle.innerText = termVisible ? '›' : '‹';
+        rightToggle.setAttribute('aria-expanded', String(termVisible));
+        rightToggle.setAttribute('aria-label', termVisible ? '터미널 닫기' : '터미널 열기');
+        rightToggle.title = termVisible ? '터미널 닫기' : '터미널 열기';
+    }
 });
 
 eel.expose(log_terminal);
@@ -313,21 +319,22 @@ const btnSaveMemory = document.getElementById('btn-save-memory');
 
 window.switchSidebarTab = function(target) {
     if(!chatHistoryTab || !userMemoryTab) return;
+    const showHistory = target === 'chat-history-tab';
     chatHistoryTab.classList.remove('active');
     userMemoryTab.classList.remove('active');
-    chatHistoryTab.setAttribute('aria-selected', 'false');
-    userMemoryTab.setAttribute('aria-selected', 'false');
-    paneHistory.style.display = 'none';
-    paneMemory.style.display = 'none';
+    chatHistoryTab.setAttribute('aria-selected', String(showHistory));
+    userMemoryTab.setAttribute('aria-selected', String(!showHistory));
+    chatHistoryTab.tabIndex = showHistory ? 0 : -1;
+    userMemoryTab.tabIndex = showHistory ? -1 : 0;
+    paneHistory.hidden = !showHistory;
+    paneMemory.hidden = showHistory;
+    paneHistory.style.display = showHistory ? 'block' : 'none';
+    paneMemory.style.display = showHistory ? 'none' : 'flex';
 
-    if (target === 'chat-history-tab') {
+    if (showHistory) {
         chatHistoryTab.classList.add('active');
-        chatHistoryTab.setAttribute('aria-selected', 'true');
-        paneHistory.style.display = 'block';
     } else {
         userMemoryTab.classList.add('active');
-        userMemoryTab.setAttribute('aria-selected', 'true');
-        paneMemory.style.display = 'flex';
     }
 };
 
@@ -335,12 +342,20 @@ window.switchMemoryTab = function(target, clickedTab) {
     const tabs = document.querySelectorAll('.memory-subtab');
     const boxes = document.querySelectorAll('.memory-box');
 
-    tabs.forEach(t => t.classList.remove('active'));
-    boxes.forEach(b => { b.style.display = 'none'; b.classList.remove('active'); });
+    tabs.forEach(t => {
+        t.classList.remove('active');
+        t.setAttribute('aria-pressed', String(t === clickedTab));
+    });
+    boxes.forEach(b => {
+        b.hidden = true;
+        b.style.display = 'none';
+        b.classList.remove('active');
+    });
 
     if (clickedTab) clickedTab.classList.add('active');
     const activeBox = document.getElementById(target);
     if (activeBox) {
+        activeBox.hidden = false;
         activeBox.style.display = 'block';
         activeBox.classList.add('active');
     }

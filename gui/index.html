@@ -27,16 +27,16 @@
                 <div class="header-actions">
                     <button id="btn_refresh" class="btn btn-refresh" title="자비스 완전 재부팅">🔄 재부팅</button>
                     <button id="btn_ai_settings" class="btn btn-ai-settings" title="AI 두뇌 설정" aria-haspopup="dialog" aria-controls="ai-settings-modal">⚙️ AI 설정</button>
-                    <button id="btn_toggle_term" style="display: none;"></button>
+                    <button id="btn_toggle_term" type="button" aria-hidden="true" tabindex="-1" style="display: none;"></button>
                 </div>
             </div>
         </header>
 
         <div class="main-content">
-            <aside class="sidebar glass-panel">
+            <aside id="sidebar-panel" class="sidebar glass-panel" aria-hidden="false">
                 <div class="sidebar-tabs" role="tablist" aria-label="사이드바 보기">
-                    <button id="tab-chat-history" class="sidebar-tab active" data-target="chat-history-tab" role="tab" aria-selected="true" aria-controls="chat-history-tab">💬 대화 기록</button>
-                    <button id="tab-user-memory" class="sidebar-tab" data-target="user-memory-tab" role="tab" aria-selected="false" aria-controls="user-memory-tab">🧠 영구 기억</button>
+                    <button id="tab-chat-history" class="sidebar-tab active" data-target="chat-history-tab" role="tab" aria-selected="true" aria-controls="chat-history-tab" tabindex="0">💬 대화 기록</button>
+                    <button id="tab-user-memory" class="sidebar-tab" data-target="user-memory-tab" role="tab" aria-selected="false" aria-controls="user-memory-tab" tabindex="-1">🧠 영구 기억</button>
                 </div>
                 
                 <div id="chat-history-tab" class="sidebar-pane active" role="tabpanel" aria-labelledby="tab-chat-history">
@@ -46,23 +46,39 @@
                     </ul>
                 </div>
                 
-                <div id="user-memory-tab" class="sidebar-pane" role="tabpanel" aria-labelledby="tab-user-memory" style="display: none; flex-direction: column; height: 100%;">
-                    <div class="memory-subtabs">
-                        <button class="memory-subtab active" data-memory-target="mem-user">👤 정보</button>
-                        <button class="memory-subtab" data-memory-target="mem-rules">📝 규칙</button>
-                        <button class="memory-subtab" data-memory-target="mem-others">💾 기타</button>
+                <div id="user-memory-tab" class="sidebar-pane" role="tabpanel" aria-labelledby="tab-user-memory" hidden style="display: none; flex-direction: column; height: 100%;">
+                    <div class="memory-subtabs" role="group" aria-label="영구 기억 종류">
+                        <button class="memory-subtab active" type="button" data-memory-target="mem-user" aria-pressed="true" aria-controls="mem-user">👤 정보</button>
+                        <button class="memory-subtab" type="button" data-memory-target="mem-rules" aria-pressed="false" aria-controls="mem-rules">📝 규칙</button>
+                        <button class="memory-subtab" type="button" data-memory-target="mem-others" aria-pressed="false" aria-controls="mem-others">💾 기타</button>
                     </div>
                     
-                    <textarea id="mem-user" class="premium-input memory-box active" style="flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="사용자 이름, 직업 등 기본 정보를 적어주세요."></textarea>
-                    <textarea id="mem-rules" class="premium-input memory-box" style="display: none; flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="비서가 대답할 때 지켜야 할 규칙이나 명령 방식 등을 적어주세요."></textarea>
-                    <textarea id="mem-others" class="premium-input memory-box" style="display: none; flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="그 외 자유롭게 기억시킬 내용을 적어주세요."></textarea>
+                    <textarea id="mem-user" class="premium-input memory-box active" aria-label="사용자 정보 기억" style="flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="사용자 이름, 직업 등 기본 정보를 적어주세요."></textarea>
+                    <textarea id="mem-rules" class="premium-input memory-box" aria-label="응답 규칙 기억" hidden style="display: none; flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="비서가 대답할 때 지켜야 할 규칙이나 명령 방식 등을 적어주세요."></textarea>
+                    <textarea id="mem-others" class="premium-input memory-box" aria-label="기타 기억" hidden style="display: none; flex: 1; resize: none; margin-bottom: 10px; font-size: 13px;" placeholder="그 외 자유롭게 기억시킬 내용을 적어주세요."></textarea>
                     
                     <button id="btn-save-memory" class="premium-btn primary w-full">기억 저장하기</button>
                 </div>
             </aside>
-            <button id="btn-toggle-sidebar" class="panel-toggle toggle-left" title="사이드바 열기/닫기">‹</button>
+            <button
+                id="btn-toggle-sidebar"
+                class="panel-toggle toggle-left"
+                type="button"
+                title="사이드바 접기"
+                aria-label="사이드바 접기"
+                aria-controls="sidebar-panel"
+                aria-expanded="true"
+            >‹</button>
             <div class="chat-section">
-                <button id="btn-toggle-terminal-pane" class="panel-toggle toggle-right" title="터미널 열기/닫기">‹</button>
+                <button
+                    id="btn-toggle-terminal-pane"
+                    class="panel-toggle toggle-right"
+                    type="button"
+                    title="터미널 열기"
+                    aria-label="터미널 열기"
+                    aria-controls="terminal-pane"
+                    aria-expanded="false"
+                >‹</button>
                 <section id="edit-target-bar" class="edit-target-bar hidden-input" aria-live="polite">
                     <span id="edit-target-dot" class="edit-target-dot" aria-hidden="true"></span>
                     <span id="edit-target-state" class="edit-target-state">대상 확인</span>
@@ -167,7 +183,7 @@
                 </footer>
             </div>
 
-            <div id="terminal-pane" class="terminal-pane">
+            <div id="terminal-pane" class="terminal-pane" role="log" aria-live="polite" aria-label="실행 터미널 기록" aria-hidden="true">
                 <div class="terminal-line">[System] 터미널 초기화 완료...</div>
             </div>
         </div>

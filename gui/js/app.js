@@ -21,8 +21,22 @@ if (restartButton) {
     });
 }
 
-document.querySelectorAll('.sidebar-tab[data-target]').forEach(button => {
+const sidebarTabs = Array.from(document.querySelectorAll('.sidebar-tab[data-target]'));
+sidebarTabs.forEach((button, index) => {
     button.addEventListener('click', () => switchSidebarTab(button.dataset.target));
+    button.addEventListener('keydown', event => {
+        const keys = {
+            ArrowRight: (index + 1) % sidebarTabs.length,
+            ArrowLeft: (index - 1 + sidebarTabs.length) % sidebarTabs.length,
+            Home: 0,
+            End: sidebarTabs.length - 1,
+        };
+        if (!(event.key in keys)) return;
+        event.preventDefault();
+        const next = sidebarTabs[keys[event.key]];
+        switchSidebarTab(next.dataset.target);
+        next.focus({ preventScroll: true });
+    });
 });
 
 document.querySelectorAll('.memory-subtab[data-memory-target]').forEach(button => {
@@ -41,7 +55,17 @@ if (sidebarToggle) {
         const sidebar = document.querySelector('.sidebar');
         if (!sidebar) return;
         sidebar.classList.toggle('collapsed');
-        sidebarToggle.textContent = sidebar.classList.contains('collapsed') ? '›' : '‹';
+        const expanded = !sidebar.classList.contains('collapsed');
+        sidebarToggle.textContent = expanded ? '‹' : '›';
+        sidebarToggle.setAttribute('aria-expanded', String(expanded));
+        sidebarToggle.setAttribute('aria-label', expanded ? '사이드바 접기' : '사이드바 펼치기');
+        sidebarToggle.title = expanded ? '사이드바 접기' : '사이드바 펼치기';
+        sidebar.setAttribute('aria-hidden', String(!expanded));
+        if (expanded) {
+            sidebar.removeAttribute('inert');
+        } else {
+            sidebar.setAttribute('inert', '');
+        }
     });
 }
 

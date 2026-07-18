@@ -156,9 +156,44 @@ class AccessibilityContractTests(unittest.TestCase):
         self.assertIn('id="chat-area" role="log" aria-live="polite"', self.html)
         for label in (
             "추가 기능 메뉴", "이미지 파일 첨부", "요청 전송",
-            "현재 실행 취소", "자비스에게 요청 입력",
+            "현재 실행 취소", "자비스에게 요청 입력", "사이드바 접기",
+            "터미널 열기", "실행 터미널 기록",
         ):
             self.assertIn(f'aria-label="{label}"', self.html)
+
+    def test_sidebar_tabs_and_panel_toggles_have_keyboard_state_contract(self):
+        app = read_gui_script("app.js")
+        controller = read_gui_script("chat/controller.js")
+        self.assertIn('aria-controls="sidebar-panel"', self.html)
+        self.assertIn('aria-controls="terminal-pane"', self.html)
+        self.assertIn('aria-expanded="true"', self.html)
+        self.assertIn('aria-expanded="false"', self.html)
+        self.assertIn('aria-hidden="true"', self.html)
+        self.assertIn('aria-selected="true"', self.html)
+        self.assertIn('tabindex="-1"', self.html)
+        self.assertIn("const sidebarTabs = Array.from", app)
+        self.assertIn("ArrowRight:", app)
+        self.assertIn("ArrowLeft:", app)
+        self.assertIn("next.focus({ preventScroll: true })", app)
+        self.assertIn("sidebar.setAttribute('aria-hidden', String(!expanded))", app)
+        self.assertIn("sidebar.removeAttribute('inert')", app)
+        self.assertIn("sidebar.setAttribute('inert', '')", app)
+        self.assertIn("chatHistoryTab.tabIndex = showHistory ? 0 : -1", controller)
+        self.assertIn("userMemoryTab.tabIndex = showHistory ? -1 : 0", controller)
+        self.assertIn("paneMemory.hidden = showHistory", controller)
+        self.assertIn("rightToggle.setAttribute('aria-expanded'", controller)
+        self.assertIn("terminalPane.setAttribute('aria-hidden'", controller)
+
+    def test_memory_view_exposes_selected_toggle_and_named_textboxes(self):
+        controller = read_gui_script("chat/controller.js")
+        self.assertIn('role="group" aria-label="영구 기억 종류"', self.html)
+        self.assertIn('aria-pressed="true" aria-controls="mem-user"', self.html)
+        self.assertEqual(2, self.html.count('aria-pressed="false"'))
+        for label in ("사용자 정보 기억", "응답 규칙 기억", "기타 기억"):
+            self.assertIn(f'aria-label="{label}"', self.html)
+        self.assertIn("t.setAttribute('aria-pressed', String(t === clickedTab))", controller)
+        self.assertIn("b.hidden = true", controller)
+        self.assertIn("activeBox.hidden = false", controller)
 
     def test_dialogs_trap_focus_close_with_escape_and_restore_origin(self):
         self.assertEqual(5, self.html.count('class="modal" role="dialog"'))
