@@ -222,15 +222,55 @@ class StructuredWorkflowIntentAnalyzer:
             if join_type_text in {"내부", "이너", "inner"}
             else "left"
         )
+        aggregation = None
+        if "집계" in raw:
+            aggregation_match = re.search(
+                rf"(?P<sheet>{token})\s*시트의\s*"
+                rf"(?P<column>{token})\s*(?:열\s*)?(?:을|를)\s*"
+                r"(?:합계|합산)(?:로)?\s*집계",
+                raw,
+                re.IGNORECASE,
+            )
+            if aggregation_match is None:
+                return {
+                    "join_requested": True,
+                    "join_plan": None,
+                    "join_error": (
+                        "집계 조인은 '주문 시트의 매출을 합계 집계해서'처럼 "
+                        "오른쪽 시트와 숫자 열을 정확히 지정해주세요."
+                    ),
+                }
+            aggregation_sheet = cls._join_token(
+                aggregation_match.group("sheet")
+            )
+            right_sheet = cls._join_token(pair.group("right"))
+            if aggregation_sheet.casefold() != right_sheet.casefold():
+                return {
+                    "join_requested": True,
+                    "join_plan": None,
+                    "join_error": (
+                        "현재 집계 조인은 오른쪽 시트의 숫자 열 합계만 "
+                        "지원합니다. 조인할 오른쪽 시트명을 다시 확인해주세요."
+                    ),
+                }
+            aggregation = {
+                "column": cls._join_token(
+                    aggregation_match.group("column")
+                ),
+                "function": "sum",
+            }
+        plan = {
+            "left_sheet": cls._join_token(pair.group("left")),
+            "right_sheet": cls._join_token(pair.group("right")),
+            "left_key": left_key,
+            "right_key": right_key,
+            "join_type": join_type,
+        }
+        if aggregation is not None:
+            plan["right_aggregation"] = aggregation
         return {
             "join_requested": True,
-            "join_plan": {
-                "left_sheet": cls._join_token(pair.group("left")),
-                "right_sheet": cls._join_token(pair.group("right")),
-                "left_key": left_key,
-                "right_key": right_key,
-                "join_type": join_type,
-            },
+            "join_plan": plan,
         }
 
     @classmethod
@@ -387,9 +427,19 @@ class StructuredWorkflowIntentAnalyzer:
                         f"{join_plan['left_key']} ↔ "
                         f"{join_plan['right_key']} 키 매핑으로"
                     )
+                aggregation = dict(
+                    join_plan.get("right_aggregation") or {}
+                )
+                aggregation_description = ""
+                if aggregation:
+                    aggregation_description = (
+                        f"{join_plan['right_sheet']}/"
+                        f"{aggregation['column']} 합계 집계 후 "
+                    )
                 description = (
                     f"{join_plan['left_sheet']}·{join_plan['right_sheet']} 시트를 "
-                    f"{key_description} {join_label} 조인 후 " + description
+                    f"{key_description} {aggregation_description}"
+                    f"{join_label} 조인 후 " + description
                 )
             return WorkflowIntent(
                 "create_business_workflow",
@@ -755,10 +805,17 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             key_label = str(join_plan.get("left_key") or "")
             if join_plan.get("left_key") != join_plan.get("right_key"):
                 key_label += f" ↔ {join_plan.get('right_key')}"
+            aggregation = dict(join_plan.get("right_aggregation") or {})
+            aggregation_label = ""
+            if aggregation:
+                aggregation_label = (
+                    f" · 오른쪽 집계 {join_plan.get('right_sheet')}/"
+                    f"{aggregation.get('column')} 합계"
+                )
             after += (
                 f"\n읽기 전용 {join_label} 조인: "
                 f"{join_plan.get('left_sheet')} ↔ {join_plan.get('right_sheet')} "
-                f"· 키 {key_label} "
+                f"· 키 {key_label}{aggregation_label} "
                 "· Excel 원본 변경 없음"
             )
         applied_preferences, preference_summary = self._preference_preview(

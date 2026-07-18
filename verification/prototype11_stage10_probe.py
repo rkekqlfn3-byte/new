@@ -80,9 +80,10 @@ def _create_source(path):
         )
         cost_sheet = workbook.Worksheets.Add(After=sheet)
         cost_sheet.Name = "비용"
-        cost_sheet.Range("A1:D4").Value2 = (
+        cost_sheet.Range("A1:D5").Value2 = (
             ("참조항목ID", "항목", "분기", "비용"),
-            (1, "인건비", "1분기", 500000),
+            (1, "인건비", "1분기", 300000),
+            (1, "교통비", "1분기", 200000),
             (3, "임대료", "1분기", 200000),
             (4, "광고비", "1분기", 150000),
         )
@@ -310,6 +311,10 @@ def _owned_probe(report_format="word", progress=None):
                 "left_key": "항목ID",
                 "right_key": "참조항목ID",
                 "join_type": "inner",
+                "right_aggregation": {
+                    "column": "비용",
+                    "function": "sum",
+                },
             },
         )
         preview_created_nothing = all(
@@ -427,6 +432,24 @@ def _owned_probe(report_format="word", progress=None):
                 and join_summary.get("right_key") == "참조항목ID"
                 and join_summary.get("left_key")
                 != join_summary.get("right_key")
+            ),
+            "aggregated_join_verified": (
+                (join_summary.get("right_aggregation") or {}).get("column")
+                == "비용"
+                and (join_summary.get("right_aggregation") or {}).get(
+                    "function"
+                ) == "sum"
+                and int(
+                    (join_summary.get("right_aggregation") or {}).get(
+                        "input_rows"
+                    ) or 0
+                ) == 4
+                and int(
+                    (join_summary.get("right_aggregation") or {}).get(
+                        "groups"
+                    ) or 0
+                ) == 3
+                and int(join_summary.get("output_rows") or 0) == 3
             ),
             "all_requested_steps_succeeded": (
                 stored.get("successful_steps") == expected_steps

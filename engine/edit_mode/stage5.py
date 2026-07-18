@@ -831,11 +831,18 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             key_label = str(join_plan.get("left_key") or "")
             if join_plan.get("left_key") != join_plan.get("right_key"):
                 key_label += f" ↔ {join_plan.get('right_key')}"
+            aggregation = dict(join_plan.get("right_aggregation") or {})
+            aggregation_label = ""
+            if aggregation:
+                aggregation_label = (
+                    f" · {join_plan.get('right_sheet')}/"
+                    f"{aggregation.get('column')} 합계 집계"
+                )
             message += (
                 f"\n승인한 {join_label} 조인을 읽기 전용으로 검증했습니다: "
                 f"{join_plan.get('left_sheet')} ↔ "
                 f"{join_plan.get('right_sheet')} · 키 "
-                f"{key_label}. 시트명과 키는 재사용 스킬로 "
+                f"{key_label}{aggregation_label}. 시트명과 키는 재사용 스킬로 "
                 "저장하지 않았습니다."
             )
         return message

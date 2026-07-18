@@ -356,7 +356,7 @@ def _validated_workflow_preferences(value) -> dict[str, Any]:
     return result
 
 
-def _validated_join_plan(value) -> dict[str, str] | None:
+def _validated_join_plan(value) -> dict[str, Any] | None:
     """Validate the complete, content-free contract for one approved join."""
     if value is None:
         return None
@@ -369,9 +369,11 @@ def _validated_join_plan(value) -> dict[str, str] | None:
         "right_key",
         "join_type",
     }
-    if set(value) != required:
+    allowed = required | {"right_aggregation"}
+    if frozenset(value) not in {frozenset(required), frozenset(allowed)}:
         raise WorkflowJoinValidationError(
-            "시트 조인 계획에는 두 시트명·두 키·결합 방식만 정확히 있어야 합니다."
+            "시트 조인 계획에는 두 시트명·두 키·결합 방식과 선택적인 오른쪽 "
+            "합계 집계만 정확히 있어야 합니다."
         )
 
     def clean_name(name, label):
@@ -399,6 +401,25 @@ def _validated_join_plan(value) -> dict[str, str] | None:
         raise WorkflowJoinValidationError(
             "조인 방식은 '내부 조인' 또는 '왼쪽 조인'으로 명시해야 합니다."
         )
+    if "right_aggregation" in value:
+        aggregation = value.get("right_aggregation")
+        if not isinstance(aggregation, Mapping) or set(aggregation) != {
+            "column", "function"
+        }:
+            raise WorkflowJoinValidationError(
+                "오른쪽 집계 계획에는 숫자 열과 집계 방식만 있어야 합니다."
+            )
+        function = str(aggregation.get("function") or "").strip().casefold()
+        if function != "sum":
+            raise WorkflowJoinValidationError(
+                "현재 집계 조인은 오른쪽 숫자 열의 합계만 지원합니다."
+            )
+        plan["right_aggregation"] = {
+            "column": clean_name(
+                aggregation.get("column"), "오른쪽 집계 열"
+            ),
+            "function": function,
+        }
     return plan
 
 
@@ -629,7 +650,9 @@ class ExcelSalesAnalyzer:
                 f"명시 조인은 각 시트 {MAX_JOIN_SOURCE_ROWS:,}행까지 지원합니다."
             )
 
-        def resolve_key(profile, requested, label):
+        def resolve_column(
+            profile, requested, label, *, forbid_measure=False
+        ):
             requested_key = cls._header_key(requested)
             matches = [
                 (index, header)
@@ -642,18 +665,18 @@ class ExcelSalesAnalyzer:
                     "열을 정확히 하나 찾지 못했습니다."
                 )
             index, header = matches[0]
-            if cls._looks_like_measure_header(header):
+            if forbid_measure and cls._looks_like_measure_header(header):
                 raise WorkflowJoinValidationError(
                     f"금액·매출·수량 같은 측정값 열 '{header}'은 조인 키로 "
                     "사용하지 않습니다."
                 )
             return index, str(header)
 
-        left_key_index, left_key_header = resolve_key(
-            left, plan["left_key"], "조인 키"
+        left_key_index, left_key_header = resolve_column(
+            left, plan["left_key"], "조인 키", forbid_measure=True
         )
-        right_key_index, right_key_header = resolve_key(
-            right, plan["right_key"], "조인 키"
+        right_key_index, right_key_header = resolve_column(
+            right, plan["right_key"], "조인 키", forbid_measure=True
         )
         left_rows = [
             (row + [None] * len(left["headers"]))[:len(left["headers"])]
@@ -677,34 +700,86 @@ class ExcelSalesAnalyzer:
             )
         left_unique = len(set(left_nonempty)) == len(left_nonempty)
         right_unique = len(set(right_nonempty)) == len(right_nonempty)
-        if not left_unique and not right_unique:
-            raise WorkflowJoinValidationError(
-                "두 시트의 조인 키가 모두 중복된 다대다 관계라 자동 결합하지 "
-                "않습니다. 한쪽 키를 고유하게 정리하거나 집계 방식을 지정해주세요."
+        aggregation_plan = dict(plan.get("right_aggregation") or {})
+        aggregation_summary = None
+        if aggregation_plan:
+            if not left_unique:
+                raise WorkflowJoinValidationError(
+                    "합계 집계 조인은 왼쪽 시트의 조인 키가 고유할 때만 "
+                    "지원합니다. 왼쪽 키 중복을 먼저 정리해주세요."
+                )
+            aggregation_index, aggregation_header = resolve_column(
+                right,
+                aggregation_plan["column"],
+                "합계 집계 열",
             )
+            if aggregation_index == right_key_index:
+                raise WorkflowJoinValidationError(
+                    "오른쪽 조인 키와 합계 집계 열은 서로 달라야 합니다."
+                )
+            aggregated = {}
+            aggregation_input_rows = 0
+            for row, key in zip(right_rows, right_keys):
+                if key is None:
+                    continue
+                number = cls._number(row[aggregation_index])
+                if number is None:
+                    raise WorkflowJoinValidationError(
+                        f"'{right['sheet_name']}' 시트의 합계 집계 열 "
+                        f"'{aggregation_header}'에 숫자가 아닌 값이 있습니다."
+                    )
+                aggregated[key] = aggregated.get(key, 0.0) + number
+                aggregation_input_rows += 1
+            if not aggregated:
+                raise WorkflowJoinValidationError(
+                    "오른쪽 합계 집계에 사용할 키와 숫자 값이 없습니다."
+                )
+            right_index = {
+                key: [[total]] for key, total in aggregated.items()
+            }
+            right_output_width = 1
+            output_headers = [
+                f"{left['sheet_name']}/{header}" for header in left["headers"]
+            ] + [f"{right['sheet_name']}/{aggregation_header} 합계"]
+            effective_right_unique = True
+            aggregation_summary = {
+                "column": aggregation_header,
+                "function": "sum",
+                "input_rows": aggregation_input_rows,
+                "groups": len(aggregated),
+            }
+        else:
+            if not left_unique and not right_unique:
+                raise WorkflowJoinValidationError(
+                    "두 시트의 조인 키가 모두 중복된 다대다 관계라 자동 결합하지 "
+                    "않습니다. 한쪽 키를 고유하게 정리하거나 집계 방식을 지정해주세요."
+                )
+            right_output_indexes = [
+                index
+                for index in range(len(right["headers"]))
+                if index != right_key_index
+            ]
+            right_output_width = len(right_output_indexes)
+            output_headers = [
+                f"{left['sheet_name']}/{header}" for header in left["headers"]
+            ] + [
+                f"{right['sheet_name']}/{right['headers'][index]}"
+                for index in right_output_indexes
+            ]
+            right_index = {}
+            for row, key in zip(right_rows, right_keys):
+                if key is not None:
+                    right_index.setdefault(key, []).append([
+                        row[index] for index in right_output_indexes
+                    ])
+            effective_right_unique = right_unique
 
-        right_output_indexes = [
-            index
-            for index in range(len(right["headers"]))
-            if index != right_key_index
-        ]
-        output_columns = len(left["headers"]) + len(right_output_indexes)
+        output_columns = len(left["headers"]) + right_output_width
         if output_columns > MAX_TABLE_COLUMNS:
             raise WorkflowJoinValidationError(
                 f"조인 결과가 {MAX_TABLE_COLUMNS}열을 넘습니다. 필요한 열을 줄인 "
                 "별도 시트를 만든 뒤 다시 요청해주세요."
             )
-        output_headers = [
-            f"{left['sheet_name']}/{header}" for header in left["headers"]
-        ] + [
-            f"{right['sheet_name']}/{right['headers'][index]}"
-            for index in right_output_indexes
-        ]
-        right_index = {}
-        for row, key in zip(right_rows, right_keys):
-            if key is not None:
-                right_index.setdefault(key, []).append(row)
-
         preview_limit = min(
             MAX_TABLE_ROWS, max(0, int(remaining_table_rows))
         )
@@ -717,13 +792,13 @@ class ExcelSalesAnalyzer:
             if matches:
                 matched_left_rows += 1
                 candidates = [
-                    left_row + [right_row[index] for index in right_output_indexes]
-                    for right_row in matches
+                    left_row + list(right_values)
+                    for right_values in matches
                 ]
             elif plan["join_type"] == "left":
                 unmatched_left_rows += 1
                 candidates = [
-                    left_row + [None] * len(right_output_indexes)
+                    left_row + [None] * right_output_width
                 ]
             else:
                 unmatched_left_rows += 1
@@ -740,12 +815,27 @@ class ExcelSalesAnalyzer:
 
         cardinality = (
             "one_to_one"
-            if left_unique and right_unique
+            if left_unique and effective_right_unique
             else "one_to_many"
             if left_unique
             else "many_to_one"
         )
         join_label = "내부" if plan["join_type"] == "inner" else "왼쪽"
+        join_metadata = {
+            "left_sheet": left["sheet_name"],
+            "right_sheet": right["sheet_name"],
+            "left_key": left_key_header,
+            "right_key": right_key_header,
+            "join_type": plan["join_type"],
+            "cardinality": cardinality,
+            "matched_left_rows": matched_left_rows,
+            "unmatched_left_rows": unmatched_left_rows,
+            "output_rows": output_row_count,
+            "included_rows": len(output_rows),
+            "truncated": output_row_count > len(output_rows),
+        }
+        if aggregation_summary is not None:
+            join_metadata["right_aggregation"] = aggregation_summary
         table = {
             "name": f"{left['sheet_name']}↔{right['sheet_name']} {join_label} 조인",
             "headers": output_headers,
@@ -754,27 +844,22 @@ class ExcelSalesAnalyzer:
             "included_rows": len(output_rows),
             "used_cells": output_row_count * output_columns,
             "derived": True,
-            "join": {
-                "left_sheet": left["sheet_name"],
-                "right_sheet": right["sheet_name"],
-                "left_key": left_key_header,
-                "right_key": right_key_header,
-                "join_type": plan["join_type"],
-                "cardinality": cardinality,
-                "matched_left_rows": matched_left_rows,
-                "unmatched_left_rows": unmatched_left_rows,
-                "output_rows": output_row_count,
-                "included_rows": len(output_rows),
-                "truncated": output_row_count > len(output_rows),
-            },
+            "join": join_metadata,
         }
         tables.append(table)
         key_description = f"'{left_key_header}'"
         if left_key_header != right_key_header:
             key_description += f" ↔ '{right_key_header}'"
+        aggregation_description = ""
+        if aggregation_summary is not None:
+            aggregation_description = (
+                f", 오른쪽 '{right['sheet_name']}'의 "
+                f"'{aggregation_summary['column']}'을 키별 합계 집계한 뒤"
+            )
         return (
             f"승인한 {join_label} 조인: '{left['sheet_name']}'과 "
-            f"'{right['sheet_name']}'을 {key_description} 키로 결합해 "
+            f"'{right['sheet_name']}'을 {key_description} 키로"
+            f"{aggregation_description} 결합해 "
             f"{output_row_count:,}행을 만들었으며 Excel 원본은 변경하지 않았습니다."
         )
 

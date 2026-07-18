@@ -375,6 +375,98 @@ class Stage10WorkflowTests(unittest.TestCase):
             for insight in result["insights"]
         ))
 
+    def test_excel_analyzer_aggregates_right_measure_before_join(self):
+        result = self._analyze_sheets(
+            [
+                FakeWorksheet("고객", (
+                    ("고객ID", "고객명"),
+                    (1, "가"),
+                    (2, "나"),
+                    (3, "다"),
+                )),
+                FakeWorksheet("주문", (
+                    ("주문ID", "구매자ID", "매출"),
+                    (101, 1, 100),
+                    (102, 1, 300),
+                    (103, 2, 200),
+                )),
+            ],
+            join_plan={
+                "left_sheet": "고객",
+                "right_sheet": "주문",
+                "left_key": "고객ID",
+                "right_key": "구매자ID",
+                "join_type": "left",
+                "right_aggregation": {
+                    "column": "매출",
+                    "function": "sum",
+                },
+            },
+        )
+
+        joined = result["tables"][-1]
+        self.assertEqual(
+            ["고객/고객ID", "고객/고객명", "주문/매출 합계"],
+            joined["headers"],
+        )
+        self.assertEqual(
+            [[1, "가", 400], [2, "나", 200], [3, "다", None]],
+            joined["rows"],
+        )
+        self.assertEqual(
+            {
+                "column": "매출",
+                "function": "sum",
+                "input_rows": 3,
+                "groups": 2,
+            },
+            joined["join"]["right_aggregation"],
+        )
+        self.assertNotIn("values", joined["join"])
+
+    def test_excel_analyzer_blocks_unsafe_aggregate_join_inputs(self):
+        cases = (
+            (
+                [
+                    FakeWorksheet("고객", (
+                        ("고객ID",),
+                        (1,),
+                        (1,),
+                    )),
+                    FakeWorksheet("주문", (
+                        ("구매자ID", "매출"),
+                        (1, 100),
+                    )),
+                ],
+                "왼쪽 시트의 조인 키가 고유",
+            ),
+            (
+                [
+                    FakeWorksheet("고객", (("고객ID",), (1,))),
+                    FakeWorksheet("주문", (
+                        ("구매자ID", "매출"),
+                        (1, "미정"),
+                    )),
+                ],
+                "숫자가 아닌 값",
+            ),
+        )
+        plan = {
+            "left_sheet": "고객",
+            "right_sheet": "주문",
+            "left_key": "고객ID",
+            "right_key": "구매자ID",
+            "join_type": "left",
+            "right_aggregation": {"column": "매출", "function": "sum"},
+        }
+
+        for worksheets, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(
+                    WorkflowJoinValidationError, message
+                ):
+                    self._analyze_sheets(worksheets, join_plan=plan)
+
     def test_excel_analyzer_left_join_keeps_unmatched_left_rows(self):
         result = self._analyze_sheets(
             [
@@ -1096,6 +1188,17 @@ class Stage10WorkflowTests(unittest.TestCase):
             "보고서와 PPT 만들어줘",
             context,
         )
+        aggregated = analyzer.analyze(
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 주문 시트의 "
+            "매출을 합계 집계해서 왼쪽 조인해서 Word 보고서와 "
+            "5장짜리 PPT 만들어줘",
+            context,
+        )
+        wrong_aggregation_side = analyzer.analyze(
+            "고객 시트의 고객ID와 주문 시트의 구매자ID로 고객 시트의 "
+            "매출을 합계 집계해서 왼쪽 조인해서 보고서와 PPT 만들어줘",
+            context,
+        )
         incomplete = analyzer.analyze(
             "고객 시트와 주문 시트를 고객ID로 조인해서 "
             "보고서와 PPT 만들어줘",
@@ -1122,6 +1225,15 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertTrue(ambiguous.params["join_requested"])
         self.assertIsNone(ambiguous.params["join_plan"])
         self.assertIn("양쪽 키를 모두", ambiguous.params["join_error"])
+        self.assertEqual(
+            {"column": "매출", "function": "sum"},
+            aggregated.params["join_plan"]["right_aggregation"],
+        )
+        self.assertIn("주문/매출 합계 집계", aggregated.description)
+        self.assertIsNone(wrong_aggregation_side.params["join_plan"])
+        self.assertIn(
+            "오른쪽 시트", wrong_aggregation_side.params["join_error"]
+        )
         self.assertTrue(incomplete.params["join_requested"])
         self.assertIsNone(incomplete.params["join_plan"])
         self.assertIn("조인 방식", incomplete.params["join_error"])
@@ -1475,9 +1587,28 @@ class Stage10WorkflowTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             WorkflowJoinValidationError,
-            "두 시트명·두 키·결합 방식만",
+            "두 시트명·두 키·결합 방식과",
         ):
             self.executor.start(state)
+
+        aggregate_plan = self._join_plan()
+        aggregate_plan["right_aggregation"] = {
+            "column": "매출",
+            "function": "sum",
+        }
+        aggregate_state = self.executor.prepare(
+            self.source,
+            join_plan=aggregate_plan,
+        )
+        aggregate_state["join_plan"]["right_aggregation"][
+            "function"
+        ] = "average"
+
+        with self.assertRaisesRegex(
+            WorkflowJoinValidationError,
+            "합계만 지원",
+        ):
+            self.executor.start(aggregate_state)
 
         self.assertEqual(0, self.analyzer.calls)
         self.assertFalse(self.executor._path(state["workflow_id"]).exists())
