@@ -658,6 +658,169 @@ class DirectEditPreferenceEvidenceTests(unittest.TestCase):
         self.assertTrue(feedback["needs_confirmation"])
         self.assertIn("앞으로도 간결하게", feedback["message"])
 
+    def test_tone_switch_at_same_length_records_the_new_tone(self):
+        self._remember_verified_edit(
+            post_selected_text_tone="formal",
+        )
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._changed_context(
+                selected_text_length=95,
+                selected_text_tone="friendly",
+            ),
+        )
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("report_tone", candidate["preference"])
+        self.assertEqual("friendly", candidate["proposed_value"])
+        self.assertEqual("file", candidate["scope_kind"])
+        feedback = self.controller.direct_edit_feedback()
+        self.assertEqual("tone", feedback["observation_kind"])
+        self.assertIn("친근한 문체", feedback["message"])
+
+    def test_clear_shortening_wins_over_a_simultaneous_tone_switch(self):
+        self._remember_verified_edit(post_selected_text_tone="formal")
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._changed_context(
+                selected_text_length=60,
+                selected_text_tone="friendly",
+            ),
+        )
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("concise", candidate["proposed_value"])
+        self.assertEqual(
+            "shortened",
+            self.controller.direct_edit_feedback()["observation_kind"],
+        )
+
+    def test_unclear_tone_labels_are_not_learning_evidence(self):
+        cases = (
+            {"previous": "mixed", "current": "friendly"},
+            {"previous": "formal", "current": "mixed"},
+            {"previous": "formal", "current": "plain"},
+            {"previous": "unknown", "current": "formal"},
+        )
+        for index, tones in enumerate(cases):
+            with self.subTest(tones=tones):
+                self._remember_verified_edit(
+                    action_id=f"{index + 40:032x}",
+                    post_selected_text_tone=tones["previous"],
+                )
+                self.controller._guard_continuation(
+                    self.sessions.current(),
+                    self._changed_context(
+                        selected_text_length=95,
+                        selected_text_tone=tones["current"],
+                    ),
+                )
+        self.assertEqual([], self.learning.list_candidates(include_observing=True))
+
+    def _connect_word_session(self):
+        word_file = self.root / "서식관찰.docx"
+        word_file.write_bytes(b"fixture")
+        self.sessions.disconnect(self.session["session_id"])
+        self.session = self.sessions.connect({
+            "app_type": "word",
+            "file_path": str(word_file),
+            "document_name": word_file.name,
+            "window_handle": 34,
+            "selection_reference": "10:110",
+        })
+        return word_file
+
+    def test_single_formatting_change_with_same_text_records_style_evidence(self):
+        self._connect_word_session()
+        self._remember_verified_edit(
+            app_type="word",
+            post_selection_formatting={
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+        )
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._changed_context(
+                app_type="word",
+                selected_text_digest="B" * 64,
+                selected_text_length=100,
+                selection_kind="text",
+                target={
+                    "start": 10,
+                    "end": 110,
+                    "bold": -1,
+                    "font_size": 11.0,
+                    "paragraph_alignment": 0,
+                },
+            ),
+        )
+        candidate = self.learning.list_candidates(include_observing=True)[0]
+        self.assertEqual("emphasis_style", candidate["preference"])
+        self.assertEqual("bold", candidate["proposed_value"])
+        self.assertEqual("file", candidate["scope_kind"])
+        feedback = self.controller.direct_edit_feedback()
+        self.assertEqual("formatting", feedback["observation_kind"])
+        self.assertIn("굵게 강조", feedback["message"])
+        self.assertFalse(feedback["raw_content_stored"])
+
+    def test_multi_facet_formatting_change_is_not_interpreted(self):
+        self._connect_word_session()
+        self._remember_verified_edit(
+            app_type="word",
+            post_selection_formatting={
+                "schema_version": 1,
+                "bold": False,
+                "font_size": 11.0,
+                "alignment": "left",
+            },
+        )
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._changed_context(
+                app_type="word",
+                selected_text_digest="B" * 64,
+                selected_text_length=100,
+                selection_kind="text",
+                target={
+                    "start": 10,
+                    "end": 110,
+                    "bold": -1,
+                    "font_size": 16.0,
+                    "paragraph_alignment": 0,
+                },
+            ),
+        )
+        self.assertEqual([], self.learning.list_candidates(include_observing=True))
+
+    def test_hwp_formatting_only_change_is_not_interpreted(self):
+        self._remember_verified_edit(
+            post_selection_formatting=None,
+        )
+        self.controller._guard_continuation(
+            self.sessions.current(),
+            self._changed_context(selected_text_digest="B" * 64),
+        )
+        self.assertEqual([], self.learning.list_candidates(include_observing=True))
+
+    def test_three_tone_observations_suggest_the_matching_activation_phrase(self):
+        for index in range(3):
+            self._remember_verified_edit(
+                action_id=f"{index + 60:032x}",
+                post_selected_text_tone="formal",
+            )
+            self.controller._guard_continuation(
+                self.sessions.current(),
+                self._changed_context(
+                    selected_text_digest=f"{index + 70:064x}".upper(),
+                    selected_text_length=95,
+                    selected_text_tone="friendly",
+                ),
+            )
+        feedback = self.controller.direct_edit_feedback()
+        self.assertTrue(feedback["needs_confirmation"])
+        self.assertIn("앞으로도 친근하게 해줘", feedback["message"])
+
     def test_excel_direct_cell_change_is_not_treated_as_writing_style(self):
         excel = self.root / "직접수정.xlsx"
         excel.write_bytes(b"fixture")

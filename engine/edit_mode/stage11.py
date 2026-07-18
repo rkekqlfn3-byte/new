@@ -33,6 +33,9 @@ PREFERENCE_LABELS = {
     "confirmation_actions": "확인을 요구하는 작업",
     "workflow_order": "반복 작업 순서",
     "vba_edit_pattern": "VBA 수정 방식",
+    "emphasis_style": "텍스트 강조 방식",
+    "font_scale": "글자 크기 방향",
+    "paragraph_align": "문단 정렬 기본값",
 }
 
 VALUE_LABELS = {
@@ -54,7 +57,50 @@ VALUE_LABELS = {
     "backup_active_sheet": "원본 시트 백업",
     "selection_only": "선택 범위만 처리",
     "fix_last_row": "마지막 행 계산 보정",
+    "bold": "굵게 강조",
+    "regular": "강조 없음",
+    "larger": "크게",
+    "smaller": "작게",
+    "left": "왼쪽 정렬",
+    "center": "가운데 정렬",
+    "right": "오른쪽 정렬",
+    "justify": "양쪽 정렬",
 }
+
+GENERALIZATION_MARKERS = ("앞으로", "다음부터", "항상", "매번")
+
+
+def direct_style_value(command: str) -> tuple[str, Any] | None:
+    """Map one allowlisted style phrase to a (preference, value) pair.
+
+    Shared by explicit statements and the activation of waiting direct-edit
+    observations so that the hint phrase a user is shown always parses back
+    to the same preference and value.
+    """
+    text = str(command or "")
+    if any(term in text for term in ("간결", "짧고 명확")):
+        return "report_tone", "concise"
+    if any(term in text for term in ("격식", "정중", "공식")):
+        return "report_tone", "formal"
+    if any(term in text for term in ("친근", "부드럽")):
+        return "report_tone", "friendly"
+    if "강조" in text and any(term in text for term in ("없이", "빼", "하지 마")):
+        return "emphasis_style", "regular"
+    if "굵게" in text:
+        return "emphasis_style", "bold"
+    if any(term in text for term in ("글자", "글씨", "폰트")):
+        if "크게" in text:
+            return "font_scale", "larger"
+        if "작게" in text:
+            return "font_scale", "smaller"
+    if "정렬" in text:
+        for term, mapped in (
+            ("가운데", "center"), ("왼쪽", "left"),
+            ("오른쪽", "right"), ("양쪽", "justify"),
+        ):
+            if term in text:
+                return "paragraph_align", mapped
+    return None
 
 
 class Stage11EditError(Stage10EditError):
@@ -318,6 +364,18 @@ class StructuredPreferenceIntentAnalyzer:
                 if term in command:
                     preference, value = "vba_edit_pattern", mapped
                     break
+        # Formatting-style defaults need an explicit generalization marker so
+        # a plain edit command like "가운데 정렬로 해줘" stays a document edit.
+        if (
+            preference is None
+            and not deactivate
+            and any(marker in command for marker in GENERALIZATION_MARKERS)
+        ):
+            parsed = direct_style_value(command)
+            if parsed is not None and parsed[0] in {
+                "emphasis_style", "font_scale", "paragraph_align"
+            }:
+                preference, value = parsed
         if preference is None and deactivate:
             if any(term in command for term in self.APP_TERMS["powerpoint"]):
                 preference = "ppt_slide_count"
@@ -339,6 +397,12 @@ class StructuredPreferenceIntentAnalyzer:
                 preference = "workflow_order"
             elif "vba" in command:
                 preference = "vba_edit_pattern"
+            elif "강조" in command:
+                preference = "emphasis_style"
+            elif any(term in command for term in ("글자", "글씨", "폰트")):
+                preference = "font_scale"
+            elif "정렬" in command:
+                preference = "paragraph_align"
         if preference is None:
             return None
         scope_kind, scope_id = self._scope(command, context, preference)
@@ -433,6 +497,56 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             request = replace(request, text=command + suffix)
         return request, resolved
 
+    def _pending_file_candidate_intent(
+        self,
+        text: str,
+    ) -> PreferenceIntent | None:
+        """Route a generalization phrase to the waiting file-scope candidate.
+
+        Direct-edit observations accumulate at file scope, and their
+        confirmation hint tells the user to say phrases like ``앞으로도
+        간결하게 해줘``.  Without this lookup that phrase would create an
+        unrelated global or workflow candidate instead of confirming the one
+        that is already waiting for approval.
+        """
+        command = re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+        if not command or not any(
+            marker in command for marker in GENERALIZATION_MARKERS
+        ):
+            return None
+        parsed = direct_style_value(command)
+        if parsed is None:
+            return None
+        preference, value = parsed
+        file_path = str(self.session.get("file_path") or "").strip()
+        if not file_path:
+            return None
+        normalized_path = os.path.normcase(os.path.abspath(file_path))
+        try:
+            candidates = self.user_learning_manager.list_candidates()
+        except Exception:
+            return None
+        for candidate in candidates:
+            if (
+                candidate.get("status") == "candidate"
+                and candidate.get("preference") == preference
+                and candidate.get("scope_kind") == "file"
+                and str(candidate.get("scope_id") or "") == normalized_path
+                and candidate.get("proposed_value") == value
+            ):
+                return PreferenceIntent(
+                    preference=preference,
+                    value=value,
+                    scope_kind="file",
+                    scope_id=file_path,
+                    description=(
+                        StructuredPreferenceIntentAnalyzer._description(
+                            preference, value
+                        )
+                    ),
+                )
+        return None
+
     def _attach_verified_correction_feedback(
         self,
         request: EditRequest,
@@ -458,7 +572,9 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
         return replace(prepared, metadata=metadata)
 
     def prepare(self, request: EditRequest, context: Mapping[str, Any]) -> EditPreparedAction:
-        intent = self.preference_analyzer.analyze(request.text, context)
+        intent = self._pending_file_candidate_intent(request.text)
+        if intent is None:
+            intent = self.preference_analyzer.analyze(request.text, context)
         if intent is None:
             resolved_request, applied_vba = self._apply_vba_preference(request, context)
             prepared = super().prepare(resolved_request, context)

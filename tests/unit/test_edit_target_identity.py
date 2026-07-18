@@ -1,6 +1,10 @@
 import unittest
 
-from engine.edit_mode.target_identity import direct_text_selection_anchor
+from engine.edit_mode.target_identity import (
+    direct_text_selection_anchor,
+    formatting_snapshot,
+    single_formatting_change,
+)
 
 
 class DirectTextSelectionAnchorTests(unittest.TestCase):
@@ -90,6 +94,92 @@ class DirectTextSelectionAnchorTests(unittest.TestCase):
             "selection_kind": "text",
             "target": {"slide_id": 1, "text_start": 1},
         }))
+
+
+class FormattingSnapshotTests(unittest.TestCase):
+    @staticmethod
+    def _word(**target):
+        base = {"bold": 0, "font_size": 11.0, "paragraph_alignment": 0}
+        base.update(target)
+        return {"selection_kind": "text", "target": base}
+
+    def test_word_snapshot_normalizes_bold_size_and_alignment(self):
+        snapshot = formatting_snapshot(
+            "word", self._word(bold=-1, font_size=14.0, paragraph_alignment=1)
+        )
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "bold": True,
+                "font_size": 14.0,
+                "alignment": "center",
+            },
+            snapshot,
+        )
+
+    def test_word_and_powerpoint_alignment_integers_map_differently(self):
+        word = formatting_snapshot("word", self._word(paragraph_alignment=2))
+        powerpoint = formatting_snapshot("powerpoint", {
+            "selection_kind": "text",
+            "target": {"bold": 0, "font_size": 18.0, "paragraph_alignment": 2},
+        })
+        self.assertEqual("right", word["alignment"])
+        self.assertEqual("center", powerpoint["alignment"])
+
+    def test_mixed_or_undefined_native_sentinels_normalize_to_none(self):
+        snapshot = formatting_snapshot(
+            "word",
+            self._word(bold=9999999, font_size=9999999.0, paragraph_alignment=99),
+        )
+        self.assertIsNone(snapshot["bold"])
+        self.assertIsNone(snapshot["font_size"])
+        self.assertIsNone(snapshot["alignment"])
+
+    def test_cursor_hwp_and_excel_have_no_formatting_snapshot(self):
+        self.assertIsNone(formatting_snapshot("word", {
+            "selection_kind": "cursor",
+            "target": {"bold": 0, "font_size": 11.0},
+        }))
+        self.assertIsNone(formatting_snapshot("hwp", {
+            "selection_kind": "text",
+            "target": {"coordinates": [0, 1, 2, 3, 4, 5]},
+        }))
+        self.assertIsNone(formatting_snapshot("excel", {
+            "selection_kind": "range",
+            "target": {"address": "A1"},
+        }))
+
+    def test_exactly_one_clean_facet_change_maps_to_a_preference(self):
+        before = formatting_snapshot("word", self._word())
+        bolded = formatting_snapshot("word", self._word(bold=-1))
+        larger = formatting_snapshot("word", self._word(font_size=14.0))
+        centered = formatting_snapshot("word", self._word(paragraph_alignment=1))
+        self.assertEqual(
+            ("emphasis_style", "bold"), single_formatting_change(before, bolded)
+        )
+        self.assertEqual(
+            ("font_scale", "larger"), single_formatting_change(before, larger)
+        )
+        self.assertEqual(
+            ("paragraph_align", "center"),
+            single_formatting_change(before, centered),
+        )
+        self.assertEqual(
+            ("emphasis_style", "regular"),
+            single_formatting_change(bolded, before),
+        )
+
+    def test_multi_facet_tiny_or_ambiguous_changes_are_not_interpreted(self):
+        before = formatting_snapshot("word", self._word())
+        multi = formatting_snapshot(
+            "word", self._word(bold=-1, font_size=14.0)
+        )
+        nudged = formatting_snapshot("word", self._word(font_size=11.5))
+        undefined = formatting_snapshot("word", self._word(bold=9999999))
+        self.assertIsNone(single_formatting_change(before, multi))
+        self.assertIsNone(single_formatting_change(before, nudged))
+        self.assertIsNone(single_formatting_change(before, undefined))
+        self.assertIsNone(single_formatting_change(None, before))
 
 
 if __name__ == "__main__":

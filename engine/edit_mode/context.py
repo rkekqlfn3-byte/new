@@ -29,6 +29,7 @@ from engine.edit_mode.session import (
     document_identity_fingerprint,
     runtime_document_identity_fingerprint,
 )
+from engine.edit_mode.text_tone import classify_text_tone
 
 
 EDIT_CONTEXT_SCHEMA_VERSION = 1
@@ -150,6 +151,9 @@ class EditContext:
     read_only: bool
     modified: bool
     captured_at: str
+    # Coarse ending-based tone label; excluded from the context fingerprint
+    # because the digest already identifies the text itself.
+    selected_text_tone: str = "unknown"
     schema_version: int = EDIT_CONTEXT_SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -860,6 +864,7 @@ class EditContextManager:
             read_only=identity["read_only"],
             modified=identity["modified"],
             captured_at=_timestamp(),
+            selected_text_tone=classify_text_tone(selected_text),
         )
         result = context.to_dict()
         result.update({

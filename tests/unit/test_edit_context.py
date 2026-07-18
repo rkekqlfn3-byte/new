@@ -72,6 +72,16 @@ class EditContextManagerTests(unittest.TestCase):
         self.assertEqual("7월 실적", first["selected_text_preview"])
         json.dumps(first, ensure_ascii=False)
 
+    def test_selected_text_tone_is_labeled_without_storing_extra_content(self):
+        self.reader.text = "매출을 정리해 보고드립니다. 검토 부탁드립니다."
+        context = self.manager.capture(self.session)
+        self.assertEqual("formal", context["selected_text_tone"])
+        self.reader.text = "숫자만 다시 볼게요. 내일 공유해요."
+        self.assertEqual(
+            "friendly",
+            self.manager.capture(self.session)["selected_text_tone"],
+        )
+
     def test_selection_or_selected_text_change_updates_context_fingerprint(self):
         first = self.manager.capture(self.session)
         self.reader.address = "G3:G18"

@@ -69,6 +69,18 @@ ALLOWED_PREFERENCES = {
             "fix_last_row",
         ),
     },
+    "emphasis_style": {
+        "kind": "enum",
+        "values": ("bold", "regular"),
+    },
+    "font_scale": {
+        "kind": "enum",
+        "values": ("larger", "smaller"),
+    },
+    "paragraph_align": {
+        "kind": "enum",
+        "values": ("left", "center", "right", "justify"),
+    },
 }
 
 

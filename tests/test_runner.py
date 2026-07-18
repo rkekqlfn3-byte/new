@@ -46,6 +46,7 @@ TEST_GROUPS = {
         "tests.unit.test_stage10_workflow",
         "tests.unit.test_stage11_user_learning",
         "tests.unit.test_stage12_self_diagnosis",
+        "tests.unit.test_text_tone",
         "tests.unit.test_failure_triage",
         "tests.unit.test_restart",
         "tests.unit.test_recovery_contract",

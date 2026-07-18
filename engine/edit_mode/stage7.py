@@ -17,7 +17,10 @@ from engine.edit_mode.contracts import (
 )
 from engine.edit_mode.stage5 import Stage5EditError
 from engine.edit_mode.stage6 import Stage6NativeEditAdapter
-from engine.edit_mode.target_identity import direct_text_selection_anchor
+from engine.edit_mode.target_identity import (
+    direct_text_selection_anchor,
+    formatting_snapshot,
+)
 
 
 UNDO_PHRASES = (
@@ -409,6 +412,13 @@ def build_commit_records(
         "post_selected_text_digest": post_context.get("selected_text_digest"),
         "post_selected_text_length": int(
             post_context.get("selected_text_length") or 0
+        ),
+        "post_selected_text_tone": str(
+            post_context.get("selected_text_tone") or "unknown"
+        ),
+        "post_selection_formatting": formatting_snapshot(
+            prepared.app_type,
+            post_context,
         ),
         "pre_context_fingerprint": prepared.context_fingerprint,
         "post_context_fingerprint": post_context.get("context_fingerprint"),

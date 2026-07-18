@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from engine.edit_mode.stage11 import StructuredPreferenceIntentAnalyzer
+from engine.edit_mode.contracts import EditRequest
+from engine.edit_mode.stage11 import (
+    Stage11NativeEditAdapter,
+    StructuredPreferenceIntentAnalyzer,
+)
 from engine.learning import UserPreferenceLearningError, UserPreferenceLearningManager
 
 
@@ -211,6 +215,115 @@ class Stage11PreferenceIntentTests(unittest.TestCase):
         self.assertEqual("business_report", intent.scope_id)
         self.assertIsNone(
             self.analyzer.analyze_feedback("이 미리보기 좋아", self.context)
+        )
+
+    def test_formatting_defaults_require_a_generalization_marker(self):
+        cases = {
+            "앞으로 굵게 강조해줘": ("emphasis_style", "bold"),
+            "앞으로도 강조 없이 해줘": ("emphasis_style", "regular"),
+            "다음부터 글자는 크게 해줘": ("font_scale", "larger"),
+            "앞으로 글씨는 작게 해줘": ("font_scale", "smaller"),
+            "항상 가운데 정렬로 해줘": ("paragraph_align", "center"),
+        }
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                intent = self.analyzer.analyze(command, self.context)
+                self.assertEqual(expected, (intent.preference, intent.value))
+
+    def test_plain_formatting_edit_commands_stay_document_edits(self):
+        for command in (
+            "굵게 강조해줘",
+            "가운데 정렬로 해줘",
+            "글자 크게 해줘",
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(self.analyzer.analyze(command, self.context))
+
+    def test_formatting_preference_deactivation_is_recognized(self):
+        emphasis = self.analyzer.analyze("강조 선호 취소", self.context)
+        self.assertTrue(emphasis.deactivate)
+        self.assertEqual("emphasis_style", emphasis.preference)
+        align = self.analyzer.analyze("정렬 기본값 취소", self.context)
+        self.assertEqual("paragraph_align", align.preference)
+
+
+class PendingFileCandidateActivationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.file = Path(self.temp_dir.name) / "관찰활성화.docx"
+        self.file.write_bytes(b"fixture")
+        self.manager = UserPreferenceLearningManager(
+            Path(self.temp_dir.name) / "preferences.json"
+        )
+        self.adapter = Stage11NativeEditAdapter.__new__(Stage11NativeEditAdapter)
+        self.adapter.user_learning_manager = self.manager
+        self.adapter.preference_analyzer = StructuredPreferenceIntentAnalyzer()
+        self.adapter.session = {"file_path": str(self.file)}
+        self.adapter.app_type = "word"
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _seed_direct_evidence(self, preference, value, count=3):
+        for index in range(count):
+            record = self.manager.record_evidence(
+                preference,
+                value,
+                scope_kind="file",
+                scope_id=str(self.file),
+                evidence_id=f"direct-{preference}-{index}",
+            )
+        return record
+
+    def test_hint_phrase_targets_the_waiting_file_scope_candidate(self):
+        seeded = self._seed_direct_evidence("report_tone", "concise")
+        self.assertEqual("candidate", seeded["status"])
+
+        intent = self.adapter._pending_file_candidate_intent(
+            "앞으로도 간결하게 해줘"
+        )
+
+        self.assertIsNotNone(intent)
+        self.assertEqual("report_tone", intent.preference)
+        self.assertEqual("concise", intent.value)
+        self.assertEqual("file", intent.scope_kind)
+        self.assertEqual(str(self.file), intent.scope_id)
+
+    def test_hint_phrase_prepare_builds_a_file_scope_activation(self):
+        seeded = self._seed_direct_evidence("emphasis_style", "bold")
+        request = EditRequest(
+            text="앞으로도 굵게 강조해줘",
+            edit_session_id="stage11-activation",
+            document_fingerprint="F" * 64,
+        )
+        prepared = self.adapter.prepare(request, {
+            "document_fingerprint": "F" * 64,
+            "context_fingerprint": "C" * 64,
+            "target": {},
+            "selection_reference": None,
+        })
+        self.assertEqual("activate_user_preference", prepared.operation)
+        self.assertTrue(prepared.requires_approval)
+        self.assertEqual(
+            seeded["candidate_id"], prepared.arguments["candidate_id"]
+        )
+        self.assertEqual("file", prepared.arguments["scope_kind"])
+
+        result = self.adapter.execute(prepared)
+        self.assertEqual("active", result["learning_status"])
+        resolved = self.manager.resolve("emphasis_style", file_path=self.file)
+        self.assertEqual("bold", resolved["value"])
+
+    def test_no_waiting_candidate_or_other_value_returns_none(self):
+        self.assertIsNone(
+            self.adapter._pending_file_candidate_intent("앞으로도 간결하게 해줘")
+        )
+        self._seed_direct_evidence("report_tone", "concise", count=2)
+        self.assertIsNone(
+            self.adapter._pending_file_candidate_intent("앞으로도 간결하게 해줘")
+        )
+        self.assertIsNone(
+            self.adapter._pending_file_candidate_intent("간결하게 해줘")
         )
 
 

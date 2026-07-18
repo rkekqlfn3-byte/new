@@ -35,7 +35,11 @@ from engine.edit_mode.stage11 import (
     StructuredPreferenceIntentAnalyzer,
 )
 from engine.edit_mode.state_machine import EditSessionState
-from engine.edit_mode.target_identity import direct_text_selection_anchor
+from engine.edit_mode.target_identity import (
+    direct_text_selection_anchor,
+    formatting_snapshot,
+    single_formatting_change,
+)
 from engine.edit_mode.window_layout import DocumentWindowActivator, WindowLayoutManager
 from engine.execution_result import success_result
 from engine.recovery import (
@@ -381,17 +385,106 @@ class EditModeController:
         except EditSessionNotFound:
             pass
 
+    _DIRECT_OBSERVATION_MESSAGES = {
+        "shortened": (
+            "직전 JARVIS 문장을 같은 위치에서 직접 더 짧게 고친 행동을 "
+            "현재 파일의 간결한 문체 선호 증거로 기록했습니다."
+        ),
+        "tone": (
+            "직전 JARVIS 문장을 같은 위치에서 {value_label}(으)로 직접 고쳐 쓴 "
+            "행동을 현재 파일의 문체 선호 증거로 기록했습니다."
+        ),
+        "formatting": (
+            "직전 JARVIS 편집 문장의 {value_label} 서식을 직접 바꾼 행동을 "
+            "현재 파일의 서식 선호 증거로 기록했습니다."
+        ),
+    }
+    _DIRECT_VALUE_LABELS = {
+        ("report_tone", "concise"): "간결한 문체",
+        ("report_tone", "formal"): "격식체",
+        ("report_tone", "friendly"): "친근한 문체",
+        ("emphasis_style", "bold"): "굵게 강조",
+        ("emphasis_style", "regular"): "강조 해제",
+        ("font_scale", "larger"): "글자 크기 키움",
+        ("font_scale", "smaller"): "글자 크기 줄임",
+        ("paragraph_align", "left"): "왼쪽 정렬",
+        ("paragraph_align", "center"): "가운데 정렬",
+        ("paragraph_align", "right"): "오른쪽 정렬",
+        ("paragraph_align", "justify"): "양쪽 정렬",
+    }
+    _ACTIVATION_HINTS = {
+        ("report_tone", "concise"): "앞으로도 간결하게 해줘",
+        ("report_tone", "formal"): "앞으로도 격식체로 해줘",
+        ("report_tone", "friendly"): "앞으로도 친근하게 해줘",
+        ("emphasis_style", "bold"): "앞으로도 굵게 강조해줘",
+        ("emphasis_style", "regular"): "앞으로도 강조 없이 해줘",
+        ("font_scale", "larger"): "앞으로도 글자는 크게 해줘",
+        ("font_scale", "smaller"): "앞으로도 글자는 작게 해줘",
+        ("paragraph_align", "left"): "앞으로도 왼쪽 정렬로 해줘",
+        ("paragraph_align", "center"): "앞으로도 가운데 정렬로 해줘",
+        ("paragraph_align", "right"): "앞으로도 오른쪽 정렬로 해줘",
+        ("paragraph_align", "justify"): "앞으로도 양쪽 정렬로 해줘",
+    }
+
+    @staticmethod
+    def _classify_direct_edit(
+        app_type: str,
+        last_action: dict,
+        context: dict,
+    ) -> tuple[str, str, str] | None:
+        """Choose at most one content-free observation for a direct user edit.
+
+        Returns ``(preference, value, observation_kind)``.  A clear shortening
+        keeps its existing meaning; otherwise an ending-based tone switch or a
+        single-facet formatting change may qualify.  Anything ambiguous is
+        dropped rather than guessed.
+        """
+        previous_digest = str(
+            last_action.get("post_selected_text_digest") or ""
+        ).strip().upper()
+        current_digest = str(
+            context.get("selected_text_digest") or ""
+        ).strip().upper()
+        if not previous_digest or not current_digest:
+            return None
+        if previous_digest == current_digest:
+            change = single_formatting_change(
+                last_action.get("post_selection_formatting"),
+                formatting_snapshot(app_type, context),
+            )
+            if change is None:
+                return None
+            preference, value = change
+            return preference, value, "formatting"
+        previous_length = int(last_action.get("post_selected_text_length") or 0)
+        current_length = int(context.get("selected_text_length") or 0)
+        if previous_length <= 0 or current_length < 10:
+            return None
+        ratio = current_length / previous_length
+        if previous_length >= 30 and 0.35 <= ratio <= 0.75:
+            return "report_tone", "concise", "shortened"
+        previous_tone = str(last_action.get("post_selected_text_tone") or "")
+        current_tone = str(context.get("selected_text_tone") or "")
+        if (
+            previous_tone in {"formal", "friendly", "plain"}
+            and current_tone in {"formal", "friendly"}
+            and current_tone != previous_tone
+            and previous_length >= 15
+            and 0.5 <= ratio <= 1.6
+        ):
+            return "report_tone", current_tone, "tone"
+        return None
+
     def _record_direct_edit_feedback(
         self,
         session: dict,
         last_action: dict,
         context: dict,
     ) -> dict | None:
-        """Record one high-confidence, content-free direct shortening signal."""
+        """Record one high-confidence, content-free direct edit observation."""
         try:
-            if str(session.get("app_type") or "").casefold() not in {
-                "hwp", "word", "powerpoint",
-            }:
+            app_type = str(session.get("app_type") or "").casefold()
+            if app_type not in {"hwp", "word", "powerpoint"}:
                 return None
             if str(last_action.get("operation") or "") not in TEXT_REPLACE_OPERATIONS:
                 return None
@@ -402,56 +495,50 @@ class EditModeController:
                 context,
             ):
                 return None
-            previous_digest = str(
-                last_action.get("post_selected_text_digest") or ""
-            ).strip().upper()
-            current_digest = str(
-                context.get("selected_text_digest") or ""
-            ).strip().upper()
-            if not previous_digest or not current_digest or previous_digest == current_digest:
-                return None
-            previous_length = int(
-                last_action.get("post_selected_text_length") or 0
+            observation = self._classify_direct_edit(
+                app_type, last_action, context
             )
-            current_length = int(context.get("selected_text_length") or 0)
-            if previous_length < 30 or current_length < 10:
+            if observation is None:
                 return None
-            ratio = current_length / previous_length
-            if ratio < 0.35 or ratio > 0.75:
-                return None
+            preference, value, observation_kind = observation
             file_path = str(session.get("file_path") or "").strip()
             if not file_path:
                 return None
             record = self._learning_manager().record_evidence(
-                "report_tone",
-                "concise",
+                preference,
+                value,
                 scope_kind="file",
                 scope_id=file_path,
                 evidence_id=f"direct-{action_id}"[:160],
             )
+            value_label = self._DIRECT_VALUE_LABELS.get(
+                (preference, value), str(value)
+            )
+            message = self._DIRECT_OBSERVATION_MESSAGES[observation_kind].format(
+                value_label=value_label
+            ) + " 아직 기본값으로 확정하지 않았습니다."
             feedback = {
                 "feedback_id": f"direct-{action_id}"[:100],
                 "recorded": not bool(record.get("duplicate_evidence")),
                 "source": "verified_direct_edit",
-                "preference": "report_tone",
-                "value": "concise",
+                "observation_kind": observation_kind,
+                "preference": preference,
+                "value": value,
                 "scope_kind": "file",
                 "candidate_id": record.get("candidate_id"),
                 "evidence_count": int(record.get("evidence_count") or 0),
                 "status": record.get("status"),
                 "needs_confirmation": bool(record.get("needs_confirmation")),
                 "raw_content_stored": False,
-                "message": (
-                    "직전 JARVIS 문장을 같은 위치에서 직접 더 짧게 고친 행동을 "
-                    "현재 파일의 간결한 문체 선호 증거로 기록했습니다. "
-                    "아직 기본값으로 확정하지 않았습니다."
-                ),
+                "message": message,
             }
             if feedback["needs_confirmation"]:
-                feedback["message"] += (
-                    " 같은 패턴이 반복됐습니다. 앞으로도 적용하려면 "
-                    "‘앞으로도 간결하게 해줘’라고 말해 확인할 수 있습니다."
-                )
+                hint = self._ACTIVATION_HINTS.get((preference, value))
+                if hint:
+                    feedback["message"] += (
+                        " 같은 패턴이 반복됐습니다. 앞으로도 적용하려면 "
+                        f"‘{hint}’라고 말해 확인할 수 있습니다."
+                    )
             return feedback
         except Exception:
             return None
