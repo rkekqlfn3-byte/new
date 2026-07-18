@@ -1351,8 +1351,138 @@ class WorkflowExecutor:
                 allowed.add("completed")
             if state.get("status") not in allowed:
                 continue
-            candidates.append(state)
-        return max(candidates, key=lambda item: str(item.get("updated_at") or ""), default=None)
+            try:
+                modified_ns = int(path.stat().st_mtime_ns)
+            except OSError:
+                modified_ns = 0
+            candidates.append((state, modified_ns))
+        latest = max(
+            candidates,
+            key=lambda item: (
+                str(item[0].get("updated_at") or ""),
+                item[1],
+                str(item[0].get("workflow_id") or ""),
+            ),
+            default=None,
+        )
+        return latest[0] if latest else None
+
+    def latest_completed_for_source(self, source_path) -> dict | None:
+        """Return the newest completed workflow for exactly one Excel source.
+
+        A newer failed workflow must not shadow or silently replace the meaning
+        of "방금 만든".  Conversely, an invalid newest completed state must
+        fail closed rather than falling back to an older artifact.
+        """
+        self.cleanup_stale_previews()
+        source_key = _path_key(source_path)
+        candidates = []
+        if not self.store_dir.is_dir():
+            return None
+        for path in self.store_dir.glob("*.json"):
+            state = safe_read_json(path, None)
+            if not isinstance(state, dict):
+                continue
+            if (
+                _path_key(state.get("source_path") or "") == source_key
+                and state.get("status") == "completed"
+            ):
+                try:
+                    modified_ns = int(path.stat().st_mtime_ns)
+                except OSError:
+                    modified_ns = 0
+                candidates.append((state, modified_ns))
+        latest = max(
+            candidates,
+            key=lambda item: (
+                str(item[0].get("updated_at") or ""),
+                item[1],
+                str(item[0].get("workflow_id") or ""),
+            ),
+            default=None,
+        )
+        return latest[0] if latest else None
+
+    def latest_verified_artifact(
+        self,
+        source_path,
+        artifact_kind: str,
+    ) -> dict[str, Any]:
+        """Resolve one unchanged artifact from the newest completed workflow."""
+        state = self.latest_completed_for_source(source_path)
+        if state is None:
+            raise WorkflowError(
+                "이 Excel 파일에서 완료된 최근 보고서·발표자료를 찾지 못했습니다."
+            )
+        if not _fingerprint_matches(
+            state.get("source_path"), state.get("source_fingerprint")
+        ):
+            raise WorkflowError(
+                "보고서·발표자료 생성 뒤 Excel 원본이 바뀌어 '방금 만든' 대상을 "
+                "자동으로 선택하지 않았습니다. 원하는 파일을 직접 열어주세요."
+            )
+        self._state_step_order(state)
+        report_format = _report_format(state.get("report_format") or "word")
+        requested = str(artifact_kind or "").strip().casefold()
+        if requested == "report":
+            if report_format == "both":
+                raise WorkflowError(
+                    "최근 작업에 Word와 한글 보고서가 모두 있습니다. "
+                    "'방금 만든 Word 보고서' 또는 '방금 만든 한글 보고서'라고 "
+                    "지정해주세요."
+                )
+            requested = f"{report_format}_report"
+
+        mapping = {
+            "word_report": (
+                "create_word_report",
+                "word",
+                "word",
+                "Word 보고서",
+            ),
+            "hwp_report": (
+                "create_hwp_report",
+                "hwp",
+                "hwp",
+                "한글 보고서",
+            ),
+            "presentation": (
+                "create_powerpoint_summary",
+                "presentation",
+                "powerpoint",
+                "PowerPoint 발표자료",
+            ),
+        }
+        if requested not in mapping:
+            raise WorkflowError("열 최근 산출물 종류가 올바르지 않습니다.")
+        step_name, output_kind, app_type, label = mapping[requested]
+        if step_name not in self._state_step_order(state):
+            raise WorkflowError(f"최근 완료 작업에는 {label}가 없습니다.")
+        output_key = (
+            "presentation"
+            if requested == "presentation"
+            else _report_output_key(report_format, output_kind)
+        )
+        step = dict((state.get("steps") or {}).get(step_name) or {})
+        artifact = dict(step.get("artifact") or {})
+        planned_path = str((state.get("output_paths") or {}).get(output_key) or "")
+        if (
+            step.get("status") != "succeeded"
+            or not self._artifact_valid(artifact)
+            or _path_key(artifact.get("path") or "") != _path_key(planned_path)
+        ):
+            raise WorkflowError(
+                f"최근 {label}가 이동·수정·삭제되어 자동으로 열지 않았습니다."
+            )
+        return {
+            "workflow_id": str(state.get("workflow_id") or ""),
+            "artifact_kind": requested,
+            "label": label,
+            "app_type": app_type,
+            "path": str(artifact["path"]),
+            "fingerprint": dict(artifact["fingerprint"]),
+            "verified_at": str(step.get("completed_at") or ""),
+        }
 
     @staticmethod
     def _artifact_valid(artifact) -> bool:

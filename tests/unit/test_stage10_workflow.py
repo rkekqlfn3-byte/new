@@ -9,6 +9,7 @@ from engine.workflows import (
     PowerPointSummaryWriter,
     WordReportWriter,
     WorkProductData,
+    WorkflowError,
     WorkflowExecutionError,
     WorkflowExecutor,
 )
@@ -484,6 +485,42 @@ class Stage10WorkflowTests(unittest.TestCase):
             )
         )
 
+    def test_recent_verified_artifact_open_intent_is_strict_and_typed(self):
+        analyzer = StructuredWorkflowIntentAnalyzer()
+        context = {"app_type": "excel"}
+
+        generic_report = analyzer.analyze(
+            "방금 만든 보고서 열어줘",
+            context,
+        )
+        word_report = analyzer.analyze(
+            "방금 만든 워드 보고서 앞으로 보여줘",
+            context,
+        )
+        hwp_report = analyzer.analyze(
+            "아까 만든 한글 보고서 포커스해줘",
+            context,
+        )
+        presentation = analyzer.analyze(
+            "최근 만든 발표자료 열어줘",
+            context,
+        )
+
+        self.assertEqual("open_recent_workflow_artifact", generic_report.operation)
+        self.assertEqual("report", generic_report.params["artifact_kind"])
+        self.assertEqual("word_report", word_report.params["artifact_kind"])
+        self.assertEqual("hwp_report", hwp_report.params["artifact_kind"])
+        self.assertEqual("presentation", presentation.params["artifact_kind"])
+        self.assertIsNone(
+            analyzer.analyze("방금 만든 보고서가 뭐야?", context)
+        )
+        self.assertIsNone(
+            analyzer.analyze(
+                "방금 만든 보고서 열어줘",
+                {"app_type": "word"},
+            )
+        )
+
     def test_both_report_plan_runs_each_report_as_a_separate_verified_step(self):
         analyzer = FakeAnalyzer()
         word = FakeWriter("word")
@@ -724,6 +761,37 @@ class Stage10WorkflowTests(unittest.TestCase):
         self.assertIsNone(self.executor.latest_for_source(self.source))
         self.assertEqual(1, self.executor.cleanup_stale_previews(max_age_days=0))
         self.assertFalse(self.executor._path(state["workflow_id"]).exists())
+
+    def test_recent_artifact_requires_newest_completed_unchanged_file(self):
+        self.ppt.fail_times = 0
+        first_plan = self.executor.prepare(self.source)
+        first = self.executor.start(first_plan)
+        report = self.executor.latest_verified_artifact(self.source, "report")
+        presentation = self.executor.latest_verified_artifact(
+            self.source, "presentation"
+        )
+
+        self.assertEqual(first["workflow_id"], report["workflow_id"])
+        self.assertEqual("word_report", report["artifact_kind"])
+        self.assertEqual(first["output_paths"]["report"], report["path"])
+        self.assertEqual(
+            first["output_paths"]["presentation"], presentation["path"]
+        )
+
+        second_plan = self.executor.prepare(self.source, report_format="both")
+        second = self.executor.start(second_plan)
+        with self.assertRaisesRegex(WorkflowError, "Word와 한글"):
+            self.executor.latest_verified_artifact(self.source, "report")
+        word = self.executor.latest_verified_artifact(
+            self.source, "word_report"
+        )
+        self.assertEqual(second["workflow_id"], word["workflow_id"])
+
+        Path(word["path"]).write_bytes(b"user-modified-report")
+        with self.assertRaisesRegex(WorkflowError, "이동·수정·삭제"):
+            self.executor.latest_verified_artifact(
+                self.source, "word_report"
+            )
 
     def test_approved_style_defaults_change_generated_content_without_code_objects(self):
         value = WorkProductData.from_value(product(self.source))

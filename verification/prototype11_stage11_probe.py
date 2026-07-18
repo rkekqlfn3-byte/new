@@ -13,7 +13,9 @@ import time
 import uuid
 from pathlib import Path
 
+from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
+from engine.edit_mode.window_layout import DocumentWindowActivator
 from engine.learning import (
     BusinessWorkflowSkillManager,
     UserPreferenceLearningManager,
@@ -258,6 +260,50 @@ def _owned_probe():
         replay_slide_count = _powerpoint_slide_count(
             replay_presentation_path
         )
+        if not _wait_for_cleanup(baseline):
+            raise RuntimeError(
+                "산출물 재열기 검증용 숨김 Office 프로세스가 종료되지 않았습니다."
+            )
+        stage = "open_and_focus_recent_verified_artifacts"
+        artifact_intake = FileIntakeManager(open_timeout=20.0)
+        artifact_activator = DocumentWindowActivator(attempts=3)
+        opened_artifacts = []
+        for requested_kind in ("report", "presentation"):
+            artifact = executor.latest_verified_artifact(
+                source,
+                requested_kind,
+            )
+            opened = artifact_intake.connect_file(artifact["path"])
+            activation = artifact_activator.activate_when_ready(
+                int(opened.get("window_handle") or 0),
+                timeout=3.0,
+            )
+            opened_artifacts.append({
+                "kind": artifact["artifact_kind"],
+                "exact_path": (
+                    Path(opened.get("file_path") or "").resolve()
+                    == Path(artifact["path"]).resolve()
+                ),
+                "app_matches": (
+                    str(opened.get("app_type") or "").casefold()
+                    == str(artifact.get("app_type") or "").casefold()
+                ),
+                "fingerprint_unchanged": (
+                    file_fingerprint(artifact["path"])
+                    == artifact["fingerprint"]
+                ),
+                "focused": bool(
+                    activation.get("success")
+                    and activation.get("focused")
+                ),
+                "window_handle_present": bool(opened.get("window_handle")),
+                "activation_status": str(
+                    activation.get("status") or "unknown"
+                ),
+                "readiness_attempts": int(
+                    activation.get("readiness_attempts") or 0
+                ),
+            })
         stored = executor.load(state["workflow_id"])
         checks = {
             "three_observations_created_candidate": candidate_ready,
@@ -307,6 +353,58 @@ def _owned_probe():
                 and contextual_intent.params.get("contextual_current_document")
                 and contextual_intent.params.get("slide_count") == 7
             ),
+            "recent_verified_artifacts_opened_and_focused": bool(
+                len(opened_artifacts) == 2
+                and {item["kind"] for item in opened_artifacts}
+                == {"word_report", "presentation"}
+                and all(
+                    item["exact_path"]
+                    and item["app_matches"]
+                    and item["fingerprint_unchanged"]
+                    and item["focused"]
+                    for item in opened_artifacts
+                )
+            ),
+            "recent_word_artifact_exact_path": bool(
+                opened_artifacts
+                and opened_artifacts[0]["kind"] == "word_report"
+                and opened_artifacts[0]["exact_path"]
+            ),
+            "recent_word_artifact_app_matches": bool(
+                opened_artifacts
+                and opened_artifacts[0]["kind"] == "word_report"
+                and opened_artifacts[0]["app_matches"]
+            ),
+            "recent_word_artifact_fingerprint_unchanged": bool(
+                opened_artifacts
+                and opened_artifacts[0]["kind"] == "word_report"
+                and opened_artifacts[0]["fingerprint_unchanged"]
+            ),
+            "recent_word_artifact_focused": bool(
+                opened_artifacts
+                and opened_artifacts[0]["kind"] == "word_report"
+                and opened_artifacts[0]["focused"]
+            ),
+            "recent_presentation_artifact_exact_path": bool(
+                len(opened_artifacts) > 1
+                and opened_artifacts[1]["kind"] == "presentation"
+                and opened_artifacts[1]["exact_path"]
+            ),
+            "recent_presentation_artifact_app_matches": bool(
+                len(opened_artifacts) > 1
+                and opened_artifacts[1]["kind"] == "presentation"
+                and opened_artifacts[1]["app_matches"]
+            ),
+            "recent_presentation_artifact_fingerprint_unchanged": bool(
+                len(opened_artifacts) > 1
+                and opened_artifacts[1]["kind"] == "presentation"
+                and opened_artifacts[1]["fingerprint_unchanged"]
+            ),
+            "recent_presentation_artifact_focused": bool(
+                len(opened_artifacts) > 1
+                and opened_artifacts[1]["kind"] == "presentation"
+                and opened_artifacts[1]["focused"]
+            ),
             "word_report_reopened_with_approved_formatting": word_verified,
             "preferred_seven_slides_created": slide_count == 7,
             "applied_preference_audited": (
@@ -325,6 +423,15 @@ def _owned_probe():
             "owned_fixture_only": True,
             "user_process_protected": True,
             "checks": checks,
+            "artifact_focus_diagnostics": [
+                {
+                    "kind": item["kind"],
+                    "window_handle_present": item["window_handle_present"],
+                    "activation_status": item["activation_status"],
+                    "readiness_attempts": item["readiness_attempts"],
+                }
+                for item in opened_artifacts
+            ],
         }
     except Exception as error:
         return {

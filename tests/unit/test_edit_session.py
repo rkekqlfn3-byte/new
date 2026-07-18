@@ -26,6 +26,7 @@ from engine.edit_mode.controller import EditModeController
 from engine.edit_mode.native_bridge import (
     NativeDocumentBridge,
     NativeOfficeBusy,
+    _powerpoint_visible_window_handle,
     bind_excel_runtime_window,
     release_excel_runtime_window,
     verify_excel_runtime_window,
@@ -45,6 +46,8 @@ class FakeBridge:
         self.find_error = None
         self.wait_error = None
         self.active_error = None
+        self.ensured = None
+        self.ensure_calls = []
 
     def is_available(self, app_type):
         return self.available
@@ -56,6 +59,10 @@ class FakeBridge:
 
     def launch_document(self, app_type, file_path):
         self.launches.append((app_type, file_path))
+
+    def ensure_visible_document(self, app_type, expected_path):
+        self.ensure_calls.append((app_type, expected_path))
+        return dict(self.ensured) if self.ensured else None
 
     def wait_for_document(self, app_type, expected_path, timeout=15.0):
         if self.wait_error is not None:
@@ -142,6 +149,36 @@ class EditFileIntakeTests(unittest.TestCase):
         self.assertEqual([], self.bridge.launches)
         self.assertEqual("B3:F18", result["selection_reference"])
 
+    def test_hidden_exact_powerpoint_gets_a_verified_visible_window(self):
+        presentation = self.root / "요약.pptx"
+        presentation.write_bytes(b"pptx")
+        hidden = self.metadata(presentation, "powerpoint")
+        hidden["window_handle"] = 0
+        self.bridge.existing = hidden
+        self.bridge.ensured = {
+            **hidden,
+            "window_handle": 77,
+        }
+
+        result = self.manager.connect_file(str(presentation))
+
+        self.assertEqual(77, result["window_handle"])
+        self.assertFalse(result["launch_requested"])
+        self.assertEqual(1, len(self.bridge.ensure_calls))
+        self.assertEqual([], self.bridge.launches)
+
+    def test_hidden_exact_document_without_visible_window_is_blocked(self):
+        presentation = self.root / "요약.pptx"
+        presentation.write_bytes(b"pptx")
+        hidden = self.metadata(presentation, "powerpoint")
+        hidden["window_handle"] = 0
+        self.bridge.existing = hidden
+
+        with self.assertRaisesRegex(EditDocumentOpenTimeout, "문서 창"):
+            self.manager.connect_file(str(presentation))
+
+        self.assertEqual([], self.bridge.launches)
+
     def test_launch_requires_exact_document_rediscovery(self):
         self.bridge.waited = self.metadata()
         result = self.manager.connect_file(str(self.file))
@@ -153,6 +190,46 @@ class EditFileIntakeTests(unittest.TestCase):
         self.bridge.waited = self.metadata(other)
         with self.assertRaises(EditDocumentOpenTimeout):
             self.manager.connect_file(str(self.file))
+
+    def test_launched_powerpoint_waits_for_a_verified_visible_window(self):
+        presentation = self.root / "요약.pptx"
+        presentation.write_bytes(b"pptx")
+        hidden = self.metadata(presentation, "powerpoint")
+        hidden["window_handle"] = 0
+        self.bridge.waited = hidden
+        self.bridge.ensured = {
+            **hidden,
+            "window_handle": 88,
+        }
+
+        result = self.manager.connect_file(str(presentation))
+
+        self.assertTrue(result["launch_requested"])
+        self.assertEqual(88, result["window_handle"])
+        self.assertEqual(1, len(self.bridge.launches))
+        self.assertEqual(1, len(self.bridge.ensure_calls))
+
+    def test_native_powerpoint_visible_launch_result_skips_generic_wait(self):
+        presentation = self.root / "요약.pptx"
+        presentation.write_bytes(b"pptx")
+        visible = self.metadata(presentation, "powerpoint")
+
+        class VisibleLaunchBridge(FakeBridge):
+            def launch_visible_document(self, app_type, file_path):
+                self.launches.append((app_type, file_path))
+                return dict(visible)
+
+            def wait_for_document(self, *args, **kwargs):
+                raise AssertionError("visible native launch must not use generic wait")
+
+        bridge = VisibleLaunchBridge()
+        manager = FileIntakeManager(bridge, open_timeout=1)
+
+        result = manager.connect_file(str(presentation))
+
+        self.assertTrue(result["launch_requested"])
+        self.assertEqual("powerpoint", result["app_type"])
+        self.assertEqual(1, len(bridge.launches))
 
     def test_exact_reopen_launches_once_and_verifies_the_same_path(self):
         self.bridge.waited = self.metadata()
@@ -309,6 +386,69 @@ class EditFileIntakeTests(unittest.TestCase):
         self.assertEqual(4321, metadata["window_handle"])
         self.assertEqual("슬라이드 2", metadata["active_container"])
         self.assertEqual("selection:3", metadata["selection_reference"])
+
+    def test_powerpoint_uses_exact_application_hwnd_while_document_window_starts(self):
+        def unavailable(*_args, **_kwargs):
+            raise RuntimeError("window not ready")
+
+        document = SimpleNamespace(
+            FullName=str(self.file),
+            Name=self.file.name,
+            Windows=SimpleNamespace(Item=unavailable),
+        )
+        application = SimpleNamespace(
+            HWND=lambda: 7654,
+            ActivePresentation=document,
+            ActiveWindow=SimpleNamespace(HWND=unavailable),
+        )
+
+        metadata = NativeDocumentBridge._office_metadata(
+            "powerpoint", application, document
+        )
+
+        self.assertEqual(7654, metadata["window_handle"])
+
+    def test_powerpoint_unique_title_frame_fallback_is_fail_closed(self):
+        document = SimpleNamespace(
+            FullName=str(self.file.with_suffix(".pptx")),
+            Name="매출현황.pptx",
+        )
+        titles = {
+            100: ("PPTFrameClass", "매출현황 - PowerPoint", True),
+            200: ("PPTFrameClass", "다른자료 - PowerPoint", True),
+            300: ("OtherClass", "매출현황", True),
+        }
+
+        def enumerate_windows(callback, extra):
+            for handle in titles:
+                callback(handle, extra)
+
+        with mock.patch("win32gui.EnumWindows", side_effect=enumerate_windows), \
+             mock.patch(
+                 "win32gui.IsWindowVisible",
+                 side_effect=lambda handle: titles[handle][2],
+             ), \
+             mock.patch(
+                 "win32gui.GetClassName",
+                 side_effect=lambda handle: titles[handle][0],
+             ), \
+             mock.patch(
+                 "win32gui.GetWindowText",
+                 side_effect=lambda handle: titles[handle][1],
+             ):
+            self.assertEqual(
+                100,
+                _powerpoint_visible_window_handle(document),
+            )
+            titles[200] = (
+                "PPTFrameClass",
+                "매출현황 - PowerPoint 복사본",
+                True,
+            )
+            self.assertEqual(
+                0,
+                _powerpoint_visible_window_handle(document),
+            )
 
     def test_excel_metadata_uses_the_workbook_window_handle(self):
         selection = SimpleNamespace(Address=lambda row, column: "E9")
@@ -1299,6 +1439,21 @@ class FakeActivationBackend:
             self.foreground = handle
 
 
+class ChildHandleActivationBackend(FakeActivationBackend):
+    def root_handle(self, handle):
+        return 10 if handle == 11 else handle
+
+
+class DelayedActivationBackend(FakeActivationBackend):
+    def __init__(self):
+        super().__init__(accepts=False)
+
+    def request_foreground(self, handle):
+        self.requests.append(handle)
+        if len(self.requests) >= 3:
+            self.foreground = handle
+
+
 class DocumentWindowActivatorTests(unittest.TestCase):
     def test_connected_document_is_restored_and_verified_foreground(self):
         backend = FakeActivationBackend()
@@ -1311,6 +1466,28 @@ class DocumentWindowActivatorTests(unittest.TestCase):
         self.assertEqual("focused", result["status"])
         self.assertEqual([10], backend.restored)
         self.assertEqual([10], backend.requests)
+
+    def test_child_document_handle_is_normalized_to_top_level_window(self):
+        backend = ChildHandleActivationBackend()
+        result = DocumentWindowActivator(
+            backend=backend,
+            attempts=2,
+            retry_delay=0,
+        ).activate(11)
+        self.assertTrue(result["success"])
+        self.assertEqual([10], backend.restored)
+        self.assertEqual([10], backend.requests)
+
+    def test_bounded_readiness_wait_retries_until_foreground_is_verified(self):
+        backend = DelayedActivationBackend()
+        result = DocumentWindowActivator(
+            backend=backend,
+            attempts=1,
+            retry_delay=0,
+        ).activate_when_ready(10, timeout=0.2, retry_interval=0)
+        self.assertTrue(result["success"])
+        self.assertEqual(3, result["readiness_attempts"])
+        self.assertEqual([10, 10, 10], backend.requests)
 
     def test_activation_failure_is_non_throwing_and_verified(self):
         backend = FakeActivationBackend(accepts=False)

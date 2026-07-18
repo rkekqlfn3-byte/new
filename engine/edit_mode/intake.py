@@ -154,24 +154,65 @@ class FileIntakeManager:
             except NativeOfficeBusy as retry_error:
                 raise self._busy_error(app_type, retry_error) from retry_error
         launch_requested = document is None
-        if launch_requested:
+        if document is not None and int(document.get("window_handle") or 0) <= 0:
+            ensure_visible = getattr(self.bridge, "ensure_visible_document", None)
             try:
-                self.bridge.launch_document(app_type, canonical_path)
-            except NativeBridgeError as error:
-                raise EditAppUnavailable(str(error)) from error
-            try:
-                document = self.bridge.wait_for_document(
-                    app_type,
-                    canonical_path,
-                    timeout=self.open_timeout,
+                document = (
+                    ensure_visible(app_type, canonical_path)
+                    if callable(ensure_visible)
+                    else None
                 )
             except NativeOfficeBusy as error:
                 raise self._busy_error(app_type, error) from error
+            if not document or int(document.get("window_handle") or 0) <= 0:
+                raise EditDocumentOpenTimeout(
+                    f"{APP_LABELS[app_type]}에서 정확한 파일은 확인했지만 표시할 "
+                    "문서 창을 만들지 못했습니다. 앱의 경고 또는 대화상자를 확인해주세요."
+                )
+        if launch_requested:
+            launch_visible = getattr(
+                self.bridge,
+                "launch_visible_document",
+                None,
+            )
+            if app_type == "powerpoint" and callable(launch_visible):
+                try:
+                    document = launch_visible(app_type, canonical_path)
+                except NativeBridgeError as error:
+                    raise EditAppUnavailable(str(error)) from error
+            else:
+                try:
+                    self.bridge.launch_document(app_type, canonical_path)
+                except NativeBridgeError as error:
+                    raise EditAppUnavailable(str(error)) from error
+                try:
+                    document = self.bridge.wait_for_document(
+                        app_type,
+                        canonical_path,
+                        timeout=self.open_timeout,
+                    )
+                except NativeOfficeBusy as error:
+                    raise self._busy_error(app_type, error) from error
         if not document:
             raise EditDocumentOpenTimeout(
                 f"{APP_LABELS[app_type]}에서 선택한 파일이 열린 것을 확인하지 못했습니다. "
                 "앱의 경고 또는 보호된 보기 창을 확인해주세요."
             )
+        if int(document.get("window_handle") or 0) <= 0:
+            ensure_visible = getattr(self.bridge, "ensure_visible_document", None)
+            try:
+                document = (
+                    ensure_visible(app_type, canonical_path)
+                    if callable(ensure_visible)
+                    else None
+                )
+            except NativeOfficeBusy as error:
+                raise self._busy_error(app_type, error) from error
+            if not document or int(document.get("window_handle") or 0) <= 0:
+                raise EditDocumentOpenTimeout(
+                    f"{APP_LABELS[app_type]}에서 정확한 파일은 확인했지만 표시할 "
+                    "문서 창을 만들지 못했습니다. 앱의 경고 또는 대화상자를 확인해주세요."
+                )
         verified_path = canonical_document_path(document.get("file_path"))
         if verified_path != canonical_path:
             raise EditDocumentOpenTimeout(

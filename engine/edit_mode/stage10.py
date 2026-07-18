@@ -6,12 +6,16 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping
 
 from engine.edit_mode.contracts import EditPreparedAction, EditRequest, RiskLevel
+from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.stage9 import Stage9EditError, Stage9NativeEditAdapter
+from engine.edit_mode.window_layout import DocumentWindowActivator
 from engine.learning import BusinessWorkflowSkillManager
 from engine.workflows import WorkflowExecutor
+from engine.workflows.business_workflow import file_fingerprint
 
 
 WORKFLOW_EXECUTION_OPERATIONS = frozenset(
@@ -21,7 +25,12 @@ WORKFLOW_SKILL_OPERATIONS = frozenset({
     "activate_business_workflow_skill",
     "deactivate_business_workflow_skill",
 })
-WORKFLOW_OPERATIONS = WORKFLOW_EXECUTION_OPERATIONS | WORKFLOW_SKILL_OPERATIONS
+WORKFLOW_ARTIFACT_OPERATIONS = frozenset({"open_recent_workflow_artifact"})
+WORKFLOW_OPERATIONS = (
+    WORKFLOW_EXECUTION_OPERATIONS
+    | WORKFLOW_SKILL_OPERATIONS
+    | WORKFLOW_ARTIFACT_OPERATIONS
+)
 
 
 class Stage10EditError(Stage9EditError):
@@ -89,6 +98,19 @@ class StructuredWorkflowIntentAnalyzer:
         "정리",
         "변환",
     )
+    RECENT_ARTIFACT_TERMS = (
+        "방금 만든",
+        "방금 생성한",
+        "방금 작성한",
+        "아까 만든",
+        "최근 만든",
+    )
+    OPEN_ARTIFACT_TERMS = (
+        "열어",
+        "보여",
+        "앞으로",
+        "포커스",
+    )
 
     @classmethod
     def _creation_params(
@@ -142,6 +164,31 @@ class StructuredWorkflowIntentAnalyzer:
                 "resume_business_workflow",
                 "저장된 성공 단계는 건너뛰고 실패한 문서 워크플로 단계부터 재개",
             )
+        if (
+            any(term in command for term in self.RECENT_ARTIFACT_TERMS)
+            and any(term in command for term in self.OPEN_ARTIFACT_TERMS)
+        ):
+            artifact_kind = None
+            label = None
+            if any(term in command for term in ("ppt", "파워포인트", "발표자료", "슬라이드")):
+                artifact_kind = "presentation"
+                label = "최근 검증 PowerPoint 발표자료"
+            elif any(term in command for term in ("보고서", "리포트")):
+                if any(term in command for term in ("한글", "hwp", "hwpx")):
+                    artifact_kind = "hwp_report"
+                    label = "최근 검증 한글 보고서"
+                elif any(term in command for term in ("word", "워드", "docx")):
+                    artifact_kind = "word_report"
+                    label = "최근 검증 Word 보고서"
+                else:
+                    artifact_kind = "report"
+                    label = "최근 검증 보고서"
+            if artifact_kind:
+                return WorkflowIntent(
+                    "open_recent_workflow_artifact",
+                    f"{label} 열기 및 전면 포커스",
+                    {"artifact_kind": artifact_kind},
+                )
         if any(term in command for term in self.REUSE_TERMS):
             params = self._creation_params(
                 command,
@@ -206,6 +253,8 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
         workflow_executor=None,
         workflow_analyzer=None,
         workflow_skill_manager=None,
+        workflow_artifact_intake=None,
+        workflow_artifact_activator=None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -213,6 +262,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
         self.workflow_analyzer = workflow_analyzer or StructuredWorkflowIntentAnalyzer()
         self.workflow_skill_manager = (
             workflow_skill_manager or BusinessWorkflowSkillManager()
+        )
+        self.workflow_artifact_intake = (
+            workflow_artifact_intake or FileIntakeManager()
+        )
+        self.workflow_artifact_activator = (
+            workflow_artifact_activator or DocumentWindowActivator()
         )
 
     @staticmethod
@@ -426,6 +481,63 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             )
         return state
 
+    def _prepare_recent_artifact_action(
+        self,
+        request: EditRequest,
+        context: Mapping[str, Any],
+        intent: WorkflowIntent,
+    ) -> EditPreparedAction:
+        source_path = self._path(self.session.get("file_path"))
+        artifact = self.workflow_executor.latest_verified_artifact(
+            source_path,
+            str(intent.params.get("artifact_kind") or ""),
+        )
+        preview = {
+            "description": intent.description,
+            "before": "닫혀 있으면 정확한 파일을 열고, 열려 있으면 같은 창을 사용",
+            "after": f"{artifact['label']} 전면 포커스",
+            "target": Path(str(artifact["path"])).name,
+            "estimated_changes": 0,
+            "noop": False,
+        }
+        return EditPreparedAction(
+            action_id=f"edit-workflow-artifact-{uuid.uuid4().hex}",
+            request_id=request.request_id,
+            edit_session_id=request.edit_session_id,
+            app_type="excel",
+            operation=intent.operation,
+            target={
+                "context_target": dict(context.get("target") or {}),
+                "selection_reference": context.get("selection_reference"),
+                "native_target": artifact["path"],
+            },
+            arguments={
+                "artifact": artifact,
+                "preview": preview,
+                "read_only_source": True,
+            },
+            preconditions=(
+                {"kind": "document_fingerprint", "value": context["document_fingerprint"]},
+                {"kind": "context_fingerprint", "value": context["context_fingerprint"]},
+                {"kind": "artifact_fingerprint", "value": artifact["fingerprint"]},
+            ),
+            risk_level=RiskLevel.LOW,
+            requires_approval=False,
+            verification_plan={
+                "method": "exact_path_file_fingerprint_and_foreground_window"
+            },
+            rollback_plan={"strategy": "no_document_content_change"},
+            context_fingerprint=str(context["context_fingerprint"]),
+            metadata={
+                "preview": preview,
+                "estimated_changes": 0,
+                "workflow_artifact": True,
+                "workflow_id": artifact["workflow_id"],
+                "artifact_kind": artifact["artifact_kind"],
+                "rewrite_supported": False,
+            },
+        )
+
     def prepare(
         self,
         request: EditRequest,
@@ -436,6 +548,12 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             return super().prepare(request, context)
         if intent.operation in WORKFLOW_SKILL_OPERATIONS:
             return self._prepare_workflow_skill_action(
+                request,
+                context,
+                intent,
+            )
+        if intent.operation in WORKFLOW_ARTIFACT_OPERATIONS:
+            return self._prepare_recent_artifact_action(
                 request,
                 context,
                 intent,
@@ -536,6 +654,53 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     def execute(self, prepared_action: EditPreparedAction) -> Mapping[str, Any]:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().execute(prepared_action)
+        if prepared_action.operation == "open_recent_workflow_artifact":
+            artifact = dict(prepared_action.arguments.get("artifact") or {})
+            path = str(artifact.get("path") or "")
+            expected_fingerprint = dict(artifact.get("fingerprint") or {})
+            if file_fingerprint(path) != expected_fingerprint:
+                raise Stage10EditError(
+                    "최근 산출물이 준비 이후 이동·수정·교체되어 열지 않았습니다."
+                )
+            document = dict(self.workflow_artifact_intake.connect_file(path))
+            if (
+                self._path(document.get("file_path")) != self._path(path)
+                or str(document.get("app_type") or "").casefold()
+                != str(artifact.get("app_type") or "").casefold()
+                or file_fingerprint(path) != expected_fingerprint
+            ):
+                raise Stage10EditError(
+                    "열린 문서가 검증된 최근 산출물과 일치하지 않아 중단했습니다."
+                )
+            handle = int(document.get("window_handle") or 0)
+            activate_when_ready = getattr(
+                self.workflow_artifact_activator,
+                "activate_when_ready",
+                None,
+            )
+            activation = dict(
+                activate_when_ready(handle, timeout=2.5)
+                if callable(activate_when_ready)
+                else self.workflow_artifact_activator.activate(handle)
+            )
+            if not activation.get("success") or not activation.get("focused"):
+                raise Stage10EditError(
+                    "최근 산출물은 열었지만 해당 문서 창을 전면으로 가져온 것을 "
+                    "확인하지 못했습니다."
+                )
+            return {
+                "changed": False,
+                "verified": True,
+                "status": "focused",
+                "workflow_id": artifact.get("workflow_id"),
+                "artifact_kind": artifact.get("artifact_kind"),
+                "artifact_label": artifact.get("label"),
+                "file_path": path,
+                "file_name": Path(path).name,
+                "app_type": artifact.get("app_type"),
+                "launch_requested": bool(document.get("launch_requested")),
+                "activation": activation,
+            }
         if prepared_action.operation == "activate_business_workflow_skill":
             active = self.workflow_skill_manager.activate(
                 prepared_action.arguments.get("candidate_id")
@@ -585,6 +750,18 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
     ) -> bool:
         if prepared_action.operation not in WORKFLOW_OPERATIONS:
             return super().verify(prepared_action, result)
+        if prepared_action.operation == "open_recent_workflow_artifact":
+            artifact = dict(prepared_action.arguments.get("artifact") or {})
+            return bool(
+                result.get("verified")
+                and result.get("status") == "focused"
+                and result.get("artifact_kind") == artifact.get("artifact_kind")
+                and self._path(result.get("file_path"))
+                == self._path(artifact.get("path"))
+                and file_fingerprint(result.get("file_path"))
+                == dict(artifact.get("fingerprint") or {})
+                and dict(result.get("activation") or {}).get("focused")
+            )
         if prepared_action.operation in WORKFLOW_SKILL_OPERATIONS:
             return bool(result.get("verified"))
         report_format = str(

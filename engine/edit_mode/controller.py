@@ -1251,6 +1251,8 @@ class EditModeController:
             self._workflow_executor = WorkflowExecutor()
         kwargs["workflow_executor"] = self._workflow_executor
         kwargs["workflow_skill_manager"] = self._workflow_skills()
+        kwargs["workflow_artifact_intake"] = self.intake_manager
+        kwargs["workflow_artifact_activator"] = self.window_activator
         return adapter_class(
             session,
             self.context_manager,

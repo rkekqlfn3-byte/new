@@ -770,6 +770,13 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
         )
     if prepared.operation == "deactivate_business_workflow_skill":
         return "승인된 복합 업무 재사용 스킬을 해제했습니다."
+    if prepared.operation == "open_recent_workflow_artifact":
+        observations = result.observations
+        return (
+            f"{observations.get('artifact_label') or '최근 검증 산출물'} "
+            f"`{observations.get('file_name') or ''}`을(를) 정확한 파일 지문으로 "
+            "확인해 열고 문서 창을 맨 앞으로 가져왔습니다."
+        )
     if prepared.operation in {"create_business_workflow", "resume_business_workflow"}:
         observations = result.observations
         outputs = dict(observations.get("output_paths") or {})

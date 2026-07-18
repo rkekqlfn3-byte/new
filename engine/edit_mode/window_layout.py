@@ -76,6 +76,16 @@ class Win32DocumentActivationBackend:
     """Activate one validated top-level document window without keystrokes."""
 
     @staticmethod
+    def root_handle(handle: int) -> int:
+        import win32con
+        import win32gui
+
+        value = int(handle or 0)
+        if not value or not win32gui.IsWindow(value):
+            return value
+        return int(win32gui.GetAncestor(value, win32con.GA_ROOT) or value)
+
+    @staticmethod
     def is_window(handle: int) -> bool:
         import win32gui
 
@@ -170,6 +180,9 @@ class DocumentWindowActivator:
         handle = int(document_handle or 0)
         with self._lock:
             try:
+                root_handle = getattr(self.backend, "root_handle", None)
+                if callable(root_handle):
+                    handle = int(root_handle(handle) or handle)
                 if not self.backend.is_window(handle):
                     return {
                         "success": False,
@@ -205,6 +218,33 @@ class DocumentWindowActivator:
                     "focused": False,
                     "message": str(error),
                 }
+
+    def activate_when_ready(
+        self,
+        document_handle: int,
+        *,
+        timeout=2.5,
+        retry_interval=0.1,
+    ) -> dict:
+        """Bounded startup wait for an exact document window to accept focus."""
+        deadline = time.monotonic() + max(0.0, min(float(timeout), 5.0))
+        interval = max(0.0, min(float(retry_interval), 0.25))
+        attempts = 0
+        last = {
+            "success": False,
+            "status": "window_unavailable",
+            "focused": False,
+        }
+        while True:
+            attempts += 1
+            last = self.activate(document_handle)
+            if last.get("success") and last.get("focused"):
+                return {**last, "readiness_attempts": attempts}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {**last, "readiness_attempts": attempts}
+            if interval:
+                time.sleep(min(interval, remaining))
 
 
 class WindowLayoutManager:

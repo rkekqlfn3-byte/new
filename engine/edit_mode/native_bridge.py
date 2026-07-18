@@ -173,6 +173,50 @@ def _com_value(value):
     return value() if callable(value) else value
 
 
+def _powerpoint_visible_window_handle(document) -> int:
+    """Resolve one visible PowerPoint frame only by an exact document title token."""
+    try:
+        import win32gui
+
+        full_name = str(getattr(document, "FullName", "") or "")
+        name = str(getattr(document, "Name", "") or "")
+        stem = Path(full_name or name).stem
+        tokens = {
+            token.strip().casefold()
+            for token in (name, stem)
+            if str(token or "").strip()
+        }
+        if not tokens:
+            return 0
+        matches = []
+
+        def callback(hwnd, _):
+            try:
+                if (
+                    not win32gui.IsWindowVisible(hwnd)
+                    or str(win32gui.GetClassName(hwnd) or "") != "PPTFrameClass"
+                ):
+                    return
+                title = str(win32gui.GetWindowText(hwnd) or "").strip().casefold()
+                if any(
+                    title == token
+                    or re.match(
+                        rf"^{re.escape(token)}(?=\s*[-–—\[(])",
+                        title,
+                    )
+                    for token in tokens
+                ):
+                    matches.append(int(hwnd))
+            except Exception:
+                return
+
+        win32gui.EnumWindows(callback, None)
+        unique = tuple(dict.fromkeys(matches))
+        return unique[0] if len(unique) == 1 else 0
+    except Exception:
+        return 0
+
+
 def bind_excel_runtime_window(window_handle: int) -> str:
     """Tag one live Excel window with a process-local non-document token."""
     import win32gui
@@ -342,6 +386,81 @@ class NativeDocumentBridge:
         except OSError as error:
             raise NativeBridgeError("Windows가 문서 연결 앱을 실행하지 못했습니다.") from error
 
+    def launch_visible_document(
+        self,
+        app_type: str,
+        file_path: str,
+    ) -> dict | None:
+        """Open an exact PowerPoint presentation with a verified visible window."""
+        normalized = str(app_type or "").strip().casefold()
+        if normalized != "powerpoint":
+            self.launch_document(normalized, file_path)
+            return None
+        if not self.is_available(normalized):
+            raise NativeBridgeError("powerpoint 앱이 설치되어 있지 않습니다.")
+        application = presentation = window = None
+        with com_apartment(self._com_runtime):
+            try:
+                import win32com.client
+
+                application = win32com.client.DispatchEx(APP_PROGIDS[normalized])
+                application.Visible = True
+                presentation = application.Presentations.Open(
+                    str(file_path),
+                    ReadOnly=False,
+                    Untitled=False,
+                    WithWindow=True,
+                )
+                metadata = self._office_metadata(
+                    normalized,
+                    application,
+                    presentation,
+                )
+                if int(metadata.get("window_handle") or 0) <= 0:
+                    window = presentation.NewWindow()
+                    try:
+                        window.Activate()
+                    except Exception:
+                        pass
+                    metadata = self._office_metadata(
+                        normalized,
+                        application,
+                        presentation,
+                    )
+                if int(metadata.get("window_handle") or 0) <= 0:
+                    raise NativeBridgeError(
+                        "PowerPoint 문서는 열렸지만 표시 창을 확인하지 못했습니다."
+                    )
+                return metadata
+            except NativeBridgeError:
+                if presentation is not None:
+                    try:
+                        presentation.Close()
+                    except Exception:
+                        pass
+                if application is not None:
+                    try:
+                        application.Quit()
+                    except Exception:
+                        pass
+                raise
+            except Exception as error:
+                if presentation is not None:
+                    try:
+                        presentation.Close()
+                    except Exception:
+                        pass
+                if application is not None:
+                    try:
+                        application.Quit()
+                    except Exception:
+                        pass
+                raise NativeBridgeError(
+                    "PowerPoint가 정확한 프레젠테이션을 표시 창으로 열지 못했습니다."
+                ) from error
+            finally:
+                window = presentation = application = None
+
     @staticmethod
     def _office_metadata(app_type, application, document) -> dict:
         candidate_path = _normalized_path(getattr(document, "FullName", ""))
@@ -422,7 +541,22 @@ class NativeDocumentBridge:
                         _com_value(application.ActiveWindow.HWND) or 0
                     )
                 except Exception:
-                    window_handle = 0
+                    try:
+                        # PowerPoint may register the presentation in the ROT
+                        # before DocumentWindow/ActiveWindow exposes HWND.
+                        # Application.HWND identifies that exact instance's
+                        # top-level frame and avoids process-name guessing.
+                        window_handle = int(
+                            _com_value(getattr(application, "HWND", 0)) or 0
+                        )
+                    except Exception:
+                        window_handle = 0
+            if window_handle <= 0:
+                # Some Office builds expose a real visible PPTFrameClass but
+                # reject both DocumentWindow.HWND and Application.HWND.  The
+                # document path is already exact at this point; use a title
+                # match only when it identifies exactly one top-level frame.
+                window_handle = _powerpoint_visible_window_handle(document)
             try:
                 if _same_path(
                     application.ActivePresentation.FullName,
@@ -722,6 +856,55 @@ class NativeDocumentBridge:
             if normalized in {"excel", "word", "powerpoint"}:
                 return self._find_office_document(normalized, expected_path)
         return None
+
+    def ensure_visible_document(self, app_type: str, expected_path: str) -> dict | None:
+        """Create a visible window for one exact hidden PowerPoint document."""
+        normalized = str(app_type or "").strip().casefold()
+        if normalized != "powerpoint":
+            return self.find_document(normalized, expected_path)
+        application = document = window = None
+        with com_apartment(self._com_runtime):
+            try:
+                application, document = _rot_office_reference(expected_path)
+                if application is None or document is None:
+                    return None
+                metadata = self._office_metadata(
+                    normalized,
+                    application,
+                    document,
+                )
+                if int(metadata.get("window_handle") or 0) > 0:
+                    return metadata
+                try:
+                    application.Visible = True
+                except Exception:
+                    pass
+                try:
+                    window = document.NewWindow()
+                    try:
+                        window.Activate()
+                    except Exception:
+                        pass
+                except Exception:
+                    return None
+                metadata = self._office_metadata(
+                    normalized,
+                    application,
+                    document,
+                )
+                return (
+                    metadata
+                    if int(metadata.get("window_handle") or 0) > 0
+                    else None
+                )
+            except NativeOfficeBusy:
+                raise
+            except Exception as error:
+                if _is_office_busy_error(error):
+                    raise _office_busy(normalized, error) from error
+                return None
+            finally:
+                window = document = application = None
 
     def wait_for_document(
         self,

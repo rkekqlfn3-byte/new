@@ -18,15 +18,27 @@ def digest(value):
 
 
 class Intake:
+    def __init__(self):
+        self.opened = []
+
     def connect_file(self, file_path):
         path = Path(file_path).resolve()
+        suffix = path.suffix.casefold()
+        app_type = {
+            ".xlsx": "excel",
+            ".docx": "word",
+            ".hwp": "hwp",
+            ".pptx": "powerpoint",
+        }[suffix]
+        self.opened.append(str(path))
         return {
-            "app_type": "excel",
+            "app_type": app_type,
             "file_path": str(path),
             "document_name": path.name,
-            "window_handle": 100,
+            "window_handle": 100 + len(self.opened),
             "active_container": "매출",
             "selection_reference": "A1:B3",
+            "launch_requested": len(self.opened) > 1,
         }
 
 
@@ -39,6 +51,15 @@ class NoLayout:
     def set_enabled(self, enabled):
         self.enabled = bool(enabled)
         return self.enabled
+
+
+class Activator:
+    def __init__(self):
+        self.handles = []
+
+    def activate(self, handle):
+        self.handles.append(int(handle))
+        return {"success": True, "status": "focused", "focused": True}
 
 
 class Context:
@@ -136,11 +157,13 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             powerpoint_writer=self.ppt,
         )
         self.executor = executor
+        self.intake = Intake()
+        self.activator = Activator()
         self.workflow_skills = BusinessWorkflowSkillManager(
             self.root / "business-workflow-skills.json"
         )
         self.controller = EditModeController(
-            intake_manager=Intake(),
+            intake_manager=self.intake,
             session_manager=EditSessionManager(),
             layout_manager=NoLayout(),
             context_manager=Context(),
@@ -150,9 +173,12 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             user_learning_manager=UserPreferenceLearningManager(
                 self.root / "user-style-preferences.json"
             ),
+            window_activator=self.activator,
         )
         self.parser = CommandParser(edit_mode_controller=self.controller)
         self.session = self.controller.connect_file(str(self.source))
+        self.intake.opened.clear()
+        self.activator.handles.clear()
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -423,6 +449,49 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             item.get("preference") == "ppt_slide_count"
             for item in preference_candidates
         ))
+
+    def test_recent_verified_workflow_artifact_opens_exact_file_and_focuses(self):
+        self.ppt.fail_times = 0
+        completed = self.approve(self.command(
+            "이거 보고서랑 5장짜리 발표자료 만들어줘",
+            "recent-artifact-create",
+        ))
+        report_path = completed["data"]["observations"]["output_paths"]["report"]
+
+        opened = self.command(
+            "방금 만든 보고서 열어줘",
+            "recent-artifact-open",
+        )
+
+        self.assertTrue(opened["success"], opened)
+        self.assertEqual(
+            "open_recent_workflow_artifact",
+            opened["data"]["operation"],
+        )
+        self.assertEqual([str(Path(report_path).resolve())], self.intake.opened)
+        self.assertEqual([101], self.activator.handles)
+        self.assertIn("맨 앞으로", opened["message"])
+        self.assertEqual("ready", self.controller.status()["session"]["state"])
+
+    def test_recent_artifact_changed_after_prepare_fails_closed(self):
+        self.ppt.fail_times = 0
+        completed = self.approve(self.command(
+            "이거 보고서랑 5장짜리 발표자료 만들어줘",
+            "changed-artifact-create",
+        ))
+        report_path = Path(
+            completed["data"]["observations"]["output_paths"]["report"]
+        )
+        report_path.write_bytes(b"user-changed-after-workflow")
+
+        blocked = self.command(
+            "방금 만든 보고서 열어줘",
+            "changed-artifact-open",
+        )
+
+        self.assertFalse(blocked["success"])
+        self.assertEqual([], self.intake.opened)
+        self.assertIn("이동·수정·삭제", blocked["message"])
 
 
 if __name__ == "__main__":
