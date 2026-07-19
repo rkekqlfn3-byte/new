@@ -89,6 +89,41 @@ class StructuredEditIntentAnalyzerTests(unittest.TestCase):
         self.assertEqual("insert_text", shortened.operation)
         self.assertNotIn("font_size_delta", shortened.params)
 
+    def test_hwp_relative_size_shorthand_maps_to_two_point_delta(self):
+        selected = "축약 표현 크기 시험 문장입니다."
+        context = {
+            "app_type": "hwp",
+            "selection_kind": "text",
+            "selected_text_preview": selected,
+        }
+        cases = {
+            "조금 크게 해줘": 2.0,
+            "조금 작게 해줘": -2.0,
+            "글자 크게 해줘": 2.0,
+            "글자 작게 해줘": -2.0,
+        }
+        for command, delta in cases.items():
+            with self.subTest(command=command):
+                intent = self.analyzer.analyze(
+                    command, context, selection_reader=lambda: selected
+                )
+                self.assertEqual("set_text_format", intent.operation)
+                self.assertEqual(delta, intent.params["font_size_delta"])
+        quoted = self.analyzer.analyze(
+            '선택 문장을 "조금 크게 말해요"로 바꿔줘',
+            context,
+            selection_reader=lambda: selected,
+        )
+        self.assertEqual("insert_text", quoted.operation)
+        self.assertNotIn("font_size_delta", quoted.params)
+
+    def test_excel_non_input_commands_get_supported_examples_guidance(self):
+        for command in ("셀 병합해줘", "차트 만들어줘", "알아서 예쁘게 해줘"):
+            with self.subTest(command=command):
+                with self.assertRaises(Stage5EditError) as caught:
+                    self.analyzer.analyze(command, self.excel)
+                self.assertIn("지원하는 Excel 편집 예", str(caught.exception))
+
     def test_write_to_an_unselected_cell_is_blocked(self):
         with self.assertRaises(Stage5EditError):
             self.analyzer.analyze("B9에 42 입력해줘", self.excel)

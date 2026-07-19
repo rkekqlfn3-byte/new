@@ -331,6 +331,18 @@ class StructuredEditIntentAnalyzer:
                 after_preview=" · ".join(labels),
             )
 
+        if (
+            not quotes
+            and not any(word in command for word in ("입력", "넣어", "써", "적어"))
+            and not re.search(r"=[A-Za-z]", command)
+        ):
+            # 입력 요청이 아닌 미지원·모호 문장은 입력 예시가 아니라
+            # 지원 편집 목록으로 안내한다.
+            raise Stage5EditError(
+                "지원하는 Excel 편집 예: 42 입력해줘, “완료” 입력해줘, 굵게, "
+                "글자 크기 14, 가운데 정렬, “대기”를 “완료”로 바꿔줘, "
+                "“상태” 열을 “완료”로 필터해줘, 내림차순 정렬, 2개 행 추가"
+            )
         explicit_cells = _CELL_REFERENCE.findall(_without_quoted_values(command).upper())
         target = explicit_cells[0].upper() if explicit_cells else address
         target_bounds = _range_bounds(target)
@@ -404,8 +416,14 @@ class StructuredEditIntentAnalyzer:
             labels.append(f"글자 크기 {size_match.group(1)}")
         elif any(
             term in command for term in ("글자", "글씨", "폰트", "크기")
+        ) or (
+            # 따옴표 없는 "조금 크게/작게"는 Word와 같은 ±2pt 축약 표현이다.
+            not quotes and ("조금 크게" in command or "조금 작게" in command)
         ):
-            if any(term in command for term in ("조금 크게", "키워", "늘려")):
+            if any(term in command for term in ("조금 크게", "키워", "늘려")) or (
+                "크게" in command
+                and any(term in command for term in ("글자", "글씨", "폰트", "크기"))
+            ):
                 desired["font_size_delta"] = 2.0
                 labels.append("글자 크기 +2")
             elif any(term in command for term in ("조금 작게", "작게", "줄여")):
@@ -468,7 +486,7 @@ class StructuredEditIntentAnalyzer:
 
         raise Stage5EditError(
             "지원하는 한글 편집 예: 선택 문장을 “...”로 바꿔줘, 조금 줄여줘, "
-            "굵게, 글자 크기 12, 가운데 정렬, “A”를 “B”로 바꿔줘"
+            "굵게, 글자 크기 12, 조금 크게, 가운데 정렬, “A”를 “B”로 바꿔줘"
         )
 
 

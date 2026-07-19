@@ -215,10 +215,26 @@ class StructuredStage6IntentAnalyzer(StructuredEditIntentAnalyzer):
         if size:
             desired["font_size"] = float(size.group(1))
             labels.append(f"글자 크기 {size.group(1)}pt")
-        elif "크게" in command and any(word in command for word in ("제목", "텍스트", "글자", "폰트")):
+        elif "크게" in command and (
+            any(word in command for word in ("제목", "텍스트", "글자", "폰트"))
+            or (
+                # 텍스트 선택에서는 대상 단어 없는 "조금 크게"도 Word와 같은
+                # ±2pt 축약 표현으로 해석한다. Shape 선택은 기존 크기 분기 유지.
+                "조금 크게" in command
+                and not quotes
+                and context.get("selection_kind") == "text"
+            )
+        ):
             desired["font_size_delta"] = 2.0
             labels.append("글자 크기 +2pt")
-        elif "작게" in command and any(word in command for word in ("제목", "텍스트", "글자", "폰트")):
+        elif "작게" in command and (
+            any(word in command for word in ("제목", "텍스트", "글자", "폰트"))
+            or (
+                "조금 작게" in command
+                and not quotes
+                and context.get("selection_kind") == "text"
+            )
+        ):
             desired["font_size_delta"] = -2.0
             labels.append("글자 크기 -2pt")
         if desired:
@@ -275,7 +291,7 @@ class StructuredStage6IntentAnalyzer(StructuredEditIntentAnalyzer):
             )
 
         raise Stage5EditError(
-            "지원하는 PowerPoint 편집 예: 제목을 “...”로 바꿔줘, 제목 조금 크게, "
+            "지원하는 PowerPoint 편집 예: 제목을 “...”로 바꿔줘, 조금 크게, "
             "가운데 정렬, Shape를 오른쪽으로, 도형을 크게, 앞 슬라이드와 같은 스타일"
         )
 

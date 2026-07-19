@@ -103,6 +103,17 @@ class StructuredStage6IntentAnalyzerTests(unittest.TestCase):
         self.assertEqual(2.0, title.params["font_size_delta"])
         self.assertEqual("resize_shape", shape.operation)
 
+    def test_powerpoint_bare_relative_size_needs_text_selection(self):
+        text_selection = dict(self.powerpoint, selection_kind="text")
+        grown = self.analyzer.analyze("조금 크게 해줘", text_selection)
+        self.assertEqual("set_text_format", grown.operation)
+        self.assertEqual(2.0, grown.params["font_size_delta"])
+        shrunk = self.analyzer.analyze("조금 작게 해줘", text_selection)
+        self.assertEqual(-2.0, shrunk.params["font_size_delta"])
+        # Shape 선택에서는 대상 단어 없는 축약 표현을 추측 실행하지 않는다.
+        with self.assertRaises(Stage6EditError):
+            self.analyzer.analyze("조금 크게 해줘", self.powerpoint)
+
 
 class FakeContextManager:
     def __init__(self, context):
