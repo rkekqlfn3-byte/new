@@ -68,6 +68,10 @@ Word workflow 실제 probe는 두 표시 시트에서 제한 피벗 요약 2개�
 Stage 11 실제 재사용 probe도 승인된 내용 없는 스킬 레시피가 공용 레지스트리와
 일치하고 새 산출물 재생이 같은 계약을 검증했다는
 `workflow_skill_registered_recipe_verified`를 남겨야 한다.
+같은 Stage 11 probe는 발표자료 전용 구조도 검증 성공에서 경로·내용 없이
+기억하고, 별도 승인 뒤 Word·한글 실행기 호출과 보고서 산출물 없이 정확히
+5장인 PowerPoint 하나만 새 경로에 재생했다는
+`presentation_only_workflow_skill_actual_replay_verified`도 남겨야 한다.
 같은 Word probe에서 `매출!B1:E4`만 읽는 별도 워크플로가 범위 밖 시트를
 제외하고 `explicit_selection_scope_verified`를 남기며, Word와 정확히 5장인
 PowerPoint를 재열기 검증하는 `selection_scope_cross_app_outputs_verified`도

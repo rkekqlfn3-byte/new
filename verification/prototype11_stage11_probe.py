@@ -91,6 +91,42 @@ def _powerpoint_slide_count(path):
         gc.collect()
 
 
+class _ForbiddenReportWriter:
+    def __init__(self, label):
+        self.label = label
+        self.calls = 0
+
+    def run(self, _context, _work_product):
+        self.calls += 1
+        raise AssertionError(
+            "발표자료 전용 재사용 스킬이 "
+            f"{self.label} 보고서 실행기를 호출했습니다."
+        )
+
+
+def _skill_store_content_free(store_path, source, output_path):
+    stored = Path(store_path).read_text(encoding="utf-8")
+    return bool(
+        str(source) not in stored
+        and source.name not in stored
+        and str(output_path) not in stored
+        and "work_product" not in stored
+    )
+
+
+def _prepare_skill_replay(executor, source, title, preferences, template, **kwargs):
+    return executor.prepare(
+        source,
+        title=title,
+        preferences=preferences,
+        slide_count=template["slide_count"],
+        report_format=template["report_format"],
+        include_presentation=template["include_presentation"],
+        include_report=template["include_report"],
+        **kwargs,
+    )
+
+
 def _owned_probe():
     import pythoncom
 
@@ -242,14 +278,8 @@ def _owned_probe():
         workflow_skill_inactive_before_approval = (
             workflow_skills.active_skill() is None
         )
-        workflow_skill_store = Path(workflow_skills.path).read_text(
-            encoding="utf-8"
-        )
-        workflow_skill_content_free = (
-            str(source) not in workflow_skill_store
-            and source.name not in workflow_skill_store
-            and str(report_path) not in workflow_skill_store
-            and "work_product" not in workflow_skill_store
+        workflow_skill_content_free = _skill_store_content_free(
+            workflow_skills.path, source, report_path
         )
         active_workflow_skill = workflow_skills.activate(
             workflow_candidate["candidate_id"]
@@ -265,14 +295,12 @@ def _owned_probe():
             "이거 보고서랑 7장짜리 발표자료 만들어줘",
             {"app_type": "excel"},
         )
-        replay_plan = executor.prepare(
+        replay_plan = _prepare_skill_replay(
+            executor,
             source,
-            title="Stage 11 재사용 스킬 검증",
-            preferences=preferences,
-            slide_count=workflow_template["slide_count"],
-            report_format=workflow_template["report_format"],
-            include_presentation=workflow_template["include_presentation"],
-            include_report=workflow_template["include_report"],
+            "Stage 11 재사용 스킬 검증",
+            preferences,
+            workflow_template,
         )
         workflow_skill_fresh_plan = bool(
             replay_plan.get("status") == "approval_required"
@@ -302,6 +330,102 @@ def _owned_probe():
         if not _wait_for_cleanup(baseline):
             raise RuntimeError(
                 "산출물 재열기 검증용 숨김 Office 프로세스가 종료되지 않았습니다."
+            )
+        stage = "approve_and_replay_presentation_only_workflow_skill"
+        presentation_only_intent = StructuredWorkflowIntentAnalyzer().analyze(
+            "PPT만 5장으로 만들어줘",
+            {"app_type": "excel"},
+        )
+        forbidden_word = _ForbiddenReportWriter("Word")
+        forbidden_hwp = _ForbiddenReportWriter("한글")
+        presentation_skill_dir = temp_dir / "presentation-only-skill-output"
+        presentation_skill_dir.mkdir()
+        presentation_skill_executor = WorkflowExecutor(
+            temp_dir / "presentation-only-skill-state",
+            word_writer=forbidden_word,
+            hwp_writer=forbidden_hwp,
+        )
+        presentation_skill_first_plan = presentation_skill_executor.prepare(
+            source,
+            title="Stage 11 발표자료 전용 스킬 원본",
+            output_dir=presentation_skill_dir,
+            preferences=preferences,
+            slide_count=presentation_only_intent.params["slide_count"],
+            explicit_slide_count=presentation_only_intent.params[
+                "explicit_slide_count"
+            ],
+            report_format=presentation_only_intent.params["report_format"],
+            include_presentation=presentation_only_intent.params[
+                "include_presentation"
+            ],
+            include_report=presentation_only_intent.params["include_report"],
+        )
+        presentation_skill_first_result = presentation_skill_executor.start(
+            presentation_skill_first_plan
+        )
+        presentation_skill_first_path = Path(
+            presentation_skill_first_result["output_paths"]["presentation"]
+        )
+        presentation_skill_first_fingerprint = file_fingerprint(
+            presentation_skill_first_path
+        )
+        presentation_skill_candidate = workflow_skills.record_verified_success(
+            presentation_skill_first_result,
+            evidence_id=presentation_skill_first_result["workflow_id"],
+        )
+        presentation_skill_inactive_before_approval = bool(
+            workflow_skills.active_skill()
+            and workflow_skills.active_skill()["candidate_id"]
+            == active_workflow_skill["candidate_id"]
+            and presentation_skill_candidate.get("needs_confirmation")
+        )
+        presentation_skill_content_free = _skill_store_content_free(
+            workflow_skills.path, source, presentation_skill_first_path
+        )
+        active_presentation_skill = workflow_skills.activate(
+            presentation_skill_candidate["candidate_id"]
+        )
+        presentation_skill_template = active_presentation_skill["template"]
+        presentation_skill_recipe = validate_report_workflow_step_recipe(
+            presentation_skill_template.get("step_recipe"),
+            presentation_skill_template.get("report_format"),
+            presentation_skill_template.get("include_presentation"),
+            presentation_skill_template.get("include_report"),
+        )
+        presentation_skill_replay_plan = _prepare_skill_replay(
+            presentation_skill_executor,
+            source,
+            "Stage 11 발표자료 전용 스킬 재사용",
+            preferences,
+            presentation_skill_template,
+            output_dir=presentation_skill_dir,
+        )
+        presentation_skill_fresh_plan = bool(
+            presentation_skill_replay_plan.get("status")
+            == "approval_required"
+            and set(
+                presentation_skill_replay_plan.get("output_paths") or {}
+            ) == {"presentation"}
+            and presentation_skill_replay_plan["output_paths"]["presentation"]
+            != presentation_skill_first_result["output_paths"]["presentation"]
+        )
+        presentation_skill_replay_result = (
+            presentation_skill_executor.start(
+                presentation_skill_replay_plan
+            )
+        )
+        presentation_skill_replay_path = Path(
+            presentation_skill_replay_result["output_paths"]["presentation"]
+        )
+        presentation_skill_first_slide_count = _powerpoint_slide_count(
+            presentation_skill_first_path
+        )
+        presentation_skill_replay_slide_count = _powerpoint_slide_count(
+            presentation_skill_replay_path
+        )
+        if not _wait_for_cleanup(baseline):
+            raise RuntimeError(
+                "발표자료 전용 스킬 검증용 숨김 Office 프로세스가 종료되지 않았습니다."
             )
         stage = "open_and_focus_recent_verified_artifacts"
         artifact_intake = FileIntakeManager(open_timeout=20.0)
@@ -662,6 +786,45 @@ def _owned_probe():
                 file_fingerprint(report_path) == first_report_fingerprint
                 and file_fingerprint(presentation_path)
                 == first_presentation_fingerprint
+            ),
+            "presentation_only_workflow_skill_actual_replay_verified": bool(
+                presentation_only_intent
+                and presentation_only_intent.operation
+                == "create_business_workflow"
+                and presentation_only_intent.params.get("include_report")
+                is False
+                and presentation_skill_inactive_before_approval
+                and presentation_skill_content_free
+                and presentation_skill_template.get("include_report") is False
+                and presentation_skill_template.get("include_presentation")
+                is True
+                and presentation_skill_template.get("step_order")
+                == [
+                    item["step_name"]
+                    for item in presentation_skill_recipe
+                ]
+                and presentation_skill_fresh_plan
+                and presentation_skill_first_result.get("verified") is True
+                and presentation_skill_replay_result.get("verified") is True
+                and presentation_skill_replay_result.get(
+                    "registered_step_recipe_verified"
+                ) is True
+                and set(
+                    presentation_skill_first_result.get("output_paths") or {}
+                ) == {"presentation"}
+                and set(
+                    presentation_skill_replay_result.get("output_paths") or {}
+                ) == {"presentation"}
+                and presentation_skill_first_slide_count == 5
+                and presentation_skill_replay_slide_count == 5
+                and file_fingerprint(presentation_skill_first_path)
+                == presentation_skill_first_fingerprint
+                and forbidden_word.calls == 0
+                and forbidden_hwp.calls == 0
+                and not list(presentation_skill_dir.glob("*.docx"))
+                and not list(presentation_skill_dir.glob("*.hwp"))
+                and len(list(presentation_skill_dir.glob("*.pptx"))) == 2
+                and file_fingerprint(source) == source_before
             ),
             "contextual_current_excel_workflow_routed": bool(
                 contextual_intent
