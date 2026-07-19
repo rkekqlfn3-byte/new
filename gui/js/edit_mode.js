@@ -25,6 +25,11 @@ window.lastDirectEditFeedbackId = null;
 let editContextRefreshPromise = null;
 let editOverlaySyncPromise = null;
 let editContextMonitorTimer = null;
+// 의도된 설계: 편집 모드에서 문서가 연결된 동안 문맥 표시·선택 overlay 추적·
+// 직접 수정 관찰(5분 유예)을 위해 주기적으로 문맥을 다시 읽는다. rc.6에서
+// 제거한 폴링과 달리 편집 모드 밖·문서 미연결에서는 돌지 않고, 페이지가
+// 숨겨지면 조회를 건너뛰며, 진행 중 조회는 공유 Promise로 병합된다.
+// 조회는 읽기 전용이라 창 포커스를 바꾸지 않는다. (KNOWN_LIMITATIONS 참조)
 const EDIT_CONTEXT_MONITOR_MS = 700;
 
 const editAppLabels = {
