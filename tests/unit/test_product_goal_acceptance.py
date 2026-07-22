@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -80,6 +82,18 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def test_gate_supports_direct_python_script_invocation(self):
+        script = Path(__file__).resolve().parents[2] / "verification" / "product_goal_acceptance.py"
+        completed = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            cwd=script.parents[1],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("--automated-only", completed.stdout)
 
     def _write_all_probes(self):
         for spec in PROBE_SPECS.values():

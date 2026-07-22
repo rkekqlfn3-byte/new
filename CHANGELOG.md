@@ -10,6 +10,8 @@
   기록한다.
 - 제품 Goal의 자연어 축이 이 배터리 보고서를 필수 probe로 검사하도록 연결했다.
   1,000건 모두 통과했고 crash, 잘못된 행동, 무승인 쓰기, 오대상 실행은 0건이다.
+- 제품 Goal 판정기를 `python verification/product_goal_acceptance.py`로 직접 실행할
+  때 프로젝트 모듈을 찾지 못하던 진입점 오류를 수정했다.
 
 ## 2026-07-23 — Goal Phase 4-A Excel 안정화 1차
 

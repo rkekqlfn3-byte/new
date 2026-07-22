@@ -17,10 +17,13 @@ import subprocess
 import sys
 from typing import Any, Mapping
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from tests.test_runner import run_tests
 
 
-ROOT = Path(__file__).resolve().parents[1]
 REPORT_PATH = Path(__file__).with_name("product_goal_acceptance_report.json")
 MANUAL_CHECK_IDS = (
     "screen_reader",
