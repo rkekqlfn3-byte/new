@@ -235,7 +235,9 @@ class Stage7EditFlowTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def command(self, text, request_id, chat="chat-stage7"):
+    def command(
+        self, text, request_id, chat="chat-stage7", expected_undo_action_id=None
+    ):
         return self.parser.execute_command_result(
             text,
             mode="edit",
@@ -245,6 +247,7 @@ class Stage7EditFlowTests(unittest.TestCase):
                 "document_fingerprint": self.session["document_fingerprint"],
                 "context_fingerprint": self.context.context_fingerprint,
                 "request_id": request_id,
+                "expected_undo_action_id": expected_undo_action_id,
             },
         )
 
@@ -288,6 +291,20 @@ class Stage7EditFlowTests(unittest.TestCase):
 
         self.assertIsNone(status["last_action"])
         self.assertIsNone(status["undo_record"])
+
+    def test_stale_undo_button_cannot_undo_latest_edit(self):
+        applied = self.apply(self.command("42 입력해줘", "stage7-token-source"))
+        self.assertTrue(applied["data"]["undo_available"])
+        blocked = self.command(
+            "방금 작업 되돌려줘",
+            "stage7-stale-button",
+            expected_undo_action_id="edit-older-action",
+        )
+        self.assertFalse(blocked["success"])
+        self.assertEqual(0, self.native.undone)
+        self.assertTrue(
+            self.controller.status()["session"]["undo_record"]["available"]
+        )
 
     def test_rewrite_option_replaces_preview_without_executing_document_write(self):
         hwp_file = Path(self.temp_dir.name) / "stage7.hwp"

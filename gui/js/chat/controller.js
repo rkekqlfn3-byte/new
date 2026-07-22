@@ -97,6 +97,40 @@ function rememberCommandTurn(userRequest, response, responseText) {
     };
 }
 
+window.requestUndoFromFeedback = async function(undo) {
+    const token = undo && typeof undo === 'object' ? undo : {};
+    const active = window.currentEditSession;
+    if (!active || active.session_id !== token.edit_session_id) {
+        throw new Error('되돌릴 편집 세션이 더 이상 활성 상태가 아닙니다.');
+    }
+    const latest = await window.refreshEditContext({ required: true });
+    if (
+        active.document_fingerprint !== token.document_fingerprint
+        || latest?.context_fingerprint !== token.context_fingerprint
+    ) {
+        throw new Error('직전 편집 뒤 문서나 선택 영역이 바뀌어 되돌리지 않았습니다.');
+    }
+    const result = await eel.parse_command(
+        '방금 작업 되돌려줘', null, 'edit', false, '', null,
+        currentSessionId,
+        {
+            edit_session_id: active.session_id,
+            document_fingerprint: active.document_fingerprint,
+            context_fingerprint: latest.context_fingerprint,
+            expected_undo_action_id: token.action_id
+        }
+    )();
+    if (result?.user_event && typeof window.renderUserEvent === 'function') {
+        window.renderUserEvent(result.user_event);
+    }
+    addMessage(
+        result?.display_message || result?.message || '되돌리기 결과를 확인해주세요.',
+        true
+    );
+    await window.refreshEditContext({ required: false });
+    return result;
+};
+
 async function sendMessage(isRetry = false) {
     if (sendBtn.disabled) return;
 

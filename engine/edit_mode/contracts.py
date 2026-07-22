@@ -115,6 +115,7 @@ class EditRequest:
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     mode: str = RequestMode.EDIT.value
     context_fingerprint: str | None = None
+    expected_undo_action_id: str | None = None
 
     def __post_init__(self):
         text = str(self.text or "").strip()
@@ -134,6 +135,12 @@ class EditRequest:
             object.__setattr__(
                 self, "context_fingerprint", _fingerprint(self.context_fingerprint)
             )
+        if self.expected_undo_action_id is not None:
+            object.__setattr__(
+                self,
+                "expected_undo_action_id",
+                _identifier(self.expected_undo_action_id, "되돌리기 작업 ID"),
+            )
 
     @classmethod
     def from_input(cls, user_input, edit_context=None) -> "EditRequest":
@@ -148,6 +155,7 @@ class EditRequest:
             document_fingerprint=context.get("document_fingerprint"),
             request_id=context.get("request_id") or uuid.uuid4().hex,
             context_fingerprint=context.get("context_fingerprint"),
+            expected_undo_action_id=context.get("expected_undo_action_id"),
         )
 
     def to_dict(self) -> dict[str, Any]:

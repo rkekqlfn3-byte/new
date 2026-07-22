@@ -54,6 +54,29 @@
     overflow-wrap: anywhere;
 }
 
+.user-feedback-undo {
+    margin-top: 9px;
+    padding: 7px 11px;
+    border: 1px solid rgba(78, 71, 128, 0.28);
+    border-radius: 9px;
+    background: #fff;
+    color: #4e4780;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.user-feedback-undo:focus-visible {
+    outline: 3px solid rgba(118, 103, 244, 0.28);
+    outline-offset: 2px;
+}
+
+.user-feedback-undo:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
 .user-feedback-headline {
     color: #2f2b44;
     font-size: 14px;

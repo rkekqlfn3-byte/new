@@ -155,6 +155,16 @@ class UserFeedbackUiContractTests(unittest.TestCase):
         self.assertIn("window.renderUserEvent(response.user_event)", controller)
         self.assertIn("signature === lastSignature", self.script)
 
+    def test_undo_button_requires_complete_server_token_and_plain_text(self):
+        controller = read_gui_script("chat/controller.js")
+        self.assertIn("value.undo_available === true", self.script)
+        self.assertIn("identifierPattern.test(undo.action_id)", self.script)
+        self.assertIn("fingerprintPattern.test(undo.context_fingerprint)", self.script)
+        self.assertIn("button.textContent = '방금 작업 되돌리기'", self.script)
+        self.assertIn("window.requestUndoFromFeedback", controller)
+        self.assertIn("expected_undo_action_id: token.action_id", controller)
+        self.assertIn("latest?.context_fingerprint !== token.context_fingerprint", controller)
+
 
 class AccessibilityContractTests(unittest.TestCase):
     def setUp(self):

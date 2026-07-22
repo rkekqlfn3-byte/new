@@ -28,6 +28,17 @@ def _undo_available(result: Mapping[str, Any]) -> bool:
     return bool(data.get("undo_available") or result.get("undo_available"))
 
 
+def _undo_context(result: Mapping[str, Any]) -> dict[str, str]:
+    data = _data(result.get("data"))
+    context = _data(data.get("context"))
+    return {
+        "edit_session_id": data.get("edit_session_id"),
+        "action_id": data.get("action_id"),
+        "document_fingerprint": context.get("document_fingerprint"),
+        "context_fingerprint": context.get("context_fingerprint"),
+    }
+
+
 def event_from_execution_result(
     value: Any,
     *,
@@ -81,7 +92,12 @@ def event_from_execution_result(
         },
         success=success_value,
         verified=verified,
-        undo_available=_undo_available(result),
+        undo_available=(
+            _undo_available(result)
+            and verified
+            and all(_undo_context(result).values())
+        ),
+        undo=_undo_context(result),
     )
     return render_user_event(event)
 

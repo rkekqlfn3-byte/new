@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from typing import Any, Mapping
 
 
@@ -42,6 +43,12 @@ SAFE_DETAIL_FIELDS = frozenset({
     "max_attempts",
     "confirmation_pending",
 })
+SAFE_UNDO_FIELDS = frozenset({
+    "edit_session_id", "action_id", "document_fingerprint",
+    "context_fingerprint",
+})
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_SAFE_FINGERPRINT_RE = re.compile(r"^[A-Fa-f0-9]{16,128}$")
 
 
 def _bounded_text(value: Any, limit: int) -> str:
@@ -76,6 +83,21 @@ def _safe_details(value: Any) -> dict[str, Any]:
     return details
 
 
+def _safe_undo(value: Any) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        return {}
+    undo = {}
+    for key in SAFE_UNDO_FIELDS:
+        text = _bounded_text(value.get(key), 128)
+        pattern = (
+            _SAFE_FINGERPRINT_RE
+            if key.endswith("fingerprint") else _SAFE_IDENTIFIER_RE
+        )
+        if text and pattern.fullmatch(text):
+            undo[key] = text
+    return undo
+
+
 @dataclass(frozen=True)
 class UserFeedbackEvent:
     """One display event with no document contents, paths, or user utterance."""
@@ -90,6 +112,7 @@ class UserFeedbackEvent:
     success: bool | None = None
     verified: bool = False
     undo_available: bool = False
+    undo: dict[str, str] = field(default_factory=dict)
     created_at: str = ""
 
     def __post_init__(self):
@@ -105,6 +128,13 @@ class UserFeedbackEvent:
         object.__setattr__(self, "execution_id", _bounded_text(self.execution_id, 80))
         object.__setattr__(self, "target", _safe_target(self.target))
         object.__setattr__(self, "details", _safe_details(self.details))
+        object.__setattr__(self, "undo", _safe_undo(self.undo))
+        if self.undo_available and not all(
+            self.undo.get(key) for key in SAFE_UNDO_FIELDS
+        ):
+            object.__setattr__(self, "undo_available", False)
+        if not self.undo_available:
+            object.__setattr__(self, "undo", {})
         object.__setattr__(
             self,
             "created_at",
@@ -125,5 +155,6 @@ class UserFeedbackEvent:
             "success": self.success,
             "verified": self.verified,
             "undo_available": self.undo_available,
+            "undo": dict(self.undo),
             "created_at": self.created_at,
         }

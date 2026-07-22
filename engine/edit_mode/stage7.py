@@ -7,7 +7,7 @@ import json
 import re
 import uuid
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Mapping
 
 from engine.app_actions import PreparedAction
@@ -34,6 +34,7 @@ UNDO_PHRASES = (
     "되돌려",
     "undo",
 )
+UNDO_TTL_SECONDS = 300
 FOLLOW_UP_PHRASES = (
     "조금 더",
     "좀 더",
@@ -276,6 +277,27 @@ class Stage7NativeEditAdapter(Stage6NativeEditAdapter):
     ) -> EditPreparedAction:
         if not self.undo_record:
             raise Stage7EditError("되돌릴 직전 JARVIS 편집 기록이 없습니다.")
+        expected_action_id = str(request.expected_undo_action_id or "")
+        actual_action_id = str(self.last_action.get("action_id") or "")
+        if expected_action_id and expected_action_id != actual_action_id:
+            raise Stage7EditError(
+                "표시된 작업 뒤에 다른 편집이 완료되어 이전 되돌리기 버튼을 실행하지 않았습니다."
+            )
+        created_at = str(self.undo_record.get("created_at") or "")
+        if created_at:
+            try:
+                created = datetime.fromisoformat(created_at)
+                now = datetime.now().astimezone()
+                if created.tzinfo is None:
+                    created = created.astimezone()
+                if now - created > timedelta(seconds=UNDO_TTL_SECONDS):
+                    raise Stage7EditError(
+                        "되돌리기 가능 시간이 지나 실행하지 않았습니다. 문서 상태를 확인해주세요."
+                    )
+            except ValueError as error:
+                raise Stage7EditError(
+                    "되돌리기 기록 시간이 올바르지 않아 실행하지 않았습니다."
+                ) from error
         expected = str(self.undo_record.get("post_context_fingerprint") or "").upper()
         actual = str(context.get("context_fingerprint") or "").upper()
         if not expected or expected != actual:

@@ -39,6 +39,12 @@ class UserFeedbackTests(unittest.TestCase):
             success=True,
             verified=True,
             undo_available=True,
+            undo={
+                "edit_session_id": "edit-session",
+                "action_id": "edit-action",
+                "document_fingerprint": "A" * 64,
+                "context_fingerprint": "B" * 64,
+            },
         ))
         unverified = render_user_event(UserFeedbackEvent(
             event_type="action_completed",
@@ -67,7 +73,15 @@ class UserFeedbackTests(unittest.TestCase):
             "action": "edit",
             "verified": True,
             "status": "success",
-            "data": {"undo_available": True},
+            "data": {
+                "undo_available": True,
+                "edit_session_id": "edit-session",
+                "action_id": "edit-action",
+                "context": {
+                    "document_fingerprint": "A" * 64,
+                    "context_fingerprint": "B" * 64,
+                },
+            },
         }, execution_id="run-2")
 
         self.assertEqual("action_completed", completed["event_type"])
@@ -75,6 +89,45 @@ class UserFeedbackTests(unittest.TestCase):
         self.assertNotIn("원문 결과", str(completed))
         self.assertEqual("verification_passed", verified["event_type"])
         self.assertTrue(verified["undo_available"])
+        self.assertEqual("edit-action", verified["undo"]["action_id"])
+
+    def test_incomplete_or_unverified_undo_context_is_never_exposed(self):
+        incomplete = event_from_execution_result({
+            "success": True,
+            "action": "edit",
+            "verified": True,
+            "data": {"undo_available": True, "action_id": "edit-action"},
+        })
+        unverified = event_from_execution_result({
+            "success": True,
+            "action": "edit",
+            "verified": False,
+            "data": {
+                "undo_available": True,
+                "edit_session_id": "edit-session",
+                "action_id": "edit-action",
+                "context": {
+                    "document_fingerprint": "A" * 64,
+                    "context_fingerprint": "B" * 64,
+                },
+            },
+        })
+        self.assertFalse(incomplete["undo_available"])
+        self.assertEqual({}, incomplete["undo"])
+        self.assertFalse(unverified["undo_available"])
+        unsafe = UserFeedbackEvent(
+            event_type="verification_passed",
+            verified=True,
+            undo_available=True,
+            undo={
+                "edit_session_id": r"C:\private\document.docx",
+                "action_id": "edit-action",
+                "document_fingerprint": "A" * 64,
+                "context_fingerprint": "B" * 64,
+            },
+        ).to_dict()
+        self.assertFalse(unsafe["undo_available"])
+        self.assertNotIn("private", str(unsafe))
 
     def test_confirmation_failure_busy_and_cancel_have_distinct_events(self):
         cases = (

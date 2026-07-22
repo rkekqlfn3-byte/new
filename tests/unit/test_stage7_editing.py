@@ -1,5 +1,6 @@
 import hashlib
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from engine.app_actions import PreparedAction
@@ -7,6 +8,7 @@ from engine.edit_mode.contracts import EditPreparedAction, EditRequest, RiskLeve
 from engine.edit_mode.stage7 import (
     ContinuationResolver,
     Stage7EditError,
+    Stage7NativeEditAdapter,
     UndoManager,
     build_commit_records,
     is_follow_up_request,
@@ -78,6 +80,50 @@ def edit_action(native=None, **metadata):
 
 
 class Stage7EditingTests(unittest.TestCase):
+    @staticmethod
+    def _undo_adapter(*, action_id="edit-action", created_at=None):
+        return Stage7NativeEditAdapter(
+            {"app_type": "word"},
+            SimpleNamespace(),
+            SimpleNamespace(),
+            continuation_state={
+                "last_action": {"action_id": action_id},
+                "undo_record": {
+                    "target": "selection",
+                    "post_context_fingerprint": FP_A,
+                    "created_at": created_at or datetime.now().astimezone().isoformat(),
+                },
+            },
+        )
+
+    def test_undo_button_token_must_match_latest_action(self):
+        adapter = self._undo_adapter(action_id="latest-action")
+        request = EditRequest(
+            text="방금 작업 되돌려줘",
+            edit_session_id="stage7-session",
+            document_fingerprint=FP_B,
+            request_id="stage7-undo-request",
+            context_fingerprint=FP_A,
+            expected_undo_action_id="older-action",
+        )
+        with self.assertRaises(Stage7EditError):
+            adapter._prepare_undo(request, {"context_fingerprint": FP_A})
+
+    def test_undo_record_expires_after_five_minutes(self):
+        created = (
+            datetime.now().astimezone() - timedelta(minutes=6)
+        ).isoformat()
+        adapter = self._undo_adapter(created_at=created)
+        request = EditRequest(
+            text="방금 작업 되돌려줘",
+            edit_session_id="stage7-session",
+            document_fingerprint=FP_B,
+            request_id="stage7-expired-undo",
+            context_fingerprint=FP_A,
+            expected_undo_action_id="edit-action",
+        )
+        with self.assertRaises(Stage7EditError):
+            adapter._prepare_undo(request, {"context_fingerprint": FP_A})
     def test_follow_up_and_undo_phrases_do_not_overlap_partial_restore(self):
         self.assertTrue(is_follow_up_request("조금 더"))
         self.assertTrue(is_follow_up_request("조금 더 줄여줘"))
