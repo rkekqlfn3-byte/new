@@ -169,7 +169,8 @@ class ConfirmationFactory:
             session_id=normalize_session_id(session_id),
             execution_id=self._current_execution_id() or "",
             original_command=original_command,
-            reason="persistent_vs_once",
+            reason="multiple_possible_intents",
+            request_kind="clarification",
             message=(
                 "값이 바뀔 때 색상도 자동으로 바뀌게 할까요? "
                 f"대상: {representative.workbook_name} / {representative.sheet} / "
@@ -214,7 +215,6 @@ class ConfirmationFactory:
                 "label": "현재 문서 전체",
                 "description": "현재 활성 한글 문서 전체에서 일치하는 항목을 바꿉니다.",
                 "aliases": ["문서", "문서 전체", "전체", "현재 문서"],
-                "danger": True,
             },
         }
         for scope in ("selection", "document"):
@@ -260,7 +260,8 @@ class ConfirmationFactory:
             session_id=normalize_session_id(session_id),
             execution_id=self._current_execution_id() or "",
             original_command=original_command,
-            reason="ambiguous_scope",
+            reason="missing_range",
+            request_kind="clarification",
             message=(
                 "어느 범위에서 찾기·바꾸기를 실행할까요? "
                 f"대상 문서: {representative.workbook_name}"
@@ -324,7 +325,8 @@ class ConfirmationFactory:
             session_id=normalize_session_id(session_id),
             execution_id=self._current_execution_id() or "",
             original_command=original_command,
-            reason="ambiguous_target",
+            reason="ambiguous_reference",
+            request_kind="clarification",
             message=str(ambiguity),
             action="app_command",
             target=ambiguity.target_name or "excel_column",
@@ -379,7 +381,6 @@ class ConfirmationFactory:
                     "id": "run_once",
                     "label": "이번만 실행",
                     "description": "표시된 위험을 승인하고 현재 코드와 인자로 한 번만 실행합니다.",
-                    "danger": True,
                     "aliases": ["예", "네", "응", "ㅇㅇ", "실행", "계속", "이번만"],
                 },
                 {
@@ -540,7 +541,8 @@ class ConfirmationFactory:
                 "execution_id", ""
             ),
             original_command=original_command,
-            reason="ambiguous_target",
+            reason="ambiguous_reference",
+            request_kind="clarification",
             message=str(ambiguity),
             action="uia_target_choice",
             target=(

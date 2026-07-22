@@ -1,7 +1,7 @@
 function getConfirmationFromResponse(response) {
     if (!response || typeof response !== 'object') return null;
     if (
-        response.status !== 'confirmation_required'
+        !['confirmation_required', 'clarification_required'].includes(response.status)
         && response.data?.confirmation_pending !== true
     ) return null;
     const confirmation = response.data?.confirmation;
@@ -13,8 +13,11 @@ function createConfirmationCard(confirmation) {
     card.className = 'confirmation-card';
     card.dataset.confirmationId = String(confirmation?.confirmation_id || '');
     card.setAttribute('role', 'region');
+    const isClarification = confirmation?.request_kind === 'clarification';
     const heading = window.createTextElement(
-        'div', '선택이 필요합니다', 'confirmation-card-heading'
+        'div',
+        isClarification ? '조금 더 알려주세요' : '실행 전에 확인해주세요',
+        'confirmation-card-heading'
     );
     heading.id = `confirmation-heading-${Math.random().toString(36).slice(2, 10)}`;
     card.setAttribute('aria-labelledby', heading.id);
@@ -25,7 +28,10 @@ function createConfirmationCard(confirmation) {
     window.appendTextLineBreaks(message, confirmation?.message || '계속할까요?');
     card.appendChild(message);
 
-    if (['destructive_action', 'external_program'].includes(confirmation?.reason)) {
+    if (
+        !isClarification
+        && ['destructive_action', 'external_program'].includes(confirmation?.reason)
+    ) {
         card.appendChild(window.createTextElement(
             'div', '⚠️ 기존 데이터가 변경될 수 있습니다.', 'confirmation-warning'
         ));
@@ -65,7 +71,11 @@ function createConfirmationCard(confirmation) {
         const input = document.createElement('input');
         input.type = 'checkbox';
         input.className = 'confirmation-remember-input';
-        remember.append(input, document.createTextNode('앞으로 같은 요청에는 이 방식 사용'));
+        remember.append(input, document.createTextNode(
+            isClarification
+                ? '다음부터 이 선택을 추천으로 표시'
+                : '앞으로 같은 요청에는 이 방식 사용'
+        ));
         card.appendChild(remember);
     }
     const status = document.createElement('div');

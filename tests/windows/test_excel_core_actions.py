@@ -625,8 +625,15 @@ class ExcelCoreParserTests(unittest.TestCase):
                     "format-choice",
                 )
 
-        self.assertEqual("confirmation_required", first["status"])
-        self.assertEqual("persistent_vs_once", first["data"]["confirmation"]["reason"])
+        self.assertEqual("clarification_required", first["status"])
+        self.assertEqual(
+            "multiple_possible_intents",
+            first["data"]["confirmation"]["reason"],
+        )
+        self.assertEqual(
+            "clarification",
+            first["data"]["confirmation"]["request_kind"],
+        )
         self.assertEqual(XL_NONE, before)
         self.assertTrue(result["success"])
         self.assertEqual(65535, sheet.Range("A3").Interior.Color)
@@ -701,8 +708,13 @@ class ExcelCoreParserTests(unittest.TestCase):
                     "duplicate-header",
                 )
 
-        self.assertEqual("confirmation_required", first["status"])
-        self.assertEqual("ambiguous_target", first["data"]["confirmation"]["reason"])
+        self.assertEqual("clarification_required", first["status"])
+        self.assertEqual(
+            "ambiguous_reference", first["data"]["confirmation"]["reason"]
+        )
+        self.assertEqual(
+            "clarification", first["data"]["confirmation"]["request_kind"]
+        )
         self.assertTrue(result["success"])
         self.assertEqual("=SUM(B2:B4)", sheet.Range("C1").Formula)
 

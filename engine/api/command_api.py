@@ -110,11 +110,13 @@ def _finish_or_pause(result, execution_id=None):
         else {}
     )
     if (
-        result.get("status") == "confirmation_required"
+        result.get("status") in {
+            "confirmation_required", "clarification_required",
+        }
         and confirmation.get("confirmation_id")
     ):
         _attach_user_feedback(result, execution_id)
-        parser.execution_controller.pause_for_confirmation(
+        parser.execution_controller.pause_for_user_input(
             confirmation["confirmation_id"],
             response=result.get("message", ""),
             extra={
@@ -122,6 +124,7 @@ def _finish_or_pause(result, execution_id=None):
                 "result": result,
             },
             expected_execution_id=execution_id,
+            status=result.get("status"),
         )
         return result
 
@@ -130,7 +133,9 @@ def _finish_or_pause(result, execution_id=None):
     if result.get("status") in _NON_OWNING_CONFIRMATION_STATUSES:
         return result
 
-    is_non_failure_confirmation = result.get("status") == "confirmation_required"
+    is_non_failure_confirmation = result.get("status") in {
+        "confirmation_required", "clarification_required",
+    }
     finished = parser.execution_controller.finish(
         result["success"], result.get("status"),
         response=result.get("message", ""),

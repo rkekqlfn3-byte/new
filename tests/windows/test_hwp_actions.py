@@ -462,7 +462,10 @@ class HwpParserTests(unittest.TestCase):
                     "selection",
                     "hwp-scope",
                 )
-        self.assertEqual("ambiguous_scope", first["data"]["confirmation"]["reason"])
+        self.assertEqual("missing_range", first["data"]["confirmation"]["reason"])
+        self.assertEqual(
+            "clarification", first["data"]["confirmation"]["request_kind"]
+        )
         self.assertTrue(result["success"])
         self.assertEqual("김철수 / 홍길동", hwp.text)
 

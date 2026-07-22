@@ -24,7 +24,9 @@ ERROR_TYPE_ALIASES = {
     "user_rejected": "user_cancelled",
 }
 
-NON_FAILURE_STATUSES = frozenset({"confirmation_required"})
+NON_FAILURE_STATUSES = frozenset({
+    "confirmation_required", "clarification_required",
+})
 
 
 class ExecutionResultDict(dict):
@@ -135,6 +137,34 @@ def confirmation_result(
         target=target,
         verified=False,
         status="confirmation_required",
+        error_type=None,
+        failed_step=None,
+        retryable=False,
+        data=payload,
+    ).to_dict()
+    result.update(extra)
+    return result
+
+
+def clarification_result(
+    message,
+    clarification,
+    action="clarification",
+    target=None,
+    data=None,
+    **extra,
+):
+    """Return a non-terminal result that waits for missing information."""
+    payload = dict(data or {})
+    payload["confirmation"] = dict(clarification or {})
+    payload["clarification"] = dict(clarification or {})
+    result = ExecutionResult(
+        False,
+        message,
+        action=action,
+        target=target,
+        verified=False,
+        status="clarification_required",
         error_type=None,
         failed_step=None,
         retryable=False,

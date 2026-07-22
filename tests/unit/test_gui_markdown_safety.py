@@ -252,6 +252,9 @@ class AccessibilityContractTests(unittest.TestCase):
             "card.querySelector('.confirmation-option.recommended, .confirmation-option')?.focus",
             confirmation,
         )
+        self.assertIn("'clarification_required'", confirmation)
+        self.assertIn("조금 더 알려주세요", confirmation)
+        self.assertIn("실행 전에 확인해주세요", confirmation)
 
 
 class EditModeUiContractTests(unittest.TestCase):

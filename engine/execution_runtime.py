@@ -258,6 +258,24 @@ class ExecutionController:
         expected_execution_id=None,
     ):
         """Move the running execution into an in-memory waiting state."""
+        return self.pause_for_user_input(
+            confirmation_id,
+            response=response,
+            extra=extra,
+            expected_execution_id=expected_execution_id,
+            status="confirmation_required",
+        )
+
+    def pause_for_user_input(
+        self,
+        confirmation_id,
+        response="",
+        extra=None,
+        expected_execution_id=None,
+        status="confirmation_required",
+    ):
+        if status not in {"confirmation_required", "clarification_required"}:
+            raise ValueError("지원하지 않는 사용자 입력 대기 상태입니다.")
         with self._lock:
             if not self.current:
                 return None
@@ -269,14 +287,17 @@ class ExecutionController:
                 return None
             record = self.current
             execution_id = record["execution_id"]
-            record["status"] = "confirmation_required"
+            record["status"] = status
             record["paused_at"] = datetime.now().isoformat(timespec="seconds")
             record["confirmation_id"] = str(confirmation_id or "")
             record["response"] = str(response or "")[:1000]
             record["events"].append({
                 "time": datetime.now().isoformat(timespec="seconds"),
-                "action": "confirmation",
-                "status": "confirmation_required",
+                "action": (
+                    "clarification"
+                    if status == "clarification_required" else "confirmation"
+                ),
+                "status": status,
                 "details": {"confirmation_id": str(confirmation_id or "")},
             })
             if isinstance(extra, dict):

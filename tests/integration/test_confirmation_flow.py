@@ -12,6 +12,7 @@ from engine.managers.pending_confirmation_manager import (
     ConfirmationConflictError,
     ConfirmationExpiredError,
     ConfirmationSessionMismatchError,
+    PendingConfirmationError,
     PendingConfirmationManager,
 )
 from engine.parser import CommandParser
@@ -33,6 +34,28 @@ def _options():
 
 
 class PendingConfirmationManagerTests(unittest.TestCase):
+    def test_clarification_kind_requires_a_closed_reason_code(self):
+        manager = PendingConfirmationManager()
+        record = manager.create(
+            session_id="clarify",
+            execution_id="run-clarify",
+            original_command="이거 합계 내줘",
+            reason="missing_range",
+            request_kind="clarification",
+            message="어느 범위를 합계할까요?",
+            options=[{"id": "selection", "label": "현재 선택"}],
+        )
+        self.assertEqual("clarification", record["request_kind"])
+        with self.assertRaises(PendingConfirmationError):
+            PendingConfirmationManager().create(
+                session_id="bad-clarify",
+                execution_id="run-bad",
+                original_command="모호한 요청",
+                reason="free_form_reason",
+                request_kind="clarification",
+                message="무엇을 할까요?",
+                options=[{"id": "one", "label": "하나"}],
+            )
     def test_session_has_only_one_active_request_and_payload_is_private(self):
         manager = PendingConfirmationManager()
         record = manager.create(

@@ -79,6 +79,7 @@ class UserFeedbackTests(unittest.TestCase):
     def test_confirmation_failure_busy_and_cancel_have_distinct_events(self):
         cases = (
             ({"success": False, "status": "confirmation_required"}, "confirmation_required"),
+            ({"success": False, "status": "clarification_required"}, "clarification_required"),
             ({"success": False, "status": "busy", "error_type": "busy"}, "action_busy"),
             ({"success": False, "status": "cancelled", "error_type": "user_cancelled"}, "action_cancelled"),
             ({"success": False, "status": "failed", "error_type": "timeout"}, "action_failed"),

@@ -41,6 +41,9 @@ def event_from_execution_result(
     if status == "confirmation_required":
         event_type = "confirmation_required"
         success_value = None
+    elif status == "clarification_required":
+        event_type = "clarification_required"
+        success_value = None
     elif status == "cancelled" or result.get("error_type") == "user_cancelled":
         event_type = "action_cancelled"
         success_value = False
@@ -72,7 +75,9 @@ def event_from_execution_result(
             "error_type": result.get("error_type"),
             "failed_step": result.get("failed_step"),
             "retryable": bool(result.get("retryable")),
-            "confirmation_pending": status == "confirmation_required",
+            "confirmation_pending": status in {
+                "confirmation_required", "clarification_required",
+            },
         },
         success=success_value,
         verified=verified,
@@ -103,6 +108,8 @@ def event_from_runtime_event(value: Any) -> dict[str, Any] | None:
         event_type = "action_started"
     elif status == "confirmation_required":
         event_type = "confirmation_required"
+    elif status == "clarification_required":
+        event_type = "clarification_required"
     elif status == "success":
         event_type = "action_completed"
     elif status in {"failed", "blocked", "context_changed"}:

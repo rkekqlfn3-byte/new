@@ -91,7 +91,9 @@ function rememberCommandTurn(userRequest, response, responseText) {
     window.commandConversationState = {
         version: 1,
         recent_turns: turns.slice(-3),
-        pending_confirmation: result.status === 'confirmation_required',
+        pending_confirmation: [
+            'confirmation_required', 'clarification_required'
+        ].includes(result.status),
     };
 }
 

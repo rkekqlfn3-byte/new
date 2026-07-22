@@ -8,7 +8,11 @@ domain-specific payload only after this handler has validated and consumed it.
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from engine.execution_result import confirmation_result, failure_result
+from engine.execution_result import (
+    clarification_result,
+    confirmation_result,
+    failure_result,
+)
 from engine.managers.pending_confirmation_manager import (
     PendingConfirmationError,
     normalize_session_id,
@@ -76,7 +80,12 @@ class ConfirmationResponseHandler:
 
     def confirmation_result(self, record, message=None):
         public = self.manager.public_record(record)
-        return confirmation_result(
+        result_factory = (
+            clarification_result
+            if public.get("request_kind") == "clarification"
+            else confirmation_result
+        )
+        return result_factory(
             message or public.get("message", "확인이 필요합니다."),
             public,
             action=public.get("action", "confirmation"),

@@ -18,6 +18,20 @@ from datetime import datetime
 DEFAULT_CONFIRMATION_TTL_SECONDS = 300
 DEFAULT_SESSION_ID = "default"
 OPTION_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")
+REQUEST_KINDS = frozenset({"confirmation", "clarification"})
+CLARIFICATION_REASON_CODES = frozenset({
+    "missing_target",
+    "missing_range",
+    "missing_destination",
+    "missing_sort_key",
+    "missing_filter_condition",
+    "multiple_possible_intents",
+    "ambiguous_reference",
+    "multiple_documents",
+    "multiple_sheets",
+    "context_mismatch",
+    "unsafe_default",
+})
 
 
 class PendingConfirmationError(ValueError):
@@ -154,8 +168,17 @@ class PendingConfirmationManager:
         payload=None,
         rememberable=False,
         ttl_seconds=None,
+        request_kind="confirmation",
     ):
         session_id = normalize_session_id(session_id)
+        request_kind = str(request_kind or "confirmation").strip().lower()
+        if request_kind not in REQUEST_KINDS:
+            raise PendingConfirmationError("지원하지 않는 사용자 입력 요청 종류입니다.")
+        if (
+            request_kind == "clarification"
+            and str(reason or "") not in CLARIFICATION_REASON_CODES
+        ):
+            raise PendingConfirmationError("지원하지 않는 정보 보완 사유 코드입니다.")
         normalized_options = self._normalize_options(options)
         with self._lock:
             self._expire_locked()
@@ -172,6 +195,7 @@ class PendingConfirmationManager:
                 "session_id": session_id,
                 "original_command": str(original_command or "")[:1000],
                 "reason": str(reason or "confirmation_required")[:80],
+                "request_kind": request_kind,
                 "message": str(message or "확인이 필요합니다.")[:1000],
                 "action": str(action or "confirmation")[:80],
                 "target": None if target is None else str(target)[:1000],

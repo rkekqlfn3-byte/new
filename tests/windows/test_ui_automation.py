@@ -475,7 +475,7 @@ class StructuredUIAutomationTests(unittest.TestCase):
         waiting = parser._queue_uia_target_choice(
             ambiguity, payload, "uia-session", "저장을 눌러"
         )
-        self.assertEqual("confirmation_required", waiting["status"])
+        self.assertEqual("clarification_required", waiting["status"])
         confirmation_id = waiting["data"]["confirmation"]["confirmation_id"]
         execution_result = {
             "success": True,

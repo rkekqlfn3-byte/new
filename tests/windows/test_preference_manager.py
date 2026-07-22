@@ -193,7 +193,7 @@ class PreferenceParserFlowTests(unittest.TestCase):
                     "앞으로는 자동으로", session_id="remember-text"
                 )
 
-        self.assertEqual("confirmation_required", first["status"])
+        self.assertEqual("clarification_required", first["status"])
         self.assertTrue(completed["success"])
         self.assertTrue(parser.preference_manager.get(
             EXCEL_FORMAT_PREFERENCE_KEY
@@ -209,7 +209,7 @@ class PreferenceParserFlowTests(unittest.TestCase):
                     response = command_api.parse_command(
                         self._ambiguous_command(), session_id="repeat-learning"
                     )
-                    self.assertEqual("confirmation_required", response["status"])
+                    self.assertEqual("clarification_required", response["status"])
                     options = response["data"]["confirmation"]["options"]
                     if index >= 3:
                         direct = next(
@@ -337,7 +337,7 @@ class PreferenceParserFlowTests(unittest.TestCase):
                 )
 
         self.assertEqual("failed", failed_once["status"])
-        self.assertEqual("confirmation_required", failed_twice["status"])
+        self.assertEqual("clarification_required", failed_twice["status"])
         self.assertEqual(
             "auto_apply_disabled_after_failures",
             parser.preference_manager.decision(
