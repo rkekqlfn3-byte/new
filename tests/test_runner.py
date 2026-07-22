@@ -53,6 +53,7 @@ TEST_GROUPS = {
         "tests.unit.test_stage12_self_diagnosis",
         "tests.unit.test_text_tone",
         "tests.unit.test_user_feedback",
+        "tests.unit.test_utterance_acceptance_battery",
         "tests.unit.test_failure_triage",
         "tests.unit.test_restart",
         "tests.unit.test_recovery_contract",

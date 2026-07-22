@@ -37,6 +37,25 @@ HWP_SECURITY_MODULE_BLOCK_REASONS = frozenset(
     }
 )
 PROBE_SPECS = {
+    "utterance_acceptance": {
+        "file": "utterance_acceptance_report.json",
+        "probe": "prototype_goal_1000_utterance_acceptance",
+        "required_checks": (
+            "exactly_1000_cases",
+            "category_distribution_exact",
+            "crash_zero",
+            "wrong_action_zero",
+            "unapproved_write_zero",
+            "wrong_target_execution_zero",
+            "risk_safe_block_100_percent",
+            "direct_command_at_least_95_percent",
+            "incomplete_correct_response_at_least_95_percent",
+            "repeated_utterance_stable_without_ai_growth",
+            "external_ai_calls_zero",
+            "user_data_and_apps_untouched",
+            "failure_records_content_free",
+        ),
+    },
     "native_excel_hwp": {
         "file": "prototype1_stage5_report.json",
         "probe": "prototype1_stage5_owned_fixture_editing",
@@ -138,7 +157,7 @@ PROBE_SPECS = {
     },
 }
 GOAL_AXES = {
-    "natural_language": {"probes": ()},
+    "natural_language": {"probes": ("utterance_acceptance",)},
     "current_context": {
         "probes": ("native_excel_hwp", "native_word_powerpoint"),
     },
@@ -162,6 +181,7 @@ GOAL_AXES = {
     "novice_accessibility": {"probes": ()},
 }
 PROBE_COMMANDS = (
+    ("utterance_acceptance_battery", (), False),
     ("prototype1_stage5_probe", (), False),
     ("prototype1_stage6_probe", (), False),
     ("prototype1_stage8_probe", (), True),
