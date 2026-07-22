@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+import gc
+import time
 from datetime import datetime
 
 import pythoncom
+import psutil
 import win32com.client
+import win32process
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -22,8 +26,8 @@ def main():
     pythoncom.CoInitialize()
     application = None
     created_application = False
-    original_workbook = None
     scratch = None
+    sheet = None
     report = {
         "phase": 4,
         "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -31,18 +35,16 @@ def main():
         "checks": {},
     }
     try:
-        try:
-            application = win32com.client.GetActiveObject("Excel.Application")
-        except Exception:
-            application = win32com.client.DispatchEx("Excel.Application")
-            application.Visible = False
-            application.DisplayAlerts = False
-            created_application = True
-        report["isolated_excel_instance"] = created_application
-        original_workbook = application.ActiveWorkbook
-        report["original_workbook"] = (
-            str(original_workbook.Name) if original_workbook is not None else None
+        application = win32com.client.DispatchEx("Excel.Application")
+        application.Visible = False
+        application.DisplayAlerts = False
+        created_application = True
+        _, process_id = win32process.GetWindowThreadProcessId(
+            int(application.Hwnd)
         )
+        report["isolated_excel_pid"] = int(process_id)
+        report["isolated_excel_instance"] = created_application
+        report["user_excel_instance_attached"] = False
         scratch = application.Workbooks.Add()
         sheet = scratch.ActiveSheet
         sheet.Name = "JARVIS_Phase4"
@@ -55,6 +57,7 @@ def main():
             application_getter=lambda: application,
             process_counter=lambda: 1,
             discovery_retry_delay=0.05,
+            com_runtime=False,
         )
 
         prepared_sum = adapter.prepare(
@@ -148,19 +151,29 @@ def main():
                 scratch.Close(SaveChanges=False)
             except Exception:
                 pass
-        if original_workbook is not None:
-            try:
-                original_workbook.Activate()
-            except Exception:
-                pass
         if created_application and application is not None:
             try:
                 application.Quit()
             except Exception:
                 pass
+        application = None
+        scratch = None
+        sheet = None
+        gc.collect()
+        isolated_pid = int(report.get("isolated_excel_pid") or 0)
+        deadline = time.monotonic() + 5.0
+        while isolated_pid and psutil.pid_exists(isolated_pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        report["owned_process_cleanup_verified"] = bool(
+            isolated_pid and not psutil.pid_exists(isolated_pid)
+        )
+        report["success"] = bool(
+            report.get("success") and report["owned_process_cleanup_verified"]
+        )
         print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
         pythoncom.CoUninitialize()
+    return 0 if report.get("success") else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

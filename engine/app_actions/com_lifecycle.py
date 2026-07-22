@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def com_apartment(com_runtime=None):
     """Initialize COM for exactly one operation and always balance it."""
+    if com_runtime is False:
+        # The caller owns one surrounding COM apartment for the full lifetime
+        # of a persistent pywin32 proxy (for example, an isolated live probe).
+        yield
+        return
     runtime = com_runtime
     if runtime is None:
         try:

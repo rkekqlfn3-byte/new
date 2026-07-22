@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+import gc
+import time
 from datetime import datetime
 
+import psutil
 import win32com.client
 import win32process
+import pythoncom
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,14 +33,19 @@ def cell_values(sheet, address):
 
 
 def main():
+    pythoncom.CoInitialize()
     application = None
     workbook = None
+    sheet = None
     report = {
         "phase": 6,
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "isolated_excel_pid": None,
         "checks": [],
         "success": False,
+        "owned_fixture_only": True,
+        "user_excel_instance_attached": False,
+        "paths_or_contents_reported": False,
     }
     try:
         application = win32com.client.DispatchEx("Excel.Application")
@@ -59,6 +68,7 @@ def main():
             application_getter=lambda: application,
             process_counter=lambda: 1,
             discovery_retry_delay=0.05,
+            com_runtime=False,
         )
 
         prepared = adapter.prepare(
@@ -108,8 +118,11 @@ def main():
         prepared = adapter.prepare(
             "sort_range", {"column_name": "매출", "direction": "ascending"}
         )
-        report["sort_before"] = cell_values(sheet, "A1:C4")
-        report["sort_prepared_params"] = prepared.params
+        report["sort_contract"] = {
+            "row_count": len(prepared.params.get("original_rows", [])),
+            "key_kind": prepared.params.get("key_kind"),
+            "direction": prepared.params.get("direction"),
+        }
         result = adapter.execute(prepared)
         assert result["verified"]
         assert cell_values(sheet, "A2:C4") == [
@@ -142,6 +155,21 @@ def main():
                 application.Quit()
             except Exception:
                 pass
+        application = None
+        workbook = None
+        sheet = None
+        gc.collect()
+        isolated_pid = int(report.get("isolated_excel_pid") or 0)
+        deadline = time.monotonic() + 5.0
+        while isolated_pid and psutil.pid_exists(isolated_pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        report["owned_process_cleanup_verified"] = bool(
+            isolated_pid and not psutil.pid_exists(isolated_pid)
+        )
+        report["success"] = bool(
+            report.get("success") and report["owned_process_cleanup_verified"]
+        )
+        pythoncom.CoUninitialize()
         report["finished_at"] = datetime.now().astimezone().isoformat(
             timespec="seconds"
         )
@@ -149,7 +177,8 @@ def main():
             json.dump(report, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
     print(json.dumps(report, ensure_ascii=False))
+    return 0 if report.get("success") else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

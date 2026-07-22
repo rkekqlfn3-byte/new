@@ -2,7 +2,7 @@ import threading
 import unittest
 
 from engine.app_actions.base import AppActionUnavailable
-from engine.app_actions.com_lifecycle import OfficeApplicationLease
+from engine.app_actions.com_lifecycle import OfficeApplicationLease, com_apartment
 from engine.app_actions.excel_adapter import (
     ExcelAdapter,
     create_owned_excel_application,
@@ -48,6 +48,10 @@ class FakeApplication:
 
 
 class ComOwnershipTests(unittest.TestCase):
+    def test_caller_owned_outer_apartment_can_disable_nested_initialization(self):
+        with com_apartment(False):
+            pass
+
     def test_attached_excel_is_preserved_and_only_references_are_cleared(self):
         runtime = FakeComRuntime()
         application = FakeApplication()

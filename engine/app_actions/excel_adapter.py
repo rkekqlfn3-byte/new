@@ -132,6 +132,16 @@ class ExcelAdapter:
         "insert_rows",
         "insert_columns",
     })
+    undo_supported_operations = frozenset({
+        "write_cell",
+        "sum_column_to_cell",
+        "format_range",
+        "filter_range",
+        "find_replace",
+        "sort_range",
+        "insert_rows",
+        "insert_columns",
+    })
 
     def __init__(
         self,
@@ -2291,6 +2301,8 @@ class ExcelAdapter:
             "insert_columns": self._undo_structure_insert,
             "filter_range": self._undo_filter,
         }
+        if set(handlers) != set(self.undo_supported_operations):
+            raise AppActionBlocked("Excel Undo 작업 계약이 일치하지 않습니다.")
         handler = handlers.get(prepared.operation)
         if handler is None:
             raise AppActionBlocked("이 Excel 작업은 자동 복원을 지원하지 않습니다.")

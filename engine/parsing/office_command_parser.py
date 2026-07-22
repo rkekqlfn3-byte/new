@@ -179,7 +179,9 @@ def parse_native_excel_range_format_command(user_input):
     if not range_match:
         return None
     params = {"range": range_match.group(0).upper().replace("$", "")}
-    if any(word in text for word in ("굵게", "볼드")):
+    if any(word in text for word in ("굵게 해제", "굵지 않게", "볼드 해제")):
+        params["bold"] = False
+    elif any(word in text for word in ("굵게", "볼드")):
         params["bold"] = True
     size_match = re.search(
         r"(?:글자|폰트)\s*(?:크기|사이즈)(?:를|을)?\s*([0-9]+(?:\.[0-9]+)?)",

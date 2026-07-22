@@ -20,7 +20,30 @@ def _result_target(result: Mapping[str, Any]) -> dict[str, str]:
     if target:
         return target
     structured = _data(data.get("target"))
-    return structured
+    if structured:
+        return structured
+    prepared = _data(data.get("prepared_action"))
+    return {
+        "sheet": prepared.get("sheet"),
+        "range": prepared.get("target"),
+    }
+
+
+def _result_action(result: Mapping[str, Any]) -> str:
+    data = _data(result.get("data"))
+    operation = str(data.get("operation") or "")
+    if not operation:
+        operation = str(_data(data.get("prepared_action")).get("operation") or "")
+    return operation or str(result.get("action") or "command")
+
+
+def _result_app(result: Mapping[str, Any]) -> str:
+    data = _data(result.get("data"))
+    return str(
+        data.get("app_type")
+        or _data(data.get("prepared_action")).get("app")
+        or ""
+    )
 
 
 def _undo_available(result: Mapping[str, Any]) -> bool:
@@ -77,8 +100,8 @@ def event_from_execution_result(
     event = UserFeedbackEvent(
         event_type=event_type,
         stage="result",
-        app=str(_data(result.get("data")).get("app_type") or ""),
-        action=str(result.get("action") or "command"),
+        app=_result_app(result),
+        action=_result_action(result),
         execution_id=execution_id,
         target=_result_target(result),
         details={

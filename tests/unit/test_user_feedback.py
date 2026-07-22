@@ -178,6 +178,25 @@ class UserFeedbackTests(unittest.TestCase):
             "details": {"message": "비밀"},
         }))
 
+    def test_excel_operation_and_structural_target_drive_local_explanation(self):
+        event = event_from_execution_result({
+            "success": True,
+            "verified": True,
+            "action": "app_command",
+            "data": {
+                "prepared_action": {
+                    "app": "excel",
+                    "operation": "sort_range",
+                    "sheet": "매출",
+                    "target": "A1:C20",
+                },
+            },
+        })
+        self.assertEqual("sort_range", event["action"])
+        self.assertEqual("excel", event["app"])
+        self.assertEqual({"sheet": "매출", "range": "A1:C20"}, event["target"])
+        self.assertIn("표 정렬", event["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
