@@ -323,7 +323,7 @@ handle만 갱신하고 동일 문서 fingerprint를 재확인한 뒤 계속합�
 ```
 
 2026-07-19 보고서·발표자료 전용 허용 레시피 보강 기준으로 전체 자동 테스트
-950개 중 947개가 통과했고(unit 399·integration 345·windows 203), 실제 외부
+953개 중 950개가 통과했고(unit 402·integration 345·windows 203), 실제 외부
 AI 자격 증명과 호출 승인이 필요한 라이브 테스트 3개만 건너뛰었으며 실패는
 0개입니다. 8단계는 Excel·한글·Word·PowerPoint 각각
 100/100회와 적용·검증·Undo를 통과했습니다. 9단계 소유 `.xlsm`은 프로젝트
@@ -361,6 +361,7 @@ PyInstaller onedir 빌드, ZIP 생성, 산출물 감사를 수행합니다. 정�
 
 ## 문서
 
+- [Goal 달성 마스터 계획서](docs/JARVIS_GOAL_COMPLETION_MASTER_PLAN_2026-07-23.md)
 - [변경 기록](CHANGELOG.md)
 - [현재 제한사항](KNOWN_LIMITATIONS.md)
 - [Prototype 1.0 1단계 기술 검증](docs/PROTOTYPE1_STAGE1_TECHNICAL_VALIDATION.md)
