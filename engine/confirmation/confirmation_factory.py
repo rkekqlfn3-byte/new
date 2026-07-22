@@ -23,6 +23,58 @@ class ConfirmationFactory:
     def __getattr__(self, name):
         return getattr(self.owner, name)
 
+    def queue_missing_information(
+        self,
+        request,
+        session_id,
+        original_command,
+        log_callback=None,
+    ):
+        params = request.get("params", {}) if isinstance(request, dict) else {}
+        reason = str(params.get("reason") or "unsafe_default")
+        message = str(params.get("message") or "필요한 정보를 조금 더 알려주세요.")
+        try:
+            context_identity = self.app_command_router.context_identity(
+                request.get("target")
+            )
+        except AppActionError as error:
+            return self._app_action_failure(error)
+        if log_callback:
+            log_callback(f"[Clarification] 추가 정보 필요: {reason}")
+        record = self.pending_confirmation_manager.create(
+            session_id=normalize_session_id(session_id),
+            execution_id=self._current_execution_id() or "",
+            original_command=original_command,
+            reason=reason,
+            request_kind="clarification",
+            message=message,
+            action="clarification",
+            target=str(request.get("target") or "")[:80],
+            options=[
+                {
+                    "id": "provide_details",
+                    "label": "내용 입력",
+                    "description": "채팅 입력창에 빠진 정보를 포함한 문장을 입력합니다.",
+                    "input_only": True,
+                },
+                {
+                    "id": "cancel",
+                    "label": "취소",
+                    "description": "아무 작업도 실행하지 않습니다.",
+                    "cancel": True,
+                    "aliases": ["취소", "그만", "하지마", "아니요"],
+                },
+            ],
+            payload={
+                "kind": "clarification_rephrase",
+                "accept_free_text": True,
+                "reason": reason,
+                "target": str(request.get("target") or "")[:80],
+                "context_identity": context_identity,
+            },
+        )
+        return self._confirmation_result(record)
+
     def queue_command_macro(
         self, macro_name, macro_data, original_command, session_id
     ):

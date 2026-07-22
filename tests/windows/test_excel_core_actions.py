@@ -450,6 +450,14 @@ class FakeWorksheetFunction:
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         )
 
+    def Average(self, source):
+        values = [
+            value for row in source.Value2
+            for value in (row if isinstance(row, tuple) else (row,))
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        return sum(values) / len(values)
+
 
 class FakeExcel:
     Hwnd = 45678
@@ -593,6 +601,81 @@ class ExcelCoreParserTests(unittest.TestCase):
         self.assertEqual("=SUM(A2:A4)", sheet.Range("B1").Formula)
         parser.llm_engine.process_command.assert_not_called()
 
+    def test_incomplete_sum_waits_for_details_then_reuses_same_execution(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-excel-core-") as temp_dir:
+            excel = FakeExcel()
+            sheet = seed_sales(excel)
+            parser = self._parser(temp_dir, excel)
+            parser.llm_engine.process_command = mock.Mock(
+                side_effect=AssertionError("AI should not run")
+            )
+            with mock.patch.object(command_api, "parser", parser):
+                waiting = command_api.parse_command(
+                    "엑셀에서 합계 내줘", session_id="sum-clarification"
+                )
+                before = sheet.Range("C1").Value2
+                completed = command_api.parse_command(
+                    "엑셀에서 A2:A4 합계를 C1에 넣어줘",
+                    session_id="sum-clarification",
+                )
+
+        self.assertEqual("clarification_required", waiting["status"])
+        clarification = waiting["data"]["clarification"]
+        self.assertEqual("missing_range", clarification["reason"])
+        self.assertEqual("clarification", clarification["request_kind"])
+        self.assertIsNone(before)
+        self.assertTrue(completed["success"])
+        self.assertEqual("=SUM(A2:A4)", sheet.Range("C1").Formula)
+        records = parser.execution_controller.diagnostics(2)["records"]
+        self.assertEqual(1, len(records))
+        self.assertEqual("success", records[0]["status"])
+        parser.llm_engine.process_command.assert_not_called()
+
+    def test_incomplete_filter_and_sort_return_specific_reasons(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-excel-core-") as temp_dir:
+            parser = self._parser(temp_dir, FakeExcel())
+            with mock.patch.object(command_api, "parser", parser):
+                filter_waiting = command_api.parse_command(
+                    "엑셀에서 필터 걸어줘", session_id="filter-clarification"
+                )
+                command_api.resolve_confirmation(
+                    filter_waiting["data"]["confirmation"]["confirmation_id"],
+                    "cancel",
+                    "filter-clarification",
+                )
+                sort_waiting = command_api.parse_command(
+                    "엑셀에서 정렬해줘", session_id="sort-clarification"
+                )
+
+        self.assertEqual(
+            "missing_filter_condition",
+            filter_waiting["data"]["clarification"]["reason"],
+        )
+        self.assertEqual(
+            "missing_sort_key",
+            sort_waiting["data"]["clarification"]["reason"],
+        )
+
+    def test_incomplete_sum_discards_answer_after_sheet_context_changes(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-excel-core-") as temp_dir:
+            excel = FakeExcel()
+            sheet = seed_sales(excel)
+            parser = self._parser(temp_dir, excel)
+            with mock.patch.object(command_api, "parser", parser):
+                waiting = command_api.parse_command(
+                    "엑셀에서 합계 내줘", session_id="sum-stale-context"
+                )
+                sheet.Name = "다른시트"
+                blocked = command_api.parse_command(
+                    "엑셀에서 A2:A4 합계를 C1에 넣어줘",
+                    session_id="sum-stale-context",
+                )
+
+        self.assertEqual("clarification_required", waiting["status"])
+        self.assertFalse(blocked["success"])
+        self.assertEqual("context_changed", blocked["status"])
+        self.assertIsNone(sheet.Range("C1").Value2)
+
     def test_explicit_fixed_sum_writes_number_not_formula(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-excel-core-") as temp_dir:
             excel = FakeExcel()
@@ -607,6 +690,28 @@ class ExcelCoreParserTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertFalse(sheet.Range("C1").HasFormula)
         self.assertEqual(160, sheet.Range("C1").Value2)
+
+    def test_average_supports_formula_and_missing_information_question(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-excel-core-") as temp_dir:
+            excel = FakeExcel()
+            sheet = seed_sales(excel)
+            parser = self._parser(temp_dir, excel)
+            with mock.patch.object(command_api, "parser", parser):
+                waiting = command_api.parse_command(
+                    "엑셀에서 평균 내줘", session_id="average-clarification"
+                )
+                completed = command_api.parse_command(
+                    "엑셀에서 A2:A4 평균을 C1에 넣어줘",
+                    session_id="average-clarification",
+                )
+
+        self.assertEqual("clarification_required", waiting["status"])
+        self.assertEqual(
+            "missing_range", waiting["data"]["clarification"]["reason"]
+        )
+        self.assertTrue(completed["success"])
+        self.assertEqual("=AVERAGE(A2:A4)", sheet.Range("C1").Formula)
+        self.assertIn("평균", completed["message"])
 
     def test_ambiguous_format_asks_then_applies_selected_method(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-excel-core-") as temp_dir:

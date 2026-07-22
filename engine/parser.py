@@ -52,6 +52,7 @@ from engine.parsing.office_command_parser import (
     EXCEL_FORMAT_METHODS,
     EXCEL_FORMAT_PREFERENCE_KEY,
     parse_native_excel_filter_command,
+    parse_native_excel_clarification_command,
     parse_native_excel_find_replace_command,
     parse_native_excel_format_command,
     parse_native_excel_range_format_command,
@@ -385,6 +386,8 @@ class CommandParser:
 
     _parse_native_excel_filter_command = staticmethod(parse_native_excel_filter_command)
 
+    _parse_native_excel_clarification_command = staticmethod(parse_native_excel_clarification_command)
+
     _parse_native_excel_find_replace_command = staticmethod(parse_native_excel_find_replace_command)
 
     _parse_native_excel_sort_command = staticmethod(parse_native_excel_sort_command)
@@ -490,6 +493,16 @@ class CommandParser:
             session_id,
             original_command,
             continuation=continuation,
+        )
+
+    def _queue_missing_information(
+        self, request, session_id, original_command, log_callback=None
+    ):
+        return self.confirmation_factory.queue_missing_information(
+            request,
+            session_id,
+            original_command,
+            log_callback=log_callback,
         )
 
     def _prepared_action_success(

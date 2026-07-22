@@ -255,6 +255,7 @@ class AccessibilityContractTests(unittest.TestCase):
         self.assertIn("'clarification_required'", confirmation)
         self.assertIn("조금 더 알려주세요", confirmation)
         self.assertIn("실행 전에 확인해주세요", confirmation)
+        self.assertIn("if (option?.input_only) return", confirmation)
 
 
 class EditModeUiContractTests(unittest.TestCase):

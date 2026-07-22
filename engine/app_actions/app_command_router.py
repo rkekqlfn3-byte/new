@@ -51,6 +51,13 @@ class AppCommandRouter:
             target = request_or_target
         return self.registry.prepare(target, operation, params or {})
 
+    def context_identity(self, target):
+        adapter = self.registry.get(target)
+        reader = getattr(adapter, "context_identity", None)
+        if not callable(reader):
+            raise AppActionError("현재 앱은 정보 보완 중 문맥 확인을 지원하지 않습니다.")
+        return str(reader() or "")
+
     def execute_prepared(
         self,
         prepared,
@@ -111,13 +118,16 @@ class AppCommandRouter:
                 f"{self.app_label(prepared)} {prepared.target}은(는) 이미 요청한 상태입니다."
             )
         elif prepared.operation == "sum_column_to_cell":
+            aggregation_label = (
+                "평균" if prepared.params.get("aggregation") == "average" else "합계"
+            )
             if changed:
                 message = (
                     f"Excel {prepared.workbook_name}의 {prepared.sheet}!{prepared.target}에 "
-                    f"{prepared.params.get('source_range')} 합계를 입력하고 다시 읽어 확인했습니다."
+                    f"{prepared.params.get('source_range')} {aggregation_label}를 입력하고 다시 읽어 확인했습니다."
                 )
             else:
-                message = "합계 결과가 이미 같아 변경 없이 확인했습니다."
+                message = f"{aggregation_label} 결과가 이미 같아 변경 없이 확인했습니다."
         elif prepared.operation == "apply_conditional_format":
             message = (
                 f"Excel {prepared.sheet}!{prepared.target}에 조건부 서식을 적용하고 확인했습니다."

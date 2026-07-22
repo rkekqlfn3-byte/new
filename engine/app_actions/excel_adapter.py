@@ -1198,21 +1198,29 @@ class ExcelAdapter:
             yield value
 
     @staticmethod
-    def _fixed_sum(application, source):
+    def _fixed_aggregate(application, source, aggregation):
         worksheet_function = getattr(application, "WorksheetFunction", None)
         if worksheet_function is not None:
             try:
-                return serializable_excel_value(worksheet_function.Sum(source))
+                function = (
+                    worksheet_function.Average
+                    if aggregation == "average" else worksheet_function.Sum
+                )
+                return serializable_excel_value(function(source))
             except Exception as error:
                 raise AppActionBlocked(
-                    "현재 값 합계를 계산하지 못했습니다. 오류 셀이 있는지 확인해주세요."
+                    "현재 값 집계를 계산하지 못했습니다. 숫자 데이터와 오류 셀을 확인해주세요."
                 ) from error
-        total = 0
+        values = []
         for value in ExcelAdapter._flatten(source.Value2):
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 if math.isfinite(float(value)):
-                    total += value
-        return total
+                    values.append(value)
+        if aggregation == "average":
+            if not values:
+                raise AppActionBlocked("평균을 계산할 숫자 데이터가 없습니다.")
+            return sum(values) / len(values)
+        return sum(values)
 
     def _prepare_sum_in_app(self, application, params):
         _, sheet, base = self._common_context(application)
@@ -1220,26 +1228,33 @@ class ExcelAdapter:
         count = self._range_count(source)
         if count > MAX_SOURCE_CELLS:
             raise AppActionBlocked(
-                f"4단계에서는 한 번에 최대 {MAX_SOURCE_CELLS:,}개 셀까지 합계할 수 있습니다."
+                f"한 번에 최대 {MAX_SOURCE_CELLS:,}개 셀까지 집계할 수 있습니다."
             )
         target_address = normalize_cell_address(
             params.get("target_cell") or params.get("cell")
         )
         if self._cell_in_range(target_address, source_address):
-            raise AppActionBlocked("합계 결과 셀이 원본 범위 안에 있어 순환 참조가 생길 수 있습니다.")
+            raise AppActionBlocked("집계 결과 셀이 원본 범위 안에 있어 순환 참조가 생길 수 있습니다.")
         target = sheet.Range(target_address)
         if bool(getattr(target, "MergeCells", False)):
-            raise AppActionBlocked("병합된 셀에는 합계 결과를 입력하지 않았습니다.")
+            raise AppActionBlocked("병합된 셀에는 집계 결과를 입력하지 않았습니다.")
         target_state = self._cell_snapshot(target)
         mode = str(
             params.get("result_mode") or params.get("write_mode") or "formula"
         ).strip().casefold()
         if mode not in {"formula", "value"}:
-            raise AppActionBlocked("합계 결과 방식은 formula 또는 value여야 합니다.")
+            raise AppActionBlocked("집계 결과 방식은 formula 또는 value여야 합니다.")
+        aggregation = str(params.get("aggregation") or "sum").strip().casefold()
+        if aggregation not in {"sum", "average"}:
+            raise AppActionBlocked("지원하는 집계 방식은 합계와 평균입니다.")
+        function_name = "AVERAGE" if aggregation == "average" else "SUM"
         desired = (
-            {"kind": "formula", "value": f"=SUM({source_address})"}
+            {"kind": "formula", "value": f"={function_name}({source_address})"}
             if mode == "formula"
-            else {"kind": "value", "value": self._fixed_sum(application, source)}
+            else {
+                "kind": "value",
+                "value": self._fixed_aggregate(application, source, aggregation),
+            }
         )
         snapshot = {
             **base,
@@ -1250,6 +1265,7 @@ class ExcelAdapter:
             "source_digest": self._range_digest(source),
             "source_count": count,
             "result_mode": mode,
+            "aggregation": aggregation,
         }
         is_empty = self._is_empty(snapshot)
         noop = self._matches_desired(snapshot, desired)
@@ -1265,6 +1281,7 @@ class ExcelAdapter:
                 "column_name": header,
                 "target_cell": snapshot["target"],
                 "result_mode": mode,
+                "aggregation": aggregation,
                 "value": desired["value"],
                 "value_type": desired["kind"],
             },
@@ -1520,6 +1537,16 @@ class ExcelAdapter:
             return self._prepare_format_in_app(
                 application, params, persistent=operation == "apply_conditional_format"
             )
+
+    def context_identity(self) -> str:
+        """Return a content-free identity for stale clarification checks."""
+        with self._application() as application:
+            _, _, base = self._common_context(application)
+        return self._state_fingerprint({
+            "application_hwnd": base["application_hwnd"],
+            "document_id": base["document_id"],
+            "sheet": base["sheet"],
+        })
 
     @staticmethod
     def _ensure_same_context(current, prepared):

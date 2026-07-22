@@ -40,6 +40,7 @@ function createConfirmationCard(confirmation) {
     const options = document.createElement('div');
     options.className = 'confirmation-options';
     (Array.isArray(confirmation?.options) ? confirmation.options : []).forEach(option => {
+        if (option?.input_only) return;
         const button = document.createElement('button');
         button.type = 'button';
         button.className = [

@@ -135,6 +135,19 @@ class ConfirmationResponseHandler:
                     record, user_text
                 )
             if option_id is None:
+                payload = record.get("payload", {})
+                input_option = next((
+                    item for item in record.get("options", [])
+                    if item.get("input_only")
+                ), None)
+                if (
+                    record.get("request_kind") == "clarification"
+                    and payload.get("accept_free_text") is True
+                    and str(user_text or "").strip()
+                    and input_option is not None
+                ):
+                    option_id = input_option["id"]
+            if option_id is None:
                 return ConfirmationResolution(
                     session_id=session_id,
                     remember_preference=remember_preference,

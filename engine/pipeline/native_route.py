@@ -13,6 +13,7 @@ def try_execute_native_route(
         or parser._parse_native_excel_filter_command(raw_user_input)
         or parser._parse_native_excel_find_replace_command(raw_user_input)
         or parser._parse_native_excel_sort_command(raw_user_input)
+        or parser._parse_native_excel_clarification_command(raw_user_input)
     )
     native_hwp_request = (
         parser._parse_native_hwp_find_replace_command(raw_user_input)
@@ -35,6 +36,13 @@ def try_execute_native_route(
         )
     if operation == "choose_hwp_replace_scope":
         return parser._queue_hwp_scope_choice(
+            request,
+            session_id,
+            raw_user_input,
+            log_callback=log_callback,
+        )
+    if operation == "request_missing_information":
+        return parser._queue_missing_information(
             request,
             session_id,
             raw_user_input,

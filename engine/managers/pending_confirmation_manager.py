@@ -125,6 +125,7 @@ class PendingConfirmationManager:
                 "recommended": bool(raw.get("recommended", False)),
                 "danger": bool(raw.get("danger", False)),
                 "cancel": bool(raw.get("cancel", False)),
+                "input_only": bool(raw.get("input_only", False)),
                 "aliases": sorted(aliases),
             })
             seen.add(option_id)
@@ -180,6 +181,13 @@ class PendingConfirmationManager:
         ):
             raise PendingConfirmationError("지원하지 않는 정보 보완 사유 코드입니다.")
         normalized_options = self._normalize_options(options)
+        if (
+            request_kind == "clarification"
+            and any(item.get("danger") for item in normalized_options)
+        ):
+            raise PendingConfirmationError(
+                "정보 보완 선택지는 실행 승인이나 위험 선택지가 될 수 없습니다."
+            )
         with self._lock:
             self._expire_locked()
             if session_id in self._active_by_session:

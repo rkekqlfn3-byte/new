@@ -56,6 +56,18 @@ class PendingConfirmationManagerTests(unittest.TestCase):
                 message="무엇을 할까요?",
                 options=[{"id": "one", "label": "하나"}],
             )
+        with self.assertRaises(PendingConfirmationError):
+            PendingConfirmationManager().create(
+                session_id="danger-clarify",
+                execution_id="run-danger",
+                original_command="모호한 요청",
+                reason="unsafe_default",
+                request_kind="clarification",
+                message="어느 쪽인가요?",
+                options=[{
+                    "id": "run", "label": "실행", "danger": True,
+                }],
+            )
     def test_session_has_only_one_active_request_and_payload_is_private(self):
         manager = PendingConfirmationManager()
         record = manager.create(

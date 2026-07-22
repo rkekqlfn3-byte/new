@@ -18,7 +18,7 @@ EXCEL_WRITE_COMMAND_RE = re.compile(
 EXCEL_SUM_RANGE_COMMAND_RE = re.compile(
     r"^(?:엑셀|excel)(?:에서)?\s+"
     r"(?P<source>\$?[a-z]{1,3}\$?[1-9]\d{0,6}:\$?[a-z]{1,3}\$?[1-9]\d{0,6})\s*(?:범위)?\s*(?:을|를)?\s*"
-    r"(?:더해서|합산해서|합계(?:를)?(?:\s*구해서)?)\s*"
+    r"(?:더해서|합산해서|합계(?:를)?(?:\s*구해서)?|평균(?:을)?(?:\s*구해서)?)\s*"
     r"(?P<target>\$?[a-z]{1,3}\$?[1-9]\d{0,6})\s*(?:셀)?\s*(?:에|으로)\s*"
     r"(?:넣어주세요|넣어\s*줘|넣어줘|넣어|입력해주세요|입력해\s*줘|입력해줘|입력해)\s*[.!]?$",
     re.IGNORECASE,
@@ -26,7 +26,7 @@ EXCEL_SUM_RANGE_COMMAND_RE = re.compile(
 EXCEL_SUM_COLUMN_COMMAND_RE = re.compile(
     r"^(?:엑셀|excel)(?:에서)?\s+"
     r"(?P<source>.+?)\s*열\s*(?:을|를|의)?\s*"
-    r"(?:더해서|합산해서|합계(?:를)?(?:\s*구해서)?)\s*"
+    r"(?:더해서|합산해서|합계(?:를)?(?:\s*구해서)?|평균(?:을)?(?:\s*구해서)?)\s*"
     r"(?P<target>\$?[a-z]{1,3}\$?[1-9]\d{0,6})\s*(?:셀)?\s*(?:에|으로)\s*"
     r"(?:넣어주세요|넣어\s*줘|넣어줘|넣어|입력해주세요|입력해\s*줘|입력해줘|입력해)\s*[.!]?$",
     re.IGNORECASE,
@@ -67,7 +67,7 @@ def parse_native_excel_write_command(user_input):
 def parse_native_excel_sum_command(user_input):
     text = str(user_input or "").strip()
     fixed_words = (
-        "현재 합계값만", "현재 값만", "숫자로 고정", "값으로 고정",
+        "현재 합계값만", "현재 평균값만", "현재 값만", "숫자로 고정", "값으로 고정",
         "고정값으로", "고정 값으로",
     )
     parse_text = text
@@ -93,6 +93,7 @@ def parse_native_excel_sum_command(user_input):
     params["result_mode"] = (
         "value" if any(word in text for word in fixed_words) else "formula"
     )
+    params["aggregation"] = "average" if "평균" in text else "sum"
     return {
         "action": "app_command",
         "target": "excel",
@@ -368,6 +369,72 @@ def parse_native_excel_sort_command(user_input):
         "target": "excel",
         "operation": "sort_range",
         "params": params,
+    }
+
+
+def parse_native_excel_clarification_command(user_input):
+    """Recognize incomplete Excel intents without inventing missing values."""
+    text = str(user_input or "").strip()
+    if not re.match(r"^(?:엑셀|excel)(?:에서)?\s+", text, re.IGNORECASE):
+        return None
+    lowered = text.casefold()
+    reason = None
+    message = None
+    if any(word in lowered for word in ("합계", "합산", "더해", "더해서", "평균")):
+        ranges = re.findall(
+            r"\$?[a-z]{1,3}\$?[1-9]\d{0,6}:\$?[a-z]{1,3}\$?[1-9]\d{0,6}",
+            text,
+            re.IGNORECASE,
+        )
+        cells = re.findall(
+            r"(?<!:)\b\$?[a-z]{1,3}\$?[1-9]\d{0,6}\b(?!\s*:)",
+            text,
+            re.IGNORECASE,
+        )
+        if not ranges and "열" not in text:
+            reason = "missing_range"
+            label = "평균을 구할" if "평균" in lowered else "합계할"
+            example = "평균을" if "평균" in lowered else "합계를"
+            message = (
+                f"{label} 범위와 결과를 넣을 셀을 함께 알려주세요. "
+                f"예: 엑셀에서 A2:A10 {example} A11에 넣어줘"
+            )
+        elif not cells:
+            reason = "missing_destination"
+            example = "평균을" if "평균" in lowered else "합계를"
+            message = (
+                f"{example.rstrip('을를')} 결과를 넣을 셀이 필요해요. "
+                f"예: 엑셀에서 A2:A10 {example} A11에 넣어줘"
+            )
+    elif "필터" in lowered:
+        reason = "missing_filter_condition"
+        message = (
+            "필터를 적용할 열과 조건을 알려주세요. "
+            "예: 엑셀에서 상태 열을 완료로 필터해줘"
+        )
+    elif "정렬" in lowered:
+        has_direction = any(
+            word in lowered for word in ("오름차순", "내림차순", "낮은 순", "높은 순")
+        )
+        if "열" not in text:
+            reason = "missing_sort_key"
+            message = (
+                "정렬 기준 열과 방향을 알려주세요. "
+                "예: 엑셀에서 매출 열을 내림차순으로 정렬해줘"
+            )
+        elif not has_direction:
+            reason = "unsafe_default"
+            message = (
+                "정렬 방향을 임의로 정하지 않았어요. 오름차순 또는 내림차순을 "
+                "포함해 다시 말해주세요."
+            )
+    if not reason:
+        return None
+    return {
+        "action": "clarification_request",
+        "target": "excel",
+        "operation": "request_missing_information",
+        "params": {"reason": reason, "message": message},
     }
 
 def parse_native_hwp_find_replace_command(user_input):
