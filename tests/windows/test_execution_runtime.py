@@ -27,6 +27,38 @@ class ExecutionControllerTests(unittest.TestCase):
         self.assertGreaterEqual(record["duration_ms"], 0)
         self.assertEqual(execution_id, reloaded.records[-1]["execution_id"])
 
+    def test_event_observer_reads_existing_events_without_changing_record(self):
+        observed = []
+        with tempfile.TemporaryDirectory(prefix="jarvis-runtime-test-") as temp_dir:
+            controller = ExecutionController(
+                os.path.join(temp_dir, "diagnostics.json"),
+                event_observer=observed.append,
+            )
+            execution_id = controller.begin("민감한 사용자 원문")
+            controller.event("command_api", "started", {"mode": "edit"})
+            record = controller.finish(True)
+
+        self.assertEqual(1, len(observed))
+        self.assertEqual(execution_id, observed[0]["execution_id"])
+        self.assertEqual("command_api", observed[0]["action"])
+        self.assertNotIn("민감한 사용자 원문", str(observed[0]))
+        self.assertEqual("started", record["events"][0]["status"])
+
+    def test_event_observer_failure_never_changes_execution(self):
+        def broken_observer(_event):
+            raise RuntimeError("display unavailable")
+
+        with tempfile.TemporaryDirectory(prefix="jarvis-runtime-test-") as temp_dir:
+            controller = ExecutionController(
+                os.path.join(temp_dir, "diagnostics.json"),
+                event_observer=broken_observer,
+            )
+            controller.begin("test")
+            controller.event("command_api", "started")
+            record = controller.finish(True)
+
+        self.assertTrue(record["success"])
+
     def test_diagnostic_record_carries_app_version(self):
         from engine.version import APP_VERSION
         with tempfile.TemporaryDirectory(prefix="jarvis-runtime-test-") as temp_dir:

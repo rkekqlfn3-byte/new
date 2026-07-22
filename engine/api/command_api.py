@@ -5,6 +5,10 @@ from engine.core import get_parser
 from engine.execution_runtime import ExecutionBusyError, ExecutionCancelled
 from engine.execution_result import failure_result
 from engine.managers.pending_confirmation_manager import normalize_session_id
+from engine.user_feedback import (
+    event_from_execution_result,
+    event_from_runtime_event,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -15,7 +19,11 @@ parser = None
 
 
 def _get_parser():
-    return parser if parser is not None else get_parser()
+    resolved = parser if parser is not None else get_parser()
+    controller = getattr(resolved, "execution_controller", None)
+    if controller is not None and hasattr(controller, "set_event_observer"):
+        controller.set_event_observer(_forward_runtime_user_event)
+    return resolved
 
 
 _NON_OWNING_CONFIRMATION_STATUSES = frozenset({
@@ -36,6 +44,30 @@ def _log_to_terminal(msg):
         eel.log_terminal(msg)()
     except Exception:
         logger.debug("Could not forward terminal log to Eel", exc_info=True)
+
+
+def _send_user_event(event):
+    if not isinstance(event, dict):
+        return
+    try:
+        eel.receive_user_event(event)()
+    except Exception:
+        logger.debug("Could not forward user feedback event to Eel", exc_info=True)
+
+
+def _forward_runtime_user_event(value):
+    event = event_from_runtime_event(value)
+    if event is not None:
+        _send_user_event(event)
+
+
+def _attach_user_feedback(result, execution_id=""):
+    if not isinstance(result, dict):
+        return result
+    event = event_from_execution_result(result, execution_id=execution_id)
+    result["user_event"] = event
+    _send_user_event(event)
+    return result
 
 
 def _stream_callback(chunk):
@@ -81,6 +113,7 @@ def _finish_or_pause(result, execution_id=None):
         result.get("status") == "confirmation_required"
         and confirmation.get("confirmation_id")
     ):
+        _attach_user_feedback(result, execution_id)
         parser.execution_controller.pause_for_confirmation(
             confirmation["confirmation_id"],
             response=result.get("message", ""),
@@ -115,7 +148,8 @@ def _finish_or_pause(result, execution_id=None):
         },
         expected_execution_id=execution_id,
     )
-    return _attach_failure_triage(result, finished)
+    result = _attach_failure_triage(result, finished)
+    return _attach_user_feedback(result, execution_id)
 
 
 def _resolve_confirmation_request(
@@ -158,7 +192,8 @@ def _resolve_confirmation_request(
             "현재 실행을 취소했습니다.", action="confirmation",
             error_type="user_cancelled",
         )
-        return _attach_failure_triage(result, finished)
+        result = _attach_failure_triage(result, finished)
+        return _attach_user_feedback(result, execution_id)
     except Exception as error:
         logger.exception(
             "Confirmation response handling failed",
@@ -184,7 +219,8 @@ def _resolve_confirmation_request(
             action="confirmation",
             error_type=parser._failure_type_for_error(error),
         )
-        return _attach_failure_triage(result, finished)
+        result = _attach_failure_triage(result, finished)
+        return _attach_user_feedback(result, execution_id)
 
 @eel.expose
 def parse_command(
@@ -218,13 +254,20 @@ def parse_command(
         execution_id = parser.execution_controller.begin(
             str(user_input)[-200:], runtime_metadata,
         )
+        parser.execution_controller.event(
+            "command_api", "request_received", {"mode": mode}
+        )
     except ExecutionBusyError as error:
         # Another command is still running; do not touch its diagnostics.
-        return failure_result(
+        result = failure_result(
             str(error), action="command",
             error_type="busy", retryable=True, status="busy",
         )
+        return _attach_user_feedback(result)
     try:
+        parser.execution_controller.event(
+            "command_api", "started", {"mode": mode}
+        )
         result = parser.execute_command_result(
             user_input,
             log_callback=_log_to_terminal,
@@ -255,7 +298,8 @@ def parse_command(
             "현재 실행을 취소했습니다.", action="command",
             error_type="user_cancelled",
         )
-        return _attach_failure_triage(result, finished)
+        result = _attach_failure_triage(result, finished)
+        return _attach_user_feedback(result, execution_id)
     except Exception as e:
         logger.exception(
             "Command handling failed",
@@ -281,7 +325,8 @@ def parse_command(
             "대화 처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.",
             action="command", error_type=parser._failure_type_for_error(e),
         )
-        return _attach_failure_triage(result, finished)
+        result = _attach_failure_triage(result, finished)
+        return _attach_user_feedback(result, execution_id)
 
 
 @eel.expose

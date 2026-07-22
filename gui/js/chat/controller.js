@@ -183,6 +183,12 @@ async function sendMessage(isRetry = false) {
             currentSessionId, editContext
         )();
 
+        if (response?.user_event && typeof window.renderUserEvent === 'function') {
+            // Fallback for runtimes where the Eel push callback arrives late or
+            // is unavailable. The renderer deduplicates an already pushed event.
+            window.renderUserEvent(response.user_event);
+        }
+
         const streamDiv = document.getElementById(loadingId);
         let responseText = null;
         if (response) {

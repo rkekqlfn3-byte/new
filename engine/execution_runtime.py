@@ -43,6 +43,7 @@ class ExecutionController:
         diagnostics_path=None,
         max_records=100,
         incident_manager=_DEFAULT_INCIDENT_MANAGER,
+        event_observer=None,
     ):
         self.diagnostics_path = diagnostics_path or DIAGNOSTICS_PATH
         self.max_records = max_records
@@ -55,6 +56,7 @@ class ExecutionController:
         )
         self._lock = threading.RLock()
         self._cancel_event = threading.Event()
+        self._event_observer = event_observer if callable(event_observer) else None
         self.current = None
         loaded = safe_read_json(self.diagnostics_path, {"records": []})
         records = loaded.get("records", []) if isinstance(loaded, dict) else []
@@ -64,6 +66,11 @@ class ExecutionController:
         # Paused confirmations are process-local and intentionally never loaded
         # from diagnostics after a restart.
         self.pending = {}
+
+    def set_event_observer(self, observer):
+        """Observe existing runtime events without changing their persistence."""
+        with self._lock:
+            self._event_observer = observer if callable(observer) else None
 
     def _migrate_private_diagnostics(self, raw_records):
         """Rewrite legacy raw logs and their recovery backup with safe fields."""
@@ -133,15 +140,30 @@ class ExecutionController:
             return execution_id
 
     def event(self, action, status="running", details=None):
+        observer = None
+        payload = None
         with self._lock:
             if not self.current:
                 return
-            self.current["events"].append({
+            event = {
                 "time": datetime.now().isoformat(timespec="seconds"),
                 "action": str(action),
                 "status": str(status),
                 "details": details if isinstance(details, dict) else {},
-            })
+            }
+            self.current["events"].append(event)
+            observer = self._event_observer
+            if observer is not None:
+                payload = {
+                    "execution_id": self.current.get("execution_id", ""),
+                    **event,
+                }
+        if observer is not None and payload is not None:
+            try:
+                observer(payload)
+            except Exception:
+                # User feedback is observational and must never alter execution.
+                pass
 
     def pending_event(self, execution_id, action, status="pending", details=None):
         """Append diagnostics to a paused execution without changing state."""

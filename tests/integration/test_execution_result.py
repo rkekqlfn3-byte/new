@@ -133,6 +133,48 @@ class ExecutionResultContractTests(unittest.TestCase):
             self.assertNotIn("response", record)
             self.assertRegex(record["response_signature"], r"^[A-F0-9]{64}$")
 
+    def test_command_api_emits_content_free_user_events(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-feedback-test-") as temp_dir:
+            parser = CommandParser()
+            controller = ExecutionController(
+                os.path.join(temp_dir, "diagnostics.json")
+            )
+            parser.execution_controller = controller
+            parser.action_executor.controller = controller
+            parser.macro_runner.controller = controller
+            callbacks = []
+
+            def receive_user_event(value):
+                callbacks.append(value)
+                return lambda: None
+
+            secret_request = "C:\\private\\급여.xlsx 내용을 처리해"
+            with (
+                patch.object(command_api, "parser", parser),
+                patch.object(
+                    parser, "_parse_and_execute_core",
+                    return_value=success_result(
+                        "C:\\private\\급여.xlsx 처리 완료", verified=True
+                    ),
+                ),
+                patch.object(
+                    command_api.eel, "receive_user_event",
+                    side_effect=receive_user_event, create=True,
+                ),
+            ):
+                result = command_api.parse_command(secret_request)
+
+            self.assertEqual("verification_passed", result["user_event"]["event_type"])
+            self.assertTrue(callbacks)
+            serialized = repr(callbacks)
+            self.assertNotIn(secret_request, serialized)
+            self.assertNotIn("급여.xlsx", serialized)
+            self.assertNotIn("private", serialized)
+            self.assertEqual(
+                ["request_received", "action_started", "verification_passed"],
+                [event["event_type"] for event in callbacks],
+            )
+
     def test_cancelled_command_recovers_for_the_next_command(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-cancel-test-") as temp_dir:
             parser = CommandParser()

@@ -129,6 +129,33 @@ class ChatBubbleLayoutTests(unittest.TestCase):
         self.assertIn("overflow-x: auto", self.css)
 
 
+class UserFeedbackUiContractTests(unittest.TestCase):
+    def setUp(self):
+        self.html = read_gui_file("index.html")
+        self.script = read_gui_script("user_feedback.js")
+
+    def test_activity_region_and_eel_callback_are_shipped(self):
+        self.assertIn('id="user-feedback-region"', self.html)
+        self.assertIn('role="status"', self.html)
+        self.assertIn('aria-live="polite"', self.html)
+        self.assertIn('src="js/user_feedback.js"', self.html)
+        self.assertIn("window.eel.expose(window.receive_user_event", self.script)
+
+    def test_activity_renderer_uses_closed_schema_and_text_nodes(self):
+        self.assertIn("value.schema_version !== 1", self.script)
+        self.assertIn("EVENT_TYPES.has(eventType)", self.script)
+        self.assertIn("TONES.has(value.tone)", self.script)
+        self.assertIn("node.textContent = text", self.script)
+        self.assertIn("region.replaceChildren(card)", self.script)
+        self.assertNotIn("innerHTML", self.script)
+
+    def test_response_event_is_a_deduplicated_fallback(self):
+        controller = read_gui_script("chat/controller.js")
+        self.assertIn("response?.user_event", controller)
+        self.assertIn("window.renderUserEvent(response.user_event)", controller)
+        self.assertIn("signature === lastSignature", self.script)
+
+
 class AccessibilityContractTests(unittest.TestCase):
     def setUp(self):
         self.html = read_gui_file("index.html")
