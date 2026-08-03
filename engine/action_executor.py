@@ -50,7 +50,6 @@ WINDOW_STATES = {
 class ActionPlanError(ValueError):
     pass
 
-
 class ActionConfirmationRequired(ActionPlanError):
     def __init__(self, message, action="file_action", target=None):
         super().__init__(message)
@@ -59,7 +58,6 @@ class ActionConfirmationRequired(ActionPlanError):
         self.status = "confirmation_required"
         self.error_type = "validation_error"
         self.retryable = False
-
 
 class ActionPlanVerificationError(ActionPlanError):
     def __init__(self, message, completed=None, verification=None):
