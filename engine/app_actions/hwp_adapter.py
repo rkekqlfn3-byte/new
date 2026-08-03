@@ -27,6 +27,7 @@ from engine.app_actions.office_helpers import (
     replace_hwp_text,
     stable_state_fingerprint,
 )
+from engine.app_actions.office_undo_services import HwpUndoService
 
 
 MAX_DOCUMENT_TEXT_CHARS = 5_000_000
@@ -945,104 +946,9 @@ class HwpAdapter:
 
     def undo(self, prepared, record=None):
         """Undo one verified JARVIS edit and prove the structured snapshot returned."""
-        if not isinstance(prepared, PreparedAction):
-            prepared = PreparedAction.from_dict(prepared or {})
-        if prepared.app != "hwp" or not prepared.reversible:
-            raise AppActionBlocked("복원할 수 있는 한글 편집 작업이 아닙니다.")
-        if prepared.operation not in {
-            "insert_text",
-            "set_text_format",
-            "set_paragraph_format",
-            "find_replace",
-        }:
-            raise AppActionBlocked("이 한글 작업은 자동 복원을 지원하지 않습니다.")
-
-        observations = dict((record or {}).get("after_observations") or {})
-        expected_after = dict(observations.get("after") or {})
-        with self._hwp() as hwp:
-            _, current_base, _, _ = self._context(hwp)
-            if str(current_base["document_id"]).casefold() != str(
-                prepared.document_id
-            ).casefold():
-                raise AppActionContextChanged(
-                    "편집했던 한글 문서가 현재 활성 문서가 아니어서 복원하지 않았습니다."
-                )
-
-            if prepared.operation in {"insert_text", "find_replace"}:
-                expected_digest = str(
-                    expected_after.get("document_digest")
-                    or expected_after.get("text_digest")
-                    or ""
-                ).upper()
-                if not expected_digest or current_base["text_digest"] != expected_digest:
-                    raise AppActionContextChanged(
-                        "직전 편집 뒤 문서 내용이 달라져 안전하게 복원하지 않았습니다."
-                    )
-            elif prepared.operation == "set_text_format":
-                current_format = self._char_state(hwp)
-                desired = dict(prepared.params.get("desired") or {})
-                if not all(current_format.get(key) == value for key, value in desired.items()):
-                    raise AppActionContextChanged(
-                        "직전 편집 뒤 선택 영역 서식이 달라져 복원하지 않았습니다."
-                    )
-            else:
-                current_format = self._paragraph_state(hwp)
-                alignment = str(prepared.params.get("alignment") or "")
-                expected_alignment = PARAGRAPH_ALIGNMENTS.get(alignment, (None, None))[1]
-                if current_format.get("alignment") != expected_alignment:
-                    raise AppActionContextChanged(
-                        "직전 편집 뒤 문단 정렬이 달라져 복원하지 않았습니다."
-                    )
-
-            try:
-                self._undo(hwp)
-                _, restored_base, _, _ = self._context(hwp)
-                if prepared.operation in {"insert_text", "find_replace"}:
-                    expected_original = str(
-                        prepared.current_state.get("document_digest") or ""
-                    ).upper()
-                    verified = bool(expected_original) and (
-                        restored_base["text_digest"] == expected_original
-                    )
-                    restored = {"document_digest": restored_base["text_digest"]}
-                elif prepared.operation == "set_text_format":
-                    restored = self._char_state(hwp)
-                    original = dict(prepared.current_state.get("format") or {})
-                    verified = all(
-                        restored.get(key) == value for key, value in original.items()
-                    )
-                else:
-                    restored = self._paragraph_state(hwp)
-                    original = dict(prepared.current_state.get("format") or {})
-                    verified = all(
-                        restored.get(key) == value for key, value in original.items()
-                    )
-                if not verified:
-                    raise AppActionVerificationError(
-                        "한글 실행 취소 뒤 원래 상태가 복원되었는지 확인하지 못했습니다."
-                    )
-            except AppActionError:
-                raise
-            except Exception as error:
-                raise AppActionVerificationError(
-                    "한글 실행 취소 또는 복원 검증에 실패했습니다."
-                ) from error
-
-        return {
-            "success": True,
-            "verified": True,
-            "status": "success",
-            "app": "hwp",
-            "operation": "undo_last_edit",
-            "document_id": prepared.document_id,
-            "workbook_name": prepared.workbook_name,
-            "sheet": prepared.sheet,
-            "target": prepared.target,
-            "changed": True,
-            "verification_method": "native_undo_and_snapshot_readback",
-            "before": expected_after,
-            "after": restored,
-        }
+        return HwpUndoService(self, PARAGRAPH_ALIGNMENTS).execute(
+            prepared, record
+        )
 
     @staticmethod
     def _result(prepared, before, after, changed):
