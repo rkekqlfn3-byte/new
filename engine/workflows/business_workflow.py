@@ -18,6 +18,21 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from engine.workflows.workflow_join_services import (
+    ExplicitJoinService,
+    JoinPlanValidator,
+)
+from engine.workflows.excel_analysis_services import (
+    ExcelWorkbookAnalysisService,
+    PivotInsightService,
+    RelationshipAnalysisService,
+    RelationshipCandidateExportService,
+)
+from engine.workflows.workflow_execution_services import (
+    WorkflowPlanPreparationService,
+    WorkflowStepRunService,
+)
+
 from engine.learning import validate_preference_value
 from engine.runtime_paths import USER_DATA_DIR
 from engine.storage.json_store import atomic_write_json, safe_read_json
@@ -577,108 +592,7 @@ def _validated_source_scope(value) -> dict[str, str] | None:
 
 
 def _validated_join_plan(value) -> dict[str, Any] | None:
-    """Validate the complete, content-free contract for one approved join."""
-    if value is None:
-        return None
-    if not isinstance(value, Mapping):
-        raise WorkflowJoinValidationError("시트 조인 계획이 JSON 객체가 아닙니다.")
-    required = {
-        "left_sheet",
-        "right_sheet",
-        "left_key",
-        "right_key",
-        "join_type",
-    }
-    allowed = required | {"left_aggregation", "right_aggregation"}
-    provided = set(value)
-    if not required.issubset(provided) or not provided.issubset(allowed):
-        raise WorkflowJoinValidationError(
-            "시트 조인 계획에는 두 시트명·두 키·결합 방식과 선택적인 양쪽 "
-            "합계·평균·건수·최솟값·최댓값 집계만 정확히 있어야 합니다."
-        )
-
-    def clean_name(name, label):
-        text = re.sub(r"\s+", " ", str(name or "")).strip()
-        if (
-            not text
-            or len(text) > 80
-            or any(ord(character) < 32 for character in text)
-        ):
-            raise WorkflowJoinValidationError(
-                f"조인할 {label}은(는) 1~80자의 한 줄 이름이어야 합니다."
-            )
-        return text
-
-    plan = {
-        "left_sheet": clean_name(value.get("left_sheet"), "왼쪽 시트명"),
-        "right_sheet": clean_name(value.get("right_sheet"), "오른쪽 시트명"),
-        "left_key": clean_name(value.get("left_key"), "왼쪽 키"),
-        "right_key": clean_name(value.get("right_key"), "오른쪽 키"),
-        "join_type": str(value.get("join_type") or "").strip().casefold(),
-    }
-    if plan["left_sheet"].casefold() == plan["right_sheet"].casefold():
-        raise WorkflowJoinValidationError("서로 다른 두 시트를 지정해야 합니다.")
-    if plan["join_type"] not in {"inner", "left"}:
-        raise WorkflowJoinValidationError(
-            "조인 방식은 '내부 조인' 또는 '왼쪽 조인'으로 명시해야 합니다."
-        )
-    def validated_aggregations(side):
-        field = f"{side}_aggregation"
-        if field not in value:
-            return None
-        side_label = "왼쪽" if side == "left" else "오른쪽"
-        raw_aggregation = value.get(field)
-        is_single = isinstance(raw_aggregation, Mapping)
-        raw_items = [raw_aggregation] if is_single else raw_aggregation
-        if (
-            not isinstance(raw_items, list)
-            or not raw_items
-            or len(raw_items) > 5
-        ):
-            raise WorkflowJoinValidationError(
-                f"{side_label} 집계 계획은 1~5개의 열·집계 방식이어야 합니다."
-            )
-        aggregations = []
-        identities = set()
-        for aggregation in raw_items:
-            if not isinstance(aggregation, Mapping) or set(aggregation) != {
-                "column", "function"
-            }:
-                raise WorkflowJoinValidationError(
-                    f"{side_label} 집계마다 열과 집계 방식만 있어야 합니다."
-                )
-            function = str(
-                aggregation.get("function") or ""
-            ).strip().casefold()
-            if function not in {
-                "sum", "average", "count", "minimum", "maximum"
-            }:
-                raise WorkflowJoinValidationError(
-                    f"{side_label} 집계 방식은 합계·평균·건수·최솟값·최댓값 중 "
-                    "하나여야 합니다."
-                )
-            item = {
-                "column": clean_name(
-                    aggregation.get("column"), f"{side_label} 집계 열"
-                ),
-                "function": function,
-            }
-            identity = (item["column"].casefold(), function)
-            if identity in identities:
-                raise WorkflowJoinValidationError(
-                    f"같은 {side_label} 열과 집계 방식을 중복 지정할 수 없습니다."
-                )
-            identities.add(identity)
-            aggregations.append(item)
-        return (
-            aggregations[0] if is_single else aggregations
-        )
-
-    for side in ("left", "right"):
-        aggregations = validated_aggregations(side)
-        if aggregations is not None:
-            plan[f"{side}_aggregation"] = aggregations
-    return plan
+    return JoinPlanValidator(WorkflowJoinValidationError).validate(value)
 
 
 def _join_aggregation_items(plan, side) -> list[dict[str, str]]:
@@ -879,1088 +793,71 @@ class ExcelSalesAnalyzer:
         *,
         remaining_table_rows: int,
     ) -> str:
-        plan = _validated_join_plan(join_plan)
-        if plan is None:
-            return ""
-        if len(tables) >= MAX_WORKSHEETS:
-            raise WorkflowJoinValidationError(
-                "조인 결과 표를 포함하면 표가 20개를 넘습니다. 표시 시트를 19개 "
-                "이하로 줄인 뒤 다시 요청해주세요."
-            )
-
-        def normalized_sheet_name(value):
-            return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
-
-        def resolve_profile(name, label):
-            matches = [
-                profile
-                for profile in profiles
-                if normalized_sheet_name(profile["sheet_name"])
-                == normalized_sheet_name(name)
-            ]
-            if len(matches) != 1:
-                raise WorkflowJoinValidationError(
-                    f"표시된 Excel 시트에서 {label} '{name}'을(를) 정확히 하나 "
-                    "찾지 못했습니다. 숨김 여부와 이름을 확인해주세요."
-                )
-            return matches[0]
-
-        left = resolve_profile(plan["left_sheet"], "왼쪽 시트")
-        right = resolve_profile(plan["right_sheet"], "오른쪽 시트")
-        if left is right:
-            raise WorkflowJoinValidationError("서로 다른 두 시트를 지정해야 합니다.")
-        if (
-            len(left["rows"]) > MAX_JOIN_SOURCE_ROWS
-            or len(right["rows"]) > MAX_JOIN_SOURCE_ROWS
-        ):
-            raise WorkflowJoinValidationError(
-                f"명시 조인은 각 시트 {MAX_JOIN_SOURCE_ROWS:,}행까지 지원합니다."
-            )
-
-        def resolve_column(
-            profile, requested, label, *, forbid_measure=False
-        ):
-            requested_key = cls._header_key(requested)
-            matches = [
-                (index, header)
-                for index, header in enumerate(profile["headers"])
-                if cls._header_key(header) == requested_key
-            ]
-            if len(matches) != 1:
-                raise WorkflowJoinValidationError(
-                    f"'{profile['sheet_name']}' 시트에서 {label} '{requested}' "
-                    "열을 정확히 하나 찾지 못했습니다."
-                )
-            index, header = matches[0]
-            if forbid_measure and cls._looks_like_measure_header(header):
-                raise WorkflowJoinValidationError(
-                    f"금액·매출·수량 같은 측정값 열 '{header}'은 조인 키로 "
-                    "사용하지 않습니다."
-                )
-            return index, str(header)
-
-        left_key_index, left_key_header = resolve_column(
-            left, plan["left_key"], "조인 키", forbid_measure=True
-        )
-        right_key_index, right_key_header = resolve_column(
-            right, plan["right_key"], "조인 키", forbid_measure=True
-        )
-        left_rows = [
-            (row + [None] * len(left["headers"]))[:len(left["headers"])]
-            for row in left["rows"]
-        ]
-        right_rows = [
-            (row + [None] * len(right["headers"]))[:len(right["headers"])]
-            for row in right["rows"]
-        ]
-        left_keys = [
-            cls._join_key_value(row[left_key_index]) for row in left_rows
-        ]
-        right_keys = [
-            cls._join_key_value(row[right_key_index]) for row in right_rows
-        ]
-        left_nonempty = [key for key in left_keys if key is not None]
-        right_nonempty = [key for key in right_keys if key is not None]
-        if not left_nonempty or not right_nonempty:
-            raise WorkflowJoinValidationError(
-                "지정한 조인 키에 비교할 값이 없습니다."
-            )
-        left_unique = len(set(left_nonempty)) == len(left_nonempty)
-        right_unique = len(set(right_nonempty)) == len(right_nonempty)
-        left_aggregation_plans = _join_aggregation_items(plan, "left")
-        right_aggregation_plans = _join_aggregation_items(plan, "right")
-        function_labels = {
-            "sum": "합계",
-            "average": "평균",
-            "count": "건수",
-            "minimum": "최솟값",
-            "maximum": "최댓값",
+        limits = {
+            "worksheets": MAX_WORKSHEETS,
+            "source_rows": MAX_JOIN_SOURCE_ROWS,
+            "table_columns": MAX_TABLE_COLUMNS,
+            "table_rows": MAX_TABLE_ROWS,
+            "output_rows": MAX_JOIN_OUTPUT_ROWS,
         }
-
-        def aggregate_side(
-            profile,
-            rows,
-            keys,
-            key_index,
-            key_header,
-            aggregation_plans,
-            side_label,
-        ):
-            resolved_aggregations = []
-            resolved_identities = set()
-            for aggregation_plan in aggregation_plans:
-                aggregation_index, aggregation_header = resolve_column(
-                    profile,
-                    aggregation_plan["column"],
-                    f"{side_label} 집계 열",
-                )
-                if aggregation_index == key_index:
-                    raise WorkflowJoinValidationError(
-                        f"{side_label} 조인 키와 집계 열은 서로 달라야 합니다."
-                    )
-                resolved_identity = (
-                    aggregation_index,
-                    aggregation_plan["function"],
-                )
-                if resolved_identity in resolved_identities:
-                    raise WorkflowJoinValidationError(
-                        f"같은 {side_label} 열과 집계 방식을 중복 지정할 수 없습니다."
-                    )
-                resolved_identities.add(resolved_identity)
-                resolved_aggregations.append((
-                    aggregation_plan,
-                    aggregation_index,
-                    aggregation_header,
-                ))
-            aggregated = {}
-            raw_keys = {}
-            aggregation_input_rows = [0] * len(resolved_aggregations)
-            for row, key in zip(rows, keys):
-                if key is None:
-                    continue
-                raw_keys.setdefault(key, row[key_index])
-                states = aggregated.setdefault(key, [
-                    {
-                        "sum": 0.0,
-                        "count": 0,
-                        "minimum": None,
-                        "maximum": None,
-                    }
-                    for _ in resolved_aggregations
-                ])
-                for index, (
-                    aggregation_plan,
-                    aggregation_index,
-                    aggregation_header,
-                ) in enumerate(resolved_aggregations):
-                    function = aggregation_plan["function"]
-                    raw_value = row[aggregation_index]
-                    if function == "count":
-                        nonempty = raw_value not in (None, "") and not (
-                            isinstance(raw_value, str) and not raw_value.strip()
-                        )
-                        if nonempty:
-                            states[index]["count"] += 1
-                            aggregation_input_rows[index] += 1
-                        continue
-                    number = cls._number(raw_value)
-                    if number is None:
-                        function_label = function_labels[function]
-                        raise WorkflowJoinValidationError(
-                            f"'{profile['sheet_name']}' 시트의 {function_label} "
-                            f"집계 열 '{aggregation_header}'에 숫자가 아닌 값이 "
-                            "있습니다."
-                        )
-                    states[index]["sum"] += number
-                    states[index]["count"] += 1
-                    states[index]["minimum"] = (
-                        number
-                        if states[index]["minimum"] is None
-                        else min(states[index]["minimum"], number)
-                    )
-                    states[index]["maximum"] = (
-                        number
-                        if states[index]["maximum"] is None
-                        else max(states[index]["maximum"], number)
-                    )
-                    aggregation_input_rows[index] += 1
-            if not aggregated:
-                raise WorkflowJoinValidationError(
-                    f"{side_label} 집계에 사용할 키가 없습니다."
-                )
-            aggregated_rows = []
-            aggregated_keys = []
-            for key, states in aggregated.items():
-                values = [raw_keys[key]]
-                for state, (aggregation_plan, _, aggregation_header) in zip(
-                    states, resolved_aggregations
-                ):
-                    function = aggregation_plan["function"]
-                    if function == "sum":
-                        value = state["sum"]
-                    elif function == "average":
-                        if state["count"] < 1:
-                            raise WorkflowJoinValidationError(
-                                f"'{profile['sheet_name']}' 시트의 평균 집계 열 "
-                                f"'{aggregation_header}'에 계산할 값이 없습니다."
-                            )
-                        value = state["sum"] / state["count"]
-                    elif function == "minimum":
-                        value = state["minimum"]
-                    elif function == "maximum":
-                        value = state["maximum"]
-                    else:
-                        value = state["count"]
-                    values.append(value)
-                aggregated_rows.append(values)
-                aggregated_keys.append(key)
-            aggregated_headers = [key_header] + [
-                f"{aggregation_header} "
-                f"{function_labels[aggregation_plan['function']]}"
-                for aggregation_plan, _, aggregation_header
-                in resolved_aggregations
-            ]
-            summaries = [
-                {
-                    "column": aggregation_header,
-                    "function": aggregation_plan["function"],
-                    "input_rows": aggregation_input_rows[index],
-                    "groups": len(aggregated),
-                }
-                for index, (aggregation_plan, _, aggregation_header)
-                in enumerate(resolved_aggregations)
-            ]
-            return (
-                aggregated_rows,
-                aggregated_keys,
-                aggregated_headers,
-                summaries,
-            )
-
-        left_headers = list(left["headers"])
-        right_headers = list(right["headers"])
-        left_aggregation_summaries = None
-        right_aggregation_summaries = None
-        if left_aggregation_plans:
-            (
-                left_rows,
-                left_keys,
-                left_headers,
-                left_aggregation_summaries,
-            ) = aggregate_side(
-                left,
-                left_rows,
-                left_keys,
-                left_key_index,
-                left_key_header,
-                left_aggregation_plans,
-                "왼쪽",
-            )
-            left_key_index = 0
-            left_unique = True
-        if right_aggregation_plans:
-            if not left_unique:
-                raise WorkflowJoinValidationError(
-                    "오른쪽 집계 조인은 왼쪽 키가 고유하거나 왼쪽 사전 집계를 "
-                    "명시했을 때만 지원합니다."
-                )
-            (
-                right_rows,
-                right_keys,
-                right_headers,
-                right_aggregation_summaries,
-            ) = aggregate_side(
-                right,
-                right_rows,
-                right_keys,
-                right_key_index,
-                right_key_header,
-                right_aggregation_plans,
-                "오른쪽",
-            )
-            right_key_index = 0
-            right_unique = True
-
-        if not left_unique and not right_unique:
-            raise WorkflowJoinValidationError(
-                "두 시트의 조인 키가 모두 중복된 다대다 관계라 자동 결합하지 "
-                "않습니다. 한쪽 사전 집계를 명시하거나 키를 고유하게 정리해주세요."
-            )
-        right_output_indexes = [
-            index
-            for index in range(len(right_headers))
-            if index != right_key_index
-        ]
-        right_output_width = len(right_output_indexes)
-        output_headers = [
-            f"{left['sheet_name']}/{header}" for header in left_headers
-        ] + [
-            f"{right['sheet_name']}/{right_headers[index]}"
-            for index in right_output_indexes
-        ]
-        right_index = {}
-        for row, key in zip(right_rows, right_keys):
-            if key is not None:
-                right_index.setdefault(key, []).append([
-                    row[index] for index in right_output_indexes
-                ])
-
-        output_columns = len(left_headers) + right_output_width
-        if output_columns > MAX_TABLE_COLUMNS:
-            raise WorkflowJoinValidationError(
-                f"조인 결과가 {MAX_TABLE_COLUMNS}열을 넘습니다. 필요한 열을 줄인 "
-                "별도 시트를 만든 뒤 다시 요청해주세요."
-            )
-        preview_limit = min(
-            MAX_TABLE_ROWS, max(0, int(remaining_table_rows))
-        )
-        output_rows = []
-        output_row_count = 0
-        matched_left_rows = 0
-        unmatched_left_rows = 0
-        for left_row, key in zip(left_rows, left_keys):
-            matches = right_index.get(key, ()) if key is not None else ()
-            if matches:
-                matched_left_rows += 1
-                candidates = [
-                    left_row + list(right_values)
-                    for right_values in matches
-                ]
-            elif plan["join_type"] == "left":
-                unmatched_left_rows += 1
-                candidates = [
-                    left_row + [None] * right_output_width
-                ]
-            else:
-                unmatched_left_rows += 1
-                candidates = []
-            output_row_count += len(candidates)
-            if output_row_count > MAX_JOIN_OUTPUT_ROWS:
-                raise WorkflowJoinValidationError(
-                    f"조인 결과가 {MAX_JOIN_OUTPUT_ROWS:,}행을 넘어 자동 생성하지 "
-                    "않습니다. 키 또는 대상 행을 더 좁혀주세요."
-                )
-            for candidate in candidates:
-                if len(output_rows) < preview_limit:
-                    output_rows.append(candidate)
-
-        cardinality = (
-            "one_to_one"
-            if left_unique and right_unique
-            else "one_to_many"
-            if left_unique
-            else "many_to_one"
-        )
-        join_label = "내부" if plan["join_type"] == "inner" else "왼쪽"
-        join_metadata = {
-            "left_sheet": left["sheet_name"],
-            "right_sheet": right["sheet_name"],
-            "left_key": left_key_header,
-            "right_key": right_key_header,
-            "join_type": plan["join_type"],
-            "cardinality": cardinality,
-            "matched_left_rows": matched_left_rows,
-            "unmatched_left_rows": unmatched_left_rows,
-            "output_rows": output_row_count,
-            "included_rows": len(output_rows),
-            "truncated": output_row_count > len(output_rows),
-        }
-        if left_aggregation_summaries is not None:
-            join_metadata["left_aggregation"] = (
-                left_aggregation_summaries[0]
-                if len(left_aggregation_summaries) == 1
-                else left_aggregation_summaries
-            )
-        if right_aggregation_summaries is not None:
-            join_metadata["right_aggregation"] = (
-                right_aggregation_summaries[0]
-                if len(right_aggregation_summaries) == 1
-                else right_aggregation_summaries
-            )
-        table = {
-            "name": f"{left['sheet_name']}↔{right['sheet_name']} {join_label} 조인",
-            "headers": output_headers,
-            "rows": output_rows,
-            "total_rows": output_row_count,
-            "included_rows": len(output_rows),
-            "used_cells": output_row_count * output_columns,
-            "derived": True,
-            "join": join_metadata,
-        }
-        tables.append(table)
-        key_description = f"'{left_key_header}'"
-        if left_key_header != right_key_header:
-            key_description += f" ↔ '{right_key_header}'"
-        aggregation_descriptions = []
-        for side_label, profile, summaries in (
-            ("왼쪽", left, left_aggregation_summaries),
-            ("오른쪽", right, right_aggregation_summaries),
-        ):
-            if summaries is not None:
-                aggregation_parts = [
-                    f"'{item['column']}' {function_labels[item['function']]}"
-                    for item in summaries
-                ]
-                aggregation_descriptions.append(
-                    f"{side_label} '{profile['sheet_name']}'의 "
-                    f"{' · '.join(aggregation_parts)}"
-                )
-        aggregation_description = (
-            f", {' · '.join(aggregation_descriptions)}를 키별 사전 집계한 뒤"
-            if aggregation_descriptions
-            else ""
-        )
-        return (
-            f"승인한 {join_label} 조인: '{left['sheet_name']}'과 "
-            f"'{right['sheet_name']}'을 {key_description} 키로"
-            f"{aggregation_description} 결합해 "
-            f"{output_row_count:,}행을 만들었으며 Excel 원본은 변경하지 않았습니다."
+        return ExplicitJoinService(
+            cls,
+            _validated_join_plan,
+            WorkflowJoinValidationError,
+            limits,
+        ).execute(
+            profiles,
+            tables,
+            join_plan,
+            remaining_table_rows=remaining_table_rows,
         )
 
     @classmethod
     def _relationship_insights(cls, profiles) -> list[str]:
-        detected = []
-        profile_cache = {}
-        cardinality_rank = {
-            "one_to_one": 0,
-            "one_to_many": 1,
-            "many_to_one": 1,
-            "many_to_many": 2,
-        }
-
-        def column_profile(profile_index, profile, column):
-            cache_key = (profile_index, column)
-            if cache_key not in profile_cache:
-                profile_cache[cache_key] = cls._relation_column_profile(
-                    profile["rows"], column
-                )
-            return profile_cache[cache_key]
-
-        for left_index, left in enumerate(profiles):
-            left_headers = {}
-            for column, header in enumerate(left["headers"]):
-                left_headers.setdefault(cls._header_key(header), []).append(
-                    (column, header)
-                )
-            for right_index, right in enumerate(
-                profiles[left_index + 1:],
-                start=left_index + 1,
-            ):
-                right_headers = {}
-                for column, header in enumerate(right["headers"]):
-                    right_headers.setdefault(cls._header_key(header), []).append(
-                        (column, header)
-                    )
-                pair_candidates = []
-                for left_header_key, left_items in left_headers.items():
-                    if not left_header_key or len(left_items) != 1:
-                        continue
-                    left_column, display_header = left_items[0]
-                    for right_header_key, right_items in right_headers.items():
-                        if not right_header_key or len(right_items) != 1:
-                            continue
-                        right_column, right_display_header = right_items[0]
-                        same_header = left_header_key == right_header_key
-                        if not same_header and not (
-                            cls._looks_like_key_header(display_header)
-                            and cls._looks_like_key_header(right_display_header)
-                        ):
-                            continue
-                        if (
-                            cls._looks_like_measure_header(display_header)
-                            or cls._looks_like_measure_header(
-                                right_display_header
-                            )
-                        ):
-                            continue
-                        left_profile = column_profile(
-                            left_index, left, left_column
-                        )
-                        right_profile = column_profile(
-                            right_index, right, right_column
-                        )
-                        left_values = left_profile["values"]
-                        right_values = right_profile["values"]
-                        if not left_values or not right_values:
-                            continue
-                        matched = len(left_values & right_values)
-                        if matched <= 0:
-                            continue
-                        left_coverage = matched / len(left_values)
-                        right_coverage = matched / len(right_values)
-                        left_unique_ratio = (
-                            left_profile["unique_count"]
-                            / left_profile["nonempty_count"]
-                        )
-                        right_unique_ratio = (
-                            right_profile["unique_count"]
-                            / right_profile["nonempty_count"]
-                        )
-                        if (
-                            same_header
-                            and (
-                                max(left_coverage, right_coverage) < 0.5
-                                or (
-                                    not cls._looks_like_key_header(
-                                        display_header
-                                    )
-                                    and max(
-                                        left_unique_ratio,
-                                        right_unique_ratio,
-                                    ) < 0.8
-                                )
-                            )
-                        ):
-                            continue
-                        left_unique = left_unique_ratio >= 0.98
-                        right_unique = right_unique_ratio >= 0.98
-                        if (
-                            not same_header
-                            and (
-                                matched < 3
-                                or min(left_coverage, right_coverage) < 0.8
-                                or not (left_unique or right_unique)
-                            )
-                        ):
-                            continue
-                        if left_unique and right_unique:
-                            cardinality = "one_to_one"
-                        elif left_unique:
-                            cardinality = "one_to_many"
-                        elif right_unique:
-                            cardinality = "many_to_one"
-                        else:
-                            cardinality = "many_to_many"
-                        if not same_header and cardinality == "many_to_many":
-                            continue
-                        pair_candidates.append({
-                            "other_sheet": right["sheet_name"],
-                            "column": str(display_header),
-                            "other_column": str(right_display_header),
-                            "match_basis": (
-                                "normalized_header"
-                                if same_header
-                                else "value_overlap"
-                            ),
-                            "left_column_index": left_column,
-                            "right_column_index": right_column,
-                            "cardinality": cardinality,
-                            "matched_key_count": matched,
-                            "left_distinct_count": len(left_values),
-                            "right_distinct_count": len(right_values),
-                            "left_coverage": round(left_coverage, 4),
-                            "right_coverage": round(right_coverage, 4),
-                            "sample_limited": bool(
-                                left_profile["sample_limited"]
-                                or right_profile["sample_limited"]
-                            ),
-                        })
-                candidate_left_counts = Counter(
-                    item["left_column_index"]
-                    for item in pair_candidates
-                )
-                candidate_right_counts = Counter(
-                    item["right_column_index"]
-                    for item in pair_candidates
-                )
-                for relationship in pair_candidates:
-                    relationship["ambiguous"] = bool(
-                        relationship["match_basis"] == "value_overlap"
-                        and (
-                            candidate_left_counts[
-                                relationship["left_column_index"]
-                            ] > 1
-                            or candidate_right_counts[
-                                relationship["right_column_index"]
-                            ] > 1
-                        )
-                    )
-                    relationship.pop("left_column_index", None)
-                    relationship.pop("right_column_index", None)
-                pair_candidates.sort(key=lambda item: (
-                    item["match_basis"] != "normalized_header",
-                    item["ambiguous"],
-                    item["sample_limited"],
-                    cardinality_rank[item["cardinality"]],
-                    -min(item["left_coverage"], item["right_coverage"]),
-                    -item["matched_key_count"],
-                    item["column"].casefold(),
-                    item["other_column"].casefold(),
-                ))
-                for relationship in pair_candidates[:MAX_RELATIONSHIPS]:
-                    detected.append((left, relationship))
-        detected.sort(key=lambda entry: (
-            entry[1]["match_basis"] != "normalized_header",
-            entry[1]["ambiguous"],
-            entry[1]["sample_limited"],
-            cardinality_rank[entry[1]["cardinality"]],
-            -min(
-                entry[1]["left_coverage"],
-                entry[1]["right_coverage"],
-            ),
-            -entry[1]["matched_key_count"],
-            entry[0]["sheet_name"].casefold(),
-            entry[1]["other_sheet"].casefold(),
-            entry[1]["column"].casefold(),
-            entry[1]["other_column"].casefold(),
-        ))
-        insights = []
-        labels = {
-            "one_to_one": "1:1",
-            "one_to_many": "1:N",
-            "many_to_one": "N:1",
-            "many_to_many": "N:M",
-        }
-        for left, relationship in detected[:MAX_RELATIONSHIPS]:
-            left["table"].setdefault("relationships", []).append(
-                relationship
-            )
-            if relationship["match_basis"] == "normalized_header":
-                key_description = f"'{relationship['column']}' 열"
-            else:
-                key_description = (
-                    f"'{relationship['column']}' ↔ "
-                    f"'{relationship['other_column']}' 열"
-                )
-            review = (
-                " 이름이 다른 열이므로 사용자 확인이 필요합니다."
-                if relationship["match_basis"] == "value_overlap"
-                else ""
-            )
-            insights.append(
-                f"시트 관계 후보: {left['sheet_name']} ↔ "
-                f"{relationship['other_sheet']}의 {key_description}에서 "
-                f"{relationship['matched_key_count']}개 키가 겹치며 관계 형태는 "
-                f"{labels[relationship['cardinality']]}입니다.{review}"
-            )
-        return insights
+        return RelationshipAnalysisService(
+            cls, MAX_RELATIONSHIPS
+        ).apply(profiles)
 
     def relationship_candidates(
         self,
         context: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Return schema-only join-key candidates without persisting cell values."""
-        product = self.run({
-            "source_path": context["source_path"],
-            "title": "Excel 시트 관계 후보 검사",
-            "preferences": {"summary_lines": 20},
-            "join_plan": None,
-            "source_scope": None,
-        })
-        candidates = []
-        for table in list(product.get("tables") or []):
-            if table.get("derived"):
-                continue
-            left_sheet = str(table.get("name") or "").strip()
-            for relationship in list(table.get("relationships") or []):
-                item = dict(relationship or {})
-                right_sheet = str(item.get("other_sheet") or "").strip()
-                column = str(item.get("column") or "").strip()
-                other_column = str(
-                    item.get("other_column") or column
-                ).strip()
-                match_basis = str(item.get("match_basis") or "").strip()
-                cardinality = str(item.get("cardinality") or "").strip()
-                if (
-                    not left_sheet
-                    or not right_sheet
-                    or not column
-                    or not other_column
-                    or match_basis not in {
-                        "normalized_header",
-                        "value_overlap",
-                    }
-                    or cardinality not in {
-                        "one_to_one",
-                        "one_to_many",
-                        "many_to_one",
-                        "many_to_many",
-                    }
-                ):
-                    continue
-                ambiguous = bool(item.get("ambiguous"))
-                left_coverage = float(item.get("left_coverage") or 0.0)
-                right_coverage = float(item.get("right_coverage") or 0.0)
-                sample_limited = bool(item.get("sample_limited"))
-                requires_preaggregation = cardinality == "many_to_many"
-                confidence = (
-                    "high"
-                    if (
-                        match_basis == "normalized_header"
-                        and not ambiguous
-                        and not sample_limited
-                        and min(left_coverage, right_coverage) >= 0.8
-                        and not requires_preaggregation
-                    )
-                    else "review_required"
-                )
-                candidates.append({
-                    "left_sheet": left_sheet,
-                    "right_sheet": right_sheet,
-                    "left_key": column,
-                    "right_key": other_column,
-                    "match_basis": match_basis,
-                    "ambiguous": ambiguous,
-                    "cardinality": cardinality,
-                    "matched_key_count": int(
-                        item.get("matched_key_count") or 0
-                    ),
-                    "left_distinct_count": int(
-                        item.get("left_distinct_count") or 0
-                    ),
-                    "right_distinct_count": int(
-                        item.get("right_distinct_count") or 0
-                    ),
-                    "left_coverage": round(left_coverage, 4),
-                    "right_coverage": round(right_coverage, 4),
-                    "sample_limited": sample_limited,
-                    "requires_preaggregation": requires_preaggregation,
-                    "confidence": confidence,
-                })
-        cardinality_rank = {
-            "one_to_one": 0,
-            "one_to_many": 1,
-            "many_to_one": 1,
-            "many_to_many": 2,
-        }
-        candidates.sort(key=lambda item: (
-            item["match_basis"] != "normalized_header",
-            item["ambiguous"],
-            item["sample_limited"],
-            cardinality_rank[item["cardinality"]],
-            -min(item["left_coverage"], item["right_coverage"]),
-            -item["matched_key_count"],
-            item["left_sheet"].casefold(),
-            item["right_sheet"].casefold(),
-            item["left_key"].casefold(),
-        ))
-        candidates = candidates[:MAX_RELATIONSHIPS]
-        return {
-            "status": "candidate_found" if candidates else "no_candidate",
-            "candidate_count": len(candidates),
-            "candidates": candidates,
-            "automatic_execution_allowed": False,
-            "raw_cell_values_stored": False,
-            "document_paths_reported": False,
-        }
+        return RelationshipCandidateExportService(
+            self, MAX_RELATIONSHIPS
+        ).build(context)
 
     @classmethod
     def _pivot_insights(cls, profiles) -> list[str]:
-        insights = []
-        summary_count = 0
-        for profile in profiles:
-            if summary_count >= MAX_PIVOT_SUMMARIES:
-                break
-            headers = list(profile["headers"])
-            rows = list(profile["rows"])
-            category_columns = []
-            measure_columns = []
-            for column, header in enumerate(headers):
-                values = [
-                    row[column]
-                    for row in rows
-                    if column < len(row) and row[column] not in (None, "")
-                ]
-                if not values:
-                    continue
-                numeric_values = []
-                for value in values:
-                    number = cls._number(value)
-                    if number is not None:
-                        numeric_values.append(number)
-                distinct_labels = {
-                    str(value).strip().casefold()
-                    for value in values
-                    if str(value).strip()
-                }
-                if (
-                    2 <= len(distinct_labels) <= 20
-                    and len(numeric_values) < len(values) / 2
-                ):
-                    category_columns.append(column)
-                if (
-                    numeric_values
-                    and cls._looks_like_measure_header(header)
-                ):
-                    measure_columns.append((column, len(numeric_values)))
-            if not category_columns or not measure_columns:
-                continue
-            category_column = category_columns[0]
-            measure_column = max(
-                measure_columns, key=lambda item: (item[1], -item[0])
-            )[0]
-            groups = {}
-            for row in rows:
-                category = (
-                    row[category_column]
-                    if category_column < len(row)
-                    else None
-                )
-                number = cls._number(
-                    row[measure_column]
-                    if measure_column < len(row)
-                    else None
-                )
-                label = (
-                    "" if category is None else str(category)
-                ).strip()
-                if not label or number is None:
-                    continue
-                group_key = label.casefold()
-                group = groups.setdefault(
-                    group_key,
-                    {"label": label[:80], "count": 0, "sum": 0.0},
-                )
-                group["count"] += 1
-                group["sum"] += number
-            if len(groups) < 2:
-                continue
-            ranked = sorted(
-                groups.values(),
-                key=lambda item: (-item["sum"], item["label"].casefold()),
-            )
-            top_groups = [
-                {
-                    "label": item["label"],
-                    "count": int(item["count"]),
-                    "sum": round(item["sum"], 6),
-                }
-                for item in ranked[:MAX_PIVOT_GROUPS]
-            ]
-            summary = {
-                "group_by": str(headers[category_column]),
-                "value_column": str(headers[measure_column]),
-                "group_count": len(groups),
-                "groups": top_groups,
-                "truncated": len(groups) > MAX_PIVOT_GROUPS,
-            }
-            profile["table"].setdefault("pivot_summaries", []).append(
-                summary
-            )
-            top = top_groups[0]
-            insights.append(
-                f"{profile['sheet_name']} 시트의 "
-                f"'{headers[category_column]}'별 "
-                f"'{headers[measure_column]}' 합계는 "
-                f"'{top['label']}'이 {_format_number(top['sum'])}으로 "
-                "가장 큽니다."
-            )
-            summary_count += 1
-        return insights
+        return PivotInsightService(
+            cls,
+            _format_number,
+            MAX_PIVOT_SUMMARIES,
+            MAX_PIVOT_GROUPS,
+        ).apply(profiles)
 
     def run(self, context: Mapping[str, Any]) -> dict[str, Any]:
-        from engine.app_actions.com_lifecycle import com_apartment
-
-        source_path = _absolute_path(context["source_path"])
-        join_plan = _validated_join_plan(context.get("join_plan"))
-        source_scope = _validated_source_scope(context.get("source_scope"))
-        if join_plan is not None and source_scope is not None:
-            raise WorkflowSourceScopeValidationError(
-                "시트 조인과 선택 범위만 분석은 함께 실행할 수 없습니다."
-            )
-        lease = None
-        workbook = None
-        with com_apartment(self._com_runtime):
-            try:
-                lease, workbook = self._open(source_path)
-                if _path_key(self._workbook_path(workbook)) != _path_key(source_path):
-                    raise WorkflowError("연결된 Excel 원본과 다른 통합문서는 분석하지 않습니다.")
-                worksheets = workbook.Worksheets
-                visible_sheets = []
-                for index in range(1, int(worksheets.Count) + 1):
-                    worksheet = worksheets.Item(index)
-                    try:
-                        visible = int(getattr(worksheet, "Visible", -1)) == -1
-                    except Exception:
-                        visible = True
-                    if visible:
-                        visible_sheets.append(worksheet)
-                if not visible_sheets:
-                    raise WorkflowError("표시된 Excel 시트가 없어 분석할 수 없습니다.")
-                if source_scope is None and len(visible_sheets) > MAX_WORKSHEETS:
-                    raise WorkflowError(
-                        f"한 번에 분석할 수 있는 표시 시트는 {MAX_WORKSHEETS}개까지입니다."
-                    )
-
-                sheet_ranges = []
-                total_source_cells = 0
-                if source_scope is not None:
-                    scoped_sheets = [
-                        worksheet
-                        for worksheet in visible_sheets
-                        if str(getattr(worksheet, "Name", "") or "").casefold()
-                        == source_scope["sheet_name"].casefold()
-                    ]
-                    if len(scoped_sheets) != 1:
-                        raise WorkflowSourceScopeValidationError(
-                            f"표시된 Excel 시트에서 선택 범위의 시트 "
-                            f"'{source_scope['sheet_name']}'을 정확히 찾지 못했습니다."
-                        )
-                    worksheet = scoped_sheets[0]
-                    sheet_name = str(getattr(worksheet, "Name", "") or "Sheet")
-                    used = worksheet.Range(source_scope["address"])
-                    rows = int(used.Rows.Count)
-                    columns = int(used.Columns.Count)
-                    sheet_cells = rows * columns
-                    if (
-                        rows < 2
-                        or columns < 1
-                        or columns > MAX_TABLE_COLUMNS
-                        or sheet_cells > MAX_SOURCE_CELLS_PER_SHEET
-                    ):
-                        raise WorkflowSourceScopeValidationError(
-                            "승인된 선택 범위의 실제 크기가 안전 한도와 다릅니다."
-                        )
-                    sheet_ranges.append((
-                        worksheet,
-                        used,
-                        f"{sheet_name}!{source_scope['address']}",
-                        rows,
-                        columns,
-                        sheet_cells,
-                        dict(source_scope),
-                    ))
-                else:
-                    for worksheet in visible_sheets:
-                        sheet_name = str(getattr(worksheet, "Name", "") or "Sheet")
-                        used = worksheet.UsedRange
-                        rows = int(used.Rows.Count)
-                        columns = int(used.Columns.Count)
-                        if rows < 1 or columns < 1:
-                            continue
-                        sheet_cells = rows * columns
-                        if sheet_cells > MAX_SOURCE_CELLS_PER_SHEET:
-                            raise WorkflowError(
-                                f"'{sheet_name}' 시트는 {MAX_SOURCE_CELLS_PER_SHEET:,}셀을 넘어 "
-                                "한 번에 분석할 수 없습니다."
-                            )
-                        if columns > MAX_TABLE_COLUMNS:
-                            raise WorkflowError(
-                                f"'{sheet_name}' 시트는 {MAX_TABLE_COLUMNS}열을 넘어 "
-                                "한 번에 분석할 수 없습니다."
-                            )
-                        total_source_cells += sheet_cells
-                        if total_source_cells > MAX_SOURCE_CELLS:
-                            raise WorkflowError(
-                                f"표시 시트 전체 분석 범위는 {MAX_SOURCE_CELLS:,}셀까지입니다."
-                            )
-                        sheet_ranges.append((
-                            worksheet,
-                            used,
-                            sheet_name,
-                            rows,
-                            columns,
-                            sheet_cells,
-                            None,
-                        ))
-
-                metrics = []
-                tables = []
-                charts = []
-                analysis_profiles = []
-                remaining_table_rows = (
-                    MAX_TOTAL_TABLE_ROWS - MAX_TABLE_ROWS
-                    if join_plan is not None
-                    else MAX_TOTAL_TABLE_ROWS
-                )
-                qualify_metrics = len(sheet_ranges) > 1
-                for (
-                    worksheet,
-                    used,
-                    sheet_name,
-                    rows,
-                    columns,
-                    sheet_cells,
-                    table_scope,
-                ) in sheet_ranges:
-                    matrix = self._matrix(used.Value2, rows, columns)
-                    if not matrix or not any(
-                        item not in (None, "") for row in matrix for item in row
-                    ):
-                        continue
-                    raw_headers = matrix[0]
-                    headers = [
-                        str(value).strip() if value not in (None, "") else f"열 {index}"
-                        for index, value in enumerate(raw_headers, 1)
-                    ]
-                    data_rows = matrix[1:]
-                    for column, header in enumerate(headers):
-                        if len(metrics) >= MAX_METRICS:
-                            break
-                        numbers = [
-                            number
-                            for row in data_rows
-                            for number in [self._number(
-                                row[column] if column < len(row) else None
-                            )]
-                            if number is not None
-                        ]
-                        if not numbers:
-                            continue
-                        metric_name = f"{sheet_name}/{header}" if qualify_metrics else header
-                        metrics.append({
-                            "name": metric_name,
-                            "sheet_name": sheet_name,
-                            "column_name": header,
-                            "count": len(numbers),
-                            "sum": round(sum(numbers), 6),
-                            "average": round(sum(numbers) / len(numbers), 6),
-                            "minimum": min(numbers),
-                            "maximum": max(numbers),
-                        })
-                    included_count = min(
-                        len(data_rows), MAX_TABLE_ROWS, remaining_table_rows
-                    )
-                    table_rows = [
-                        (row + [None] * columns)[:columns]
-                        for row in data_rows[:included_count]
-                    ]
-                    remaining_table_rows -= included_count
-                    table = {
-                        "name": sheet_name,
-                        "headers": headers,
-                        "rows": table_rows,
-                        "total_rows": max(0, rows - 1),
-                        "included_rows": len(table_rows),
-                        "used_cells": sheet_cells,
-                    }
-                    if table_scope is not None:
-                        table["source_scope"] = dict(table_scope)
-                    tables.append(table)
-                    analysis_profiles.append({
-                        "sheet_name": sheet_name,
-                        "headers": headers,
-                        "rows": data_rows,
-                        "table": table,
-                    })
-                    if table_scope is None:
-                        charts.extend(self._chart_data(
-                            worksheet, MAX_CHARTS - len(charts)
-                        ))
-
-                if not tables:
-                    raise WorkflowError("표시된 Excel 시트에 분석할 데이터가 없습니다.")
-                summary_lines = max(1, min(int(context.get("preferences", {}).get("summary_lines", 8)), 20))
-                join_insight = self._apply_explicit_join(
-                    analysis_profiles,
-                    tables,
-                    join_plan,
-                    remaining_table_rows=MAX_TOTAL_TABLE_ROWS - sum(
-                        int(table.get("included_rows") or 0)
-                        for table in tables
-                    ),
-                ) if join_plan is not None else ""
-                advanced_insights = (
-                    ([join_insight] if join_insight else [])
-                    + self._relationship_insights(analysis_profiles)
-                    + self._pivot_insights(analysis_profiles)
-                )
-                metric_insights = [
-                    f"{item['name']} 합계는 {item['sum']:,}, 평균은 {item['average']:,}입니다."
-                    for item in metrics
-                ]
-                insights = (advanced_insights + metric_insights)[:summary_lines]
-                if not insights:
-                    insights.append("숫자형 열이 없어 표 구조와 원본 행 수를 중심으로 정리했습니다.")
-                product = WorkProductData(
-                    title=str(context.get("title") or f"{Path(source_path).stem} 분석"),
-                    metrics=metrics,
-                    tables=tables,
-                    charts=charts,
-                    insights=insights,
-                    source_files=[source_path],
-                )
-                return product.to_dict()
-            finally:
-                used = None
-                worksheet = None
-                worksheets = None
-                sheet_ranges = []
-                visible_sheets = []
-                analysis_profiles = []
-                workbook = None
-                if lease is not None:
-                    lease.cleanup()
+        dependencies = {
+            "absolute_path": _absolute_path,
+            "path_key": _path_key,
+            "validate_join": _validated_join_plan,
+            "validate_scope": _validated_source_scope,
+            "error": WorkflowError,
+            "scope_error": WorkflowSourceScopeValidationError,
+            "product": WorkProductData,
+        }
+        limits = {
+            "worksheets": MAX_WORKSHEETS,
+            "sheet_cells": MAX_SOURCE_CELLS_PER_SHEET,
+            "source_cells": MAX_SOURCE_CELLS,
+            "table_columns": MAX_TABLE_COLUMNS,
+            "table_rows": MAX_TABLE_ROWS,
+            "total_table_rows": MAX_TOTAL_TABLE_ROWS,
+            "metrics": MAX_METRICS,
+            "charts": MAX_CHARTS,
+        }
+        return ExcelWorkbookAnalysisService(
+            self, dependencies, limits
+        ).run(context)
 
 
 class WordReportWriter:
@@ -2993,127 +1890,44 @@ class WorkflowExecutor:
         join_plan=None,
         source_scope=None,
     ) -> dict:
-        source = Path(_absolute_path(source_path))
-        if not source.is_file() or source.suffix.casefold() not in SUPPORTED_EXCEL_SUFFIXES:
-            raise WorkflowError("저장된 Excel 파일(.xlsx/.xlsm/.xlsb/.xls)이 필요합니다.")
-        learned = _validated_workflow_preferences(preferences)
-        try:
-            slide_count = int(slide_count)
-        except (TypeError, ValueError) as error:
-            raise WorkflowError("PPT 장수는 숫자여야 합니다.") from error
-        if not 3 <= slide_count <= 20:
-            raise WorkflowError("PPT 장수는 3~20장 범위여야 합니다.")
-        report_format = _report_format(report_format)
-        include_presentation = _include_presentation(include_presentation)
-        include_report = _include_report(include_report)
-        if not include_report and not include_presentation:
-            raise WorkflowError("보고서와 발표자료를 모두 제외할 수 없습니다.")
-        if not include_report:
-            # A presentation-only recipe has no meaningful report format.
-            # Normalize it so equivalent requests learn one stable structure.
-            report_format = "word"
-        join_plan = _validated_join_plan(join_plan)
-        source_scope = _validated_source_scope(source_scope)
-        if join_plan is not None and source_scope is not None:
-            raise WorkflowSourceScopeValidationError(
-                "시트 조인과 선택 범위만 분석은 한 요청에서 함께 사용할 수 없습니다."
-            )
-        self._preflight_report_environment(report_format, include_report)
-        destination = Path(_absolute_path(output_dir or source.parent))
-        if not destination.is_dir():
-            raise WorkflowError("산출물 폴더를 찾을 수 없습니다.")
-        workflow_id = uuid.uuid4().hex
-        token = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + workflow_id
-        source_stem = _safe_stem(source.stem)
-        output_paths = {}
-        if include_report:
-            for report_kind in _report_kinds(report_format):
-                output_key = _report_output_key(report_format, report_kind)
-                label = "Word" if report_kind == "word" else "한글"
-                stem = (
-                    f"{source_stem}_JARVIS_보고서"
-                    if report_format != "both"
-                    else f"{source_stem}_JARVIS_{label}_보고서"
-                )
-                output_paths[output_key] = str(_reserve_output(
-                    destination,
-                    stem,
-                    REPORT_FORMATS[report_kind]["suffix"],
-                    token,
-                ))
-        if include_presentation:
-            presentation_path = _reserve_output(
-                destination,
-                f"{source_stem}_JARVIS_{slide_count}장_요약",
-                ".pptx",
-                token,
-            )
-            output_paths["presentation"] = str(presentation_path)
-        step_order = _step_order(
-            report_format,
-            include_presentation,
-            include_report,
-        )
-        now = _timestamp()
-        if title is None:
-            style = str(learned.get("title_style") or "default")
-            title = {
-                "short": source.stem,
-                "noun": f"{source.stem} 분석 보고서",
-                "sentence": f"{source.stem} 분석 결과를 보고합니다",
-            }.get(style, f"{source.stem} 분석")
-        source_fingerprint = file_fingerprint(source)
-        state = {
+        dependencies = {
+            "absolute_path": _absolute_path,
+            "excel_suffixes": SUPPORTED_EXCEL_SUFFIXES,
+            "error": WorkflowError,
+            "scope_error": WorkflowSourceScopeValidationError,
+            "validate_preferences": _validated_workflow_preferences,
+            "report_format": _report_format,
+            "include_presentation": _include_presentation,
+            "include_report": _include_report,
+            "validate_join": _validated_join_plan,
+            "validate_scope": _validated_source_scope,
+            "report_kinds": _report_kinds,
+            "report_output_key": _report_output_key,
+            "safe_stem": _safe_stem,
+            "reserve_output": _reserve_output,
+            "report_formats": REPORT_FORMATS,
+            "fingerprint": file_fingerprint,
+            "step_order": _step_order,
+            "timestamp": _timestamp,
             "schema_version": WORKFLOW_SCHEMA_VERSION,
-            "workflow_id": workflow_id,
-            "status": "approval_required",
-            "title": str(title),
-            "source_path": str(source),
-            "source_fingerprint": source_fingerprint,
-            "output_dir": str(destination),
-            "output_paths": output_paths,
-            "report_format": report_format,
-            "include_presentation": include_presentation,
-            "include_report": include_report,
-            "join_plan": join_plan,
-            "source_scope": source_scope,
-            "step_order": list(step_order),
-            "step_contract_schema_version": (
-                WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION
-            ),
-            "step_contracts": _workflow_step_contracts(
-                workflow_id,
-                report_format,
-                source_fingerprint,
-                include_presentation,
-                include_report,
-            ),
-            "slide_count": slide_count,
-            "explicit_slide_count": bool(explicit_slide_count),
-            "applied_preferences": learned,
-            "current_step": None,
-            "successful_steps": [],
-            "failed_step": None,
-            "created_files": [],
-            "verification_results": {},
-            "work_product": None,
-            "steps": {
-                name: {
-                    "status": "pending",
-                    "attempts": 0,
-                    "error": None,
-                    "artifact": None,
-                    "started_at": None,
-                    "completed_at": None,
-                }
-                for name in step_order
-            },
-            "created_at": now,
-            "updated_at": now,
+            "contract_schema_version": WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION,
+            "step_contracts": _workflow_step_contracts,
         }
-        # Preview plans remain in the in-memory confirmation payload.  The
-        # first durable workflow state is written only after explicit approval.
-        return copy.deepcopy(state)
+        return WorkflowPlanPreparationService(
+            self, dependencies
+        ).prepare(
+            source_path,
+            title=title,
+            output_dir=output_dir,
+            preferences=preferences,
+            slide_count=slide_count,
+            explicit_slide_count=explicit_slide_count,
+            report_format=report_format,
+            include_presentation=include_presentation,
+            include_report=include_report,
+            join_plan=join_plan,
+            source_scope=source_scope,
+        )
 
     def _validated_start_plan(self, value: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(value, Mapping):
@@ -3520,138 +2334,15 @@ class WorkflowExecutor:
         raise WorkflowError("등록된 실행기가 없는 워크플로 단계입니다.")
 
     def run(self, workflow_id: str) -> dict[str, Any]:
-        state = self.load(workflow_id)
-        if state.get("status") in {"approval_required", "cancelled"}:
-            raise WorkflowError("승인되지 않은 워크플로 상태는 실행할 수 없습니다.")
-        failure = state.get("failure")
-        retryable_failure = bool(
-            failure.get("retryable")
-        ) if isinstance(failure, Mapping) else False
-        if state.get("status") == "blocked" and not retryable_failure:
-            error_class = (
-                WorkflowSourceScopeValidationError
-                if state.get("source_scope")
-                else WorkflowJoinValidationError
-            )
-            raise error_class(
-                "재시도할 수 없는 검증 오류로 차단된 워크플로입니다. 분석 범위나 "
-                "조인 조건을 고쳐 새 요청으로 다시 미리보기·승인해주세요."
-            )
-        if state.get("status") == "completed":
-            self._reconcile(state)
-            if len(state["successful_steps"]) == len(self._state_step_order(state)):
-                return self._result(state, changed=False)
-        self._reconcile(state)
-        step_order = self._state_step_order(state)
-        state["status"] = "running"
-        state["failed_step"] = None
-        state["failure"] = None
-        self._save(state)
-        for name in step_order:
-            step = state["steps"][name]
-            if name in state["successful_steps"]:
-                continue
-            state["current_step"] = name
-            step["status"] = "running"
-            step["attempts"] = int(step.get("attempts") or 0) + 1
-            step["started_at"] = _timestamp()
-            step["error"] = None
-            self._save(state)
-            try:
-                artifact = self._run_step(state, name)
-                if name == "analyze_excel":
-                    expected_source_scope = _validated_source_scope(
-                        state.get("source_scope")
-                    )
-                    verification = {
-                        "valid_common_model": True,
-                        "metric_count": len(artifact["metrics"]),
-                        "table_count": len(artifact["tables"]),
-                        "sheet_count": sum(
-                            not bool(table.get("derived"))
-                            for table in artifact["tables"]
-                        ),
-                        "derived_table_count": sum(
-                            bool(table.get("derived"))
-                            for table in artifact["tables"]
-                        ),
-                        "chart_count": len(artifact["charts"]),
-                        "relationship_count": sum(
-                            len(table.get("relationships") or [])
-                            for table in artifact["tables"]
-                        ),
-                        "pivot_summary_count": sum(
-                            len(table.get("pivot_summaries") or [])
-                            for table in artifact["tables"]
-                        ),
-                        "join_summary_count": sum(
-                            bool(table.get("join"))
-                            for table in artifact["tables"]
-                        ),
-                        "source_scope_verified": bool(
-                            expected_source_scope is not None
-                            and len(artifact["tables"]) == 1
-                            and dict(
-                                artifact["tables"][0].get("source_scope") or {}
-                            ) == expected_source_scope
-                        ),
-                    }
-                    if (
-                        expected_source_scope is not None
-                        and not verification["source_scope_verified"]
-                    ):
-                        raise WorkflowSourceScopeValidationError(
-                            "분석 결과가 승인한 Excel 선택 범위와 일치하지 않습니다."
-                        )
-                    state["work_product"] = artifact
-                    stored_artifact = None
-                else:
-                    stored_artifact = dict(artifact)
-                    if not self._artifact_valid(stored_artifact):
-                        raise WorkflowError("생성된 산출물의 파일 지문 검증에 실패했습니다.")
-                    verification = dict(stored_artifact.get("verification") or {})
-                    created_path = str(stored_artifact["path"])
-                    if created_path not in state["created_files"]:
-                        state["created_files"].append(created_path)
-                step["artifact"] = stored_artifact
-                step["status"] = "succeeded"
-                step["completed_at"] = _timestamp()
-                state["verification_results"][name] = verification
-                if name not in state["successful_steps"]:
-                    state["successful_steps"].append(name)
-                self._save(state)
-            except Exception as error:
-                step["status"] = "failed"
-                step["error"] = str(error)[:2_000]
-                failure_status = str(
-                    getattr(error, "status", "") or "failed"
-                ).strip()
-                state["status"] = (
-                    failure_status
-                    if failure_status in {"failed", "blocked"}
-                    else "failed"
-                )
-                state["failed_step"] = name
-                state["current_step"] = name
-                state["failure"] = {
-                    "error_type": str(
-                        getattr(error, "error_type", "") or "execution_error"
-                    ),
-                    "status": state["status"],
-                    "retryable": bool(getattr(error, "retryable", True)),
-                }
-                self._save(state)
-                raise WorkflowExecutionError(
-                    state["workflow_id"],
-                    name,
-                    str(error),
-                    cause=error,
-                ) from error
-        state["status"] = "completed"
-        state["current_step"] = None
-        state["failed_step"] = None
-        self._save(state)
-        return self._result(state, changed=True)
+        dependencies = {
+            "error": WorkflowError,
+            "join_error": WorkflowJoinValidationError,
+            "scope_error": WorkflowSourceScopeValidationError,
+            "execution_error": WorkflowExecutionError,
+            "validate_scope": _validated_source_scope,
+            "timestamp": _timestamp,
+        }
+        return WorkflowStepRunService(self, dependencies).run(workflow_id)
 
     @staticmethod
     def _result(state: dict, *, changed: bool) -> dict[str, Any]:
