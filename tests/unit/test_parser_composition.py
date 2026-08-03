@@ -5,6 +5,7 @@ from dataclasses import fields
 import inspect
 from pathlib import Path
 import unittest
+from unittest import mock
 
 from engine.ai_actions import AIActionHandler
 from engine.app_actions import AppCommandRouter
@@ -13,6 +14,7 @@ from engine.edit_mode.controller import EditModeController
 from engine.local_commands import LocalCommandAnalyzer
 from engine.parser import CommandParser
 from engine.pipeline import CommandPipeline
+from engine.runtime_services import ParserRuntimeServices
 from engine.skills import (
     CandidateRecordingService,
     LearnedReplayService,
@@ -139,6 +141,30 @@ class CommandParserCompositionTests(unittest.TestCase):
             name: paths for name, paths in violations.items() if paths
         }
         self.assertEqual({}, violations)
+
+    def test_runtime_services_copy_only_explicit_dependencies(self):
+        parser = CommandParser()
+        runtime = parser._runtime_services()
+
+        self.assertIsInstance(runtime, ParserRuntimeServices)
+        self.assertFalse(hasattr(runtime, "parser"))
+        self.assertFalse(hasattr(runtime, "owner"))
+        self.assertEqual((), retained_parent_reference_paths(runtime, parser))
+        self.assertIs(runtime.dict_mgr, parser.dict_mgr)
+        self.assertIs(runtime.confirmations, parser.confirmations)
+
+    def test_parser_dispatches_through_runtime_services_not_itself(self):
+        parser = CommandParser()
+        with mock.patch.object(
+            parser.command_pipeline,
+            "execute",
+            return_value={"success": True, "message": "ok", "verified": True},
+        ) as execute:
+            parser.execute_command_result("테스트")
+
+        runtime = execute.call_args.args[0]
+        self.assertIsInstance(runtime, ParserRuntimeServices)
+        self.assertIsNot(runtime, parser)
 
     def test_composed_manager_constructors_do_not_accept_parent_objects(self):
         for manager_type in COMPOSED_MANAGER_TYPES:

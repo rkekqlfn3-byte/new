@@ -2,7 +2,7 @@
 
 - 상태: 활성
 - 적용 기준: Python 소스
-- 최종 갱신: 2026-07-29
+- 최종 갱신: 2026-08-03
 - 상위 문서: `JARVIS_MAINTENANCE_MASTER_PLAN_2026-07-29.md`
 
 이 문서는 모듈을 어디에서 호출해야 하는지, 상태를 누가 소유하는지, 실행 결과가 어떤 형식이어야 하는지를 코드 수준에서 고정한다.
@@ -12,7 +12,8 @@
 ```text
 UI / command API
     -> CommandParser
-        -> CommandPipeline
+        -> ParserRuntimeServices (명시적 단기 포트)
+            -> CommandPipeline
             -> parsing / local analyzer
             -> confirmation registry
             -> skill services
@@ -21,8 +22,10 @@ UI / command API
 ```
 
 - 상위 계층은 하위 계층의 공개 인터페이스만 호출한다.
-- 하위 계층은 `CommandParser`를 영구 참조하지 않는다.
-- 작업 중 필요한 파서 문맥은 메서드 호출 기간에만 전달할 수 있다.
+- 하위 계층은 `CommandParser`를 인자로 받거나 영구 참조하지 않는다.
+- `CommandParser`는 공개 경계에서 현재 협력자만 복사한
+  `ParserRuntimeServices`를 만들며, 이 객체에는 parser/owner 또는 파서의 bound
+  method를 넣지 않는다.
 - adapter는 UI와 대화 기록을 직접 변경하지 않는다.
 
 ## 2. 공개 인터페이스
@@ -30,6 +33,7 @@ UI / command API
 | 패키지 | 공개 진입점 | 책임 |
 |---|---|---|
 | `engine.parser` | `CommandParser` | 서비스 조립, 명령 실행 진입점 |
+| `engine.runtime_services` | `ParserRuntimeServices` | 하위 실행 계층에 필요한 명시적 단기 의존성 포트 |
 | `engine.pipeline` | `CommandPipeline` | 처리 단계와 라우팅 순서 |
 | `engine.confirmation` | `ConfirmationRegistry` | 승인 상태 생성·보관·응답·재개 |
 | `engine.app_actions` | `AppCommandRouter`, `AppActionRegistry`, adapter contracts | 실제 앱 작업 준비·실행·검증 |
@@ -58,6 +62,8 @@ UI / command API
 - `CommandParser`에 `_parse_native_*` 메서드를 추가하지 않는다.
 - 조립되는 매니저 생성자에 `parser`, `_parser`, `owner`를 받지 않는다.
 - 조립되는 매니저가 `self.parser`, `self._parser`, `self.owner`를 저장하지 않는다.
+- pipeline·confirmation·AI action·learned replay 경계에 `CommandParser` 인스턴스를
+  전달하지 않는다. `ParserRuntimeServices`만 전달한다.
 - `engine/parser.py`를 1,000줄보다 크게 만들지 않는다.
 - 승인 상태를 confirmation 계층 밖에서 별도로 생성·보관하지 않는다.
 - 실행 성공을 사용자 메시지의 문자열 검색만으로 판단하지 않는다.

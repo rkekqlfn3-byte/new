@@ -191,7 +191,7 @@ class ParserRouterTests(unittest.TestCase):
             parser.dict_mgr.noun_revision += 1
             parser.dict_mgr.discover_apps = mock.Mock(return_value=1)
             parser.llm_engine.process_command = mock.Mock()
-            original_analyze = parser.analyze_command
+            original_analyze = parser.local_command_analyzer.analyze_command
             analyze_count = 0
 
             def changed_analysis(text):
@@ -203,7 +203,9 @@ class ParserRouterTests(unittest.TestCase):
                     value["macro"] = "CLOSE"
                 return value
 
-            parser.analyze_command = mock.Mock(side_effect=changed_analysis)
+            parser.local_command_analyzer.analyze_command = mock.Mock(
+                side_effect=changed_analysis
+            )
             with mock.patch("engine.builtins.os.startfile") as startfile:
                 result = parser.execute_command_result("sampleapp 열어줘")
 

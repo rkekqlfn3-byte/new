@@ -11,6 +11,7 @@ from engine.execution_result import success_result
 from engine.llm_engine import LLMEngine
 from engine.managers.dict_manager import DictionaryManager
 from engine.parser import CommandParser
+from engine.runtime_services import ParserRuntimeServices
 
 
 class AIActionHandlerBoundaryTests(unittest.TestCase):
@@ -49,7 +50,9 @@ class AIActionHandlerBoundaryTests(unittest.TestCase):
         self.assertIsInstance(self.parser.ai_action_handler, AIActionHandler)
         self.assertEqual("분리된 처리기에서 완료했습니다.", result["message"])
         handle.assert_called_once()
-        self.assertIs(self.parser, handle.call_args.args[0])
+        runtime = handle.call_args.args[0]
+        self.assertIsInstance(runtime, ParserRuntimeServices)
+        self.assertIsNot(self.parser, runtime)
         self.assertIs(llm_result, handle.call_args.args[1])
 
     def test_blocked_dynamic_action_cannot_bypass_handler_preflight(self):

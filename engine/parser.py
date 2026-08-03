@@ -30,6 +30,7 @@ from engine.skills import (
 )
 from engine.local_commands import LocalCommandAnalyzer
 from engine.pipeline import CommandPipeline
+from engine.runtime_services import ParserRuntimeServices
 from engine.managers.native_action_candidate_manager import (
     NativeActionCandidateManager,
 )
@@ -41,10 +42,6 @@ from engine.app_actions import (
 from engine.edit_mode.controller import EditModeController
 from engine.decision import DecisionEngine, PreferenceManager
 from engine.builtins import BuiltinMacros
-from engine.parsing.office_command_parser import (
-    EXCEL_FORMAT_METHODS,
-    EXCEL_FORMAT_PREFERENCE_KEY,
-)
 
 class CommandParser:
     @property
@@ -302,6 +299,10 @@ class CommandParser:
             self._handlers,
         )
 
+    def _runtime_services(self):
+        """Build the explicit port passed below the public parser facade."""
+        return ParserRuntimeServices.from_facade(self)
+
     @staticmethod
     def _latest_user_text(user_input):
         """Extract the latest user message from a question-mode history payload."""
@@ -513,43 +514,7 @@ class CommandParser:
         log_callback=None,
         continuation=None,
     ):
-        preference = self.preference_manager.decision(
-            EXCEL_FORMAT_PREFERENCE_KEY
-        )
-        preferred_method = preference.get("preferred_method")
-        operation = EXCEL_FORMAT_METHODS.get(preferred_method)
-        if preference.get("mode") == "auto" and operation:
-            candidate = copy.deepcopy(request)
-            candidate["operation"] = operation
-            candidate["_auto_preference"] = {
-                "key": EXCEL_FORMAT_PREFERENCE_KEY,
-                "method": preferred_method,
-                "base_request": copy.deepcopy(request),
-            }
-            if log_callback:
-                log_callback(
-                    f"[Preference] {preferred_method} 선호를 자동 적용합니다."
-                )
-            result = self.app_command_router.execute(
-                candidate,
-                session_id,
-                original_command,
-                log_callback=log_callback,
-                continuation=continuation,
-                runtime=self,
-            )
-            if result.get("status") == "confirmation_required":
-                return result
-            if (
-                isinstance(continuation, dict)
-                and continuation.get("kind") == "learned_native"
-            ):
-                return self.skill_executor.complete_native_confirmation(
-                    continuation, result
-                )
-            return result
-        return self.confirmations.queue_app_method(
-            self,
+        return self._runtime_services()._handle_format_method_request(
             request,
             session_id,
             original_command,
@@ -648,8 +613,9 @@ class CommandParser:
     def _resume_local_learned_dynamic(
         self, payload, confirmation_id, log_callback=None
     ):
+        runtime = self._runtime_services()
         return self.learned_replay_service.resume_local_dynamic(
-            self, payload, confirmation_id, log_callback=log_callback
+            runtime, payload, confirmation_id, log_callback=log_callback
         )
 
     def _skill_policy_preview_result(
@@ -671,7 +637,7 @@ class CommandParser:
         original_command,
     ):
         return self.learned_replay_service.local_policy_gate(
-            self,
+            self._runtime_services(),
             app_name=app_name,
             macro_name=macro_name,
             skill=skill,
@@ -690,8 +656,9 @@ class CommandParser:
         log_callback=None,
         remember_preference=False,
     ):
+        runtime = self._runtime_services()
         return self.confirmations.resolve(
-            self,
+            runtime,
             session_id,
             confirmation_id=confirmation_id,
             option_id=option_id,
@@ -719,7 +686,7 @@ class CommandParser:
 
     def retry_learned_macro_step(self, app_name, macro_name, step_number):
         return self.learned_replay_service.retry_step(
-            self, app_name, macro_name, step_number
+            self._runtime_services(), app_name, macro_name, step_number
         )
 
     def parse_and_execute(
@@ -786,18 +753,9 @@ class CommandParser:
         session_id=None,
         edit_context=None,
     ):
-        return self.command_pipeline.execute(
-            self,
-            user_input,
-            log_callback=log_callback,
-            image_data=image_data,
-            mode=mode,
-            use_api=use_api,
-            summary=summary,
-            stream_callback=stream_callback,
-            conversation_state=conversation_state,
-            session_id=session_id,
-            edit_context=edit_context,
+        return self._runtime_services().execute_command_result(
+            user_input, log_callback, image_data, mode, use_api, summary,
+            stream_callback, conversation_state, session_id, edit_context,
         )
 
     def _execute_ai_action_batch(
@@ -816,7 +774,7 @@ class CommandParser:
         use_api=False,
     ):
         return self.ai_action_handler.execute_batch(
-            self,
+            self._runtime_services(),
             response,
             actions,
             validation_issues,
@@ -888,7 +846,9 @@ class CommandParser:
         return json.dumps(values, ensure_ascii=False)
 
     def _validate_llm_result(self, result):
-        return self.ai_action_handler.validate_result(self, result)
+        return self.ai_action_handler.validate_result(
+            self._runtime_services(), result
+        )
 
     def _resolve_registered_app(self, target):
         return self.local_command_analyzer.resolve_registered_app(target)
@@ -900,7 +860,9 @@ class CommandParser:
 
     def _validate_generated_code(self, act, require_external_target=False):
         return self.ai_action_handler._validate_generated_code(
-            self, act, require_external_target=require_external_target
+            self._runtime_services(),
+            act,
+            require_external_target=require_external_target,
         )
 
     def _identify_macro(self, text):
