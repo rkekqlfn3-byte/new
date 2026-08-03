@@ -19,6 +19,8 @@ def maintained_sources():
     paths.extend((ROOT / "engine" / "workflows").glob("*_services.py"))
     paths.extend((ROOT / "engine" / "edit_mode").glob("stage10_*_services.py"))
     paths.extend((ROOT / "engine" / "app_actions").glob("*_adapter.py"))
+    paths.extend((ROOT / "engine" / "pdf").glob("*.py"))
+    paths.extend((ROOT / "engine" / "file_actions").glob("*.py"))
     return sorted(set(paths))
 
 
