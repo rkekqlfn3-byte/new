@@ -39,7 +39,9 @@ _NON_OWNING_CONFIRMATION_STATUSES = frozenset({
 
 
 def _log_to_terminal(msg):
-    logger.info("%s", msg)
+    # UI text may contain a document path or selected content.  Keep it in the
+    # live UI only; the persistent log records the event without its payload.
+    logger.info("Terminal message forwarded")
     try:
         eel.log_terminal(msg)()
     except Exception:
@@ -166,9 +168,9 @@ def _resolve_confirmation_request(
 ):
     parser = _get_parser()
     record = (
-        parser.pending_confirmation_manager.get_record(confirmation_id)
+        parser.confirmations.pending.get_record(confirmation_id)
         if confirmation_id else
-        parser.pending_confirmation_manager.active_record(session_id)
+        parser.confirmations.pending.active_record(session_id)
     )
     execution_id = record.get("execution_id", "") if record else ""
     try:

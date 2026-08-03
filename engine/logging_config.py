@@ -1,4 +1,4 @@
-"""Central, rotating application logs with basic secret redaction."""
+"""Central rotating logs with secret and private-path redaction."""
 
 from __future__ import annotations
 
@@ -32,10 +32,36 @@ _REDACTION_PATTERNS = (
         r"\1[REDACTED]",
     ),
 )
+_QUOTED_ABSOLUTE_PATH_RE = re.compile(
+    r"(?P<quote>['\"])(?:(?:[A-Za-z]:[\\/])|(?:\\\\[^\\/\r\n]+[\\/][^\\/\r\n]+))"
+    r"[^'\"\r\n]*(?P=quote)"
+)
+_KEYED_ABSOLUTE_PATH_RE = re.compile(
+    r"(?i)(\b(?:path|file_path|target_path|source_path|destination_path|"
+    r"directory|root|log_path)\s*=\s*)"
+    r"(?:(?:[A-Z]:[\\/])|(?:\\\\))[^\r\n]*?"
+    r"(?=(?:\s+[A-Za-z_][A-Za-z0-9_]*\s*=)|$)"
+)
+_UNQUOTED_ABSOLUTE_PATH_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9_])"
+    r"(?:(?:[A-Z]:[\\/])|(?:\\\\[^\\/\s]+[\\/][^\\/\s]+[\\/]))"
+    r"[^\r\n]*"
+)
+
+
+def redact_private_paths(value) -> str:
+    """Remove absolute user paths while retaining surrounding diagnostics."""
+    text = str(value or "")
+    text = _QUOTED_ABSOLUTE_PATH_RE.sub(
+        lambda match: f"{match.group('quote')}[PRIVATE_PATH]{match.group('quote')}",
+        text,
+    )
+    text = _KEYED_ABSOLUTE_PATH_RE.sub(r"\1[PRIVATE_PATH]", text)
+    return _UNQUOTED_ABSOLUTE_PATH_RE.sub("[PRIVATE_PATH]", text)
 
 
 def redact_text(value) -> str:
-    text = str(value or "")
+    text = redact_private_paths(value)
     for pattern, replacement in _REDACTION_PATTERNS:
         text = pattern.sub(replacement, text)
     return text

@@ -213,16 +213,27 @@ def safe_read_json(path, default=_UNSET, *, recover=True, retries=3):
                 try:
                     with backup_path.open("r", encoding="utf-8") as source:
                         recovered = json.load(source)
-                    atomic_write_json(path, recovered, retries=retries)
+                except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as backup_error:
+                    logger.debug(
+                        "JSON 백업 복구 실패 path=%s error=%s", path, backup_error
+                    )
+                else:
+                    # Reading a valid backup and repairing the primary are
+                    # separate outcomes. A temporary Windows file lock must
+                    # not turn valid user data into an empty default value.
+                    try:
+                        atomic_write_json(path, recovered, retries=retries)
+                    except OSError as restore_error:
+                        logger.warning(
+                            "JSON primary restore deferred path=%s error=%s",
+                            path,
+                            type(restore_error).__name__,
+                        )
                     _record_recovery(path, str(backup_path), error)
                     logger.warning(
                         "JSON 백업에서 복구했습니다 path=%s error=%s", path, error
                     )
                     return recovered
-                except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as backup_error:
-                    logger.debug(
-                        "JSON 백업 복구 실패 path=%s error=%s", path, backup_error
-                    )
     return copy.deepcopy(fallback)
 
 

@@ -1,6 +1,6 @@
 """Conservative policy constants for dynamic Python actions."""
 
-POLICY_VERSION = 2
+POLICY_VERSION = 3
 MAX_CODE_CHARACTERS = 50_000
 MAX_AST_NODES = 5_000
 MAX_STRING_LITERAL_CHARACTERS = 10_000

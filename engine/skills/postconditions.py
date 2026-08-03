@@ -131,10 +131,10 @@ class PostconditionEvaluator:
 
     def __init__(
         self,
-        owner=None,
+        action_executor=None,
         checkers: dict[str, Callable[[Postcondition, dict], Any]] | None = None,
     ):
-        self.owner = owner
+        self.action_executor = action_executor
         self.checkers = dict(checkers or {})
 
     def evaluate(
@@ -407,8 +407,7 @@ class PostconditionEvaluator:
         return self._check_file_exists(condition, context)
 
     def _uia(self):
-        action_executor = getattr(self.owner, "action_executor", None)
-        uia = getattr(action_executor, "ui_automation", None)
+        uia = getattr(self.action_executor, "ui_automation", None)
         if uia is None:
             raise PostconditionNotAvailable("UI Automation 검증기가 연결되지 않았습니다.")
         return uia

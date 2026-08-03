@@ -40,6 +40,16 @@ from engine.security.risk_models import (
 )
 
 
+_INDIRECT_CAPABILITY_OBJECTS = frozenset({
+    "aiohttp", "comtypes", "ctypes", "ftplib", "glob", "http.client",
+    "keyboard", "mouse", "open", "openpyxl", "os", "pandas", "pathlib.Path",
+    "psutil", "pywinauto", "pythoncom", "requests", "selenium", "shutil",
+    "smtplib", "socket", "sqlite3", "subprocess", "tarfile", "tempfile",
+    "uiautomation", "urllib.request", "webbrowser", "websocket", "win32api",
+    "win32clipboard", "win32com", "win32gui", "win32process", "zipfile",
+})
+
+
 def _matches_prefix(value, prefixes) -> bool:
     return any(value == prefix or value.startswith(prefix + ".") for prefix in prefixes)
 
@@ -60,8 +70,12 @@ def _literal_strings(node):
 
 
 class _RiskVisitor(ast.NodeVisitor):
-    def __init__(self, aliases):
+    def __init__(
+        self, aliases, direct_call_targets=None, nested_reference_parts=None
+    ):
         self.aliases = aliases
+        self.direct_call_targets = set(direct_call_targets or ())
+        self.nested_reference_parts = set(nested_reference_parts or ())
         self.findings = []
         self._seen = set()
         self.has_broad_file_access = False
@@ -90,6 +104,78 @@ class _RiskVisitor(ast.NodeVisitor):
             base = self.qualified_name(node.value)
             return f"{base}.{node.attr}" if base else node.attr
         return ""
+
+    def _check_indirect_callable_reference(self, node, qualified):
+        """Block risky capabilities when they are moved outside a direct call.
+
+        Direct calls are inspected together with their arguments in ``visit_Call``.
+        Once the callable is placed in a container, destructured, or passed to
+        another function, the current static policy can no longer prove which
+        arguments will reach it.  Keeping that capability is therefore a
+        fail-closed condition rather than an implicit SAFE result.
+        """
+        if (
+            not qualified
+            or node in self.direct_call_targets
+            or node in self.nested_reference_parts
+        ):
+            return
+        terminal = qualified.rsplit(".", 1)[-1]
+        terminal_folded = terminal.casefold()
+        risky = (
+            qualified in _INDIRECT_CAPABILITY_OBJECTS
+            or qualified in BLOCKED_BUILTINS
+            or terminal_folded in BLOCKED_BUILTINS
+            or terminal_folded in {
+                "deletefile", "deletefolder", "getenv", "loadlibrary",
+                "load_library", "open", "regdelete", "regread", "regwrite",
+            }
+            or qualified in {
+                "os.system", "os.popen", "subprocess.getoutput",
+                "subprocess.getstatusoutput", "ctypes.CDLL", "ctypes.PyDLL",
+                "ctypes.WinDLL", "ctypes.cdll.LoadLibrary",
+                "ctypes.windll.LoadLibrary", "os.startfile", "os.kill",
+                "os.killpg", "shutil.rmtree", "win32api.CreateProcess",
+                "win32api.ShellExecute", "win32api.WinExec",
+                "win32process.CreateProcess", "win32api.MessageBox",
+            }
+            or qualified in SUBPROCESS_CALLS
+            or qualified.startswith((
+                "os.exec", "os.spawn", "os.environ.", "winreg.",
+                "win32api.Reg",
+            ))
+            or qualified in {
+                "io.FileIO", "io.open", "pathlib.Path.open",
+                "numpy.memmap", "numpy.save", "numpy.savetxt", "numpy.savez",
+                "numpy.savez_compressed", "os.remove", "os.unlink",
+                "os.rmdir", "shutil.move", "os.chmod", "os.chown",
+                "os.lchmod", "os.link", "os.mkdir", "os.makedirs",
+                "os.rename", "os.renames", "os.replace", "os.truncate",
+                "shutil.copy", "shutil.copy2", "shutil.copyfile",
+                "shutil.copytree", "shutil.chown", "shutil.make_archive",
+                "shutil.unpack_archive", "tempfile.NamedTemporaryFile",
+                "tempfile.TemporaryDirectory", "tempfile.mkstemp",
+                "tempfile.mkdtemp", "os.listdir", "os.scandir", "os.walk",
+                "glob.glob", "glob.iglob",
+            }
+            or terminal_folded in {
+                "chmod", "deletefile", "deletefolder", "glob", "hardlink_to",
+                "iterdir", "mkdir", "read_bytes", "read_text", "rename",
+                "replace", "rglob", "rmdir", "symlink_to", "tofile", "touch",
+                "unlink", "write_bytes", "write_text",
+            }
+            or self._is_network_call(qualified)
+            or self._is_ui_control_call(qualified)
+            or self._is_sensitive_api(qualified)
+        )
+        if risky:
+            self.add(
+                f"indirect_capability_reference:{qualified}",
+                "dynamic_execution",
+                BLOCKED,
+                "위험 기능을 간접 호출 형태로 전달해 안전하게 검사할 수 없습니다.",
+                node,
+            )
 
     def visit_Import(self, node):
         for alias in node.names:
@@ -154,6 +240,7 @@ class _RiskVisitor(ast.NodeVisitor):
                 node,
             )
         qualified = self.qualified_name(node)
+        self._check_indirect_callable_reference(node, qualified)
         if qualified == "os.environ":
             self.add(
                 "environment_access",
@@ -207,6 +294,7 @@ class _RiskVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Name(self, node):
+        self._check_indirect_callable_reference(node, self.qualified_name(node))
         if node.id == "__builtins__":
             self.add(
                 "blocked_builtins_access",
@@ -719,7 +807,17 @@ class DynamicCodePreflight:
             )
 
         aliases = self._collect_aliases(tree)
-        visitor = _RiskVisitor(aliases)
+        direct_call_targets = {
+            node.func for node in nodes if isinstance(node, ast.Call)
+        }
+        nested_reference_parts = {
+            node.value for node in nodes if isinstance(node, ast.Attribute)
+        }
+        visitor = _RiskVisitor(
+            aliases,
+            direct_call_targets,
+            nested_reference_parts,
+        )
         visitor.visit(tree)
         literal_values = _literal_strings(tree)
         if any(
