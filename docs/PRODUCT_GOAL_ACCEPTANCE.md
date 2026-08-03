@@ -105,10 +105,23 @@ python -m verification.product_goal_acceptance --refresh-probes --automated-only
 3. 비숙련 사용자가 [직접 시험 문장 100개](PROTOTYPE1_MANUAL_TEST_100.md) 중
    대표 업무를 도움 없이 수행하고, 막힌 문구와 포커스 문제를 기록한다.
 
-`verification/product_goal_manual_acceptance.example.json`을
-`verification/product_goal_manual_acceptance.json`으로 복사한 뒤 실제로 끝낸
-항목만 `passed`와 수행 시각으로 바꾼다. 실제 메모는 별도 사용자 문서에 두고
-이 JSON에는 넣지 않는다. 그다음 전체 판정을 실행한다.
+세부 절차는 [수동 Goal evidence 실행서](MANUAL_GOAL_EVIDENCE_RUNBOOK.md)를 따른다.
+먼저 개인정보가 없는 로컬 evidence를 초기화한다.
+
+```powershell
+python -m verification.manual_acceptance_recorder initialize
+```
+
+실제로 끝낸 항목만 등록한다. 예를 들어 화면 읽기 프로토콜을 통과한 뒤에는 다음을
+실행한다. `--attest` 없이 `passed`나 `failed`를 기록할 수 없으며 시간대가 있는 수행
+시각과 정확한 protocol ID가 없으면 수용 게이트가 통과로 인정하지 않는다.
+
+```powershell
+python -m verification.manual_acceptance_recorder record screen_reader passed --attest
+```
+
+실제 메모는 별도 사용자 문서에 두고 evidence JSON에는 넣지 않는다. 그다음 전체
+판정을 실행한다.
 
 ```powershell
 python -m verification.product_goal_acceptance `
