@@ -1,0 +1,62 @@
+name: Python quality gates
+
+on:
+  push:
+    branches: [main, master, "feature/**", "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-quality:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-lock.txt
+            requirements-dev-lock.txt
+
+      - name: Install locked dependencies
+        run: >-
+          python -m pip install
+          -r requirements-lock.txt
+          -r requirements-dev-lock.txt
+
+      - name: Compile Python sources
+        run: >-
+          python -m compileall -q
+          engine gui verification tests
+          jarvis_app.py
+
+      - name: Lint Python sources
+        run: python -m ruff check .
+
+      - name: Run complete regression suite
+        run: python -m unittest -q
+
+      - name: Run strict maintenance audit
+        run: python -m verification.maintenance_audit --strict
+
+      - name: Run source-bound product Goal gate
+        run: >-
+          python -m verification.product_goal_acceptance
+          --refresh-probes
+          --automated-only
+          --max-probe-age-hours 1
+          --probe-timeout 240
