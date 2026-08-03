@@ -164,6 +164,54 @@ def _same_path(left, right) -> bool:
         return first == second
 
 
+def _deduplicate_active_documents(items, *, app_type=None, ranks=None):
+    """Keep the frontmost live instance for each logical document identity."""
+    unique = {}
+    for raw in items:
+        item = dict(raw or {})
+        handle = int(item.get("window_handle") or 0)
+        if ranks is not None:
+            item["window_rank"] = ranks.get(handle)
+        path = str(item.get("file_path") or "").strip()
+        runtime_id = str(item.get("runtime_document_id") or "").strip().upper()
+        name = str(item.get("document_name") or "").strip().casefold()
+        identity = (
+            f"file:{_normalized_path(path).casefold()}"
+            if path
+            else f"runtime:{handle}:{runtime_id or name}"
+        )
+        key = (
+            str(item.get("app_type") or app_type or "").casefold(),
+            identity,
+        )
+        existing = unique.get(key)
+        if existing is None:
+            unique[key] = item
+            continue
+
+        existing_rank = existing.get("window_rank")
+        candidate_rank = item.get("window_rank")
+        existing_order = (
+            existing_rank if isinstance(existing_rank, int) else 1_000_000,
+            int(existing.get("window_handle") or 0) <= 0,
+        )
+        candidate_order = (
+            candidate_rank if isinstance(candidate_rank, int) else 1_000_000,
+            handle <= 0,
+        )
+        if candidate_order < existing_order:
+            unique[key] = item
+    return sorted(
+        unique.values(),
+        key=lambda item: (
+            item.get("window_rank") is None,
+            item.get("window_rank")
+            if item.get("window_rank") is not None
+            else 1_000_000,
+        ),
+    )
+
+
 def _item(collection, index):
     accessor = getattr(collection, "Item", None)
     return accessor(index) if callable(accessor) else collection.Item(index)
@@ -704,29 +752,14 @@ class NativeDocumentBridge:
         finally:
             document = application = None
 
-        unique = {}
-        for item in results:
-            identity = (
-                item.get("file_path")
-                or f"runtime:{item.get('window_handle')}:{item.get('document_name')}"
-            )
-            unique[(app_type, str(identity).casefold())] = item
-        if not unique and busy_error is not None:
+        if not results and busy_error is not None:
             raise _office_busy(app_type, busy_error)
 
         ranks = self._window_z_order()
-        ordered = []
-        for item in unique.values():
-            value = dict(item)
-            handle = int(value.get("window_handle") or 0)
-            value["window_rank"] = ranks.get(handle)
-            ordered.append(value)
-        return sorted(
-            ordered,
-            key=lambda item: (
-                item.get("window_rank") is None,
-                item.get("window_rank") if item.get("window_rank") is not None else 1_000_000,
-            ),
+        return _deduplicate_active_documents(
+            results,
+            app_type=app_type,
+            ranks=ranks,
         )
 
     @staticmethod
@@ -951,20 +984,7 @@ class NativeDocumentBridge:
             else:
                 with com_apartment(self._com_runtime):
                     results.extend(self._active_office_documents(candidate))
-        unique = {}
-        for item in results:
-            identity = (
-                item.get("file_path")
-                or f"runtime:{item.get('window_handle')}:{item.get('document_name')}"
-            )
-            unique[(item["app_type"], str(identity).casefold())] = item
-        return sorted(
-            unique.values(),
-            key=lambda item: (
-                item.get("window_rank") is None,
-                item.get("window_rank") if item.get("window_rank") is not None else 1_000_000,
-            ),
-        )
+        return _deduplicate_active_documents(results)
 
     def resolve_explorer_selection(self, file_name: str, file_size=None) -> str | None:
         """Recover a dropped Explorer path only when one selected file matches."""

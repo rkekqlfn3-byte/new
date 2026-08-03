@@ -92,7 +92,9 @@ class EditModeController:
             selection_overlay_manager or SelectionOverlayManager()
         )
         self.window_activator = window_activator or DocumentWindowActivator()
-        self._parser = None
+        self._execution_controller = None
+        self._app_action_registry = None
+        self._confirmations = None
         self._persist_layout = layout_manager is None or settings_path is not None
         self._settings_path = Path(
             settings_path or (Path(USER_DATA_DIR) / "edit_mode_settings.json")
@@ -105,9 +107,13 @@ class EditModeController:
             self.layout_manager.set_enabled(saved_layout)
         self.file_picker = file_picker or choose_edit_document
 
-    def bind_parser(self, parser) -> None:
-        """Bind confirmation/runtime services without creating an import cycle."""
-        self._parser = parser
+    def bind_services(
+        self, execution_controller, app_action_registry, confirmations
+    ) -> None:
+        """Bind only the runtime services used by edit-mode coordination."""
+        self._execution_controller = execution_controller
+        self._app_action_registry = app_action_registry
+        self._confirmations = confirmations
 
     def _learning_manager(self):
         if self._user_learning_manager is None:
@@ -148,26 +154,43 @@ class EditModeController:
             self._release_runtime_window(previous)
         context = None
         context_error = None
+        context_exception = None
         try:
             session, context = self._capture_context(session)
         except Exception as error:
+            context_exception = error
             context_error = self._context_error(error)
         layout = self.layout_manager.arrange(
             session["session_id"], session.get("window_handle", 0)
         )
+        activation = self.window_activator.activate(
+            session.get("window_handle", 0)
+        )
+        context_recovered_after_focus = False
+        if (
+            context is None
+            and isinstance(context_exception, EditContextInactive)
+            and activation.get("success")
+            and activation.get("focused")
+        ):
+            try:
+                session, context = self._capture_context(session)
+            except Exception as error:
+                context_error = self._context_error(error)
+            else:
+                context_error = None
+                context_recovered_after_focus = True
         if context is not None:
             selection_overlay = self.selection_overlay_manager.schedule(session, context)
         else:
             selection_overlay = self.selection_overlay_manager.hide("context_unavailable")
-        activation = self.window_activator.activate(
-            session.get("window_handle", 0)
-        )
         result = dict(session)
         result["layout"] = layout
         result["context"] = context
         result["context_error"] = context_error
         result["selection_overlay"] = selection_overlay
         result["activation"] = activation
+        result["context_recovered_after_focus"] = context_recovered_after_focus
         return result
 
     @staticmethod
@@ -262,7 +285,7 @@ class EditModeController:
         return result
 
     def _record_edit_recovery_event(self, status: str, recovery: dict) -> None:
-        controller = getattr(self._parser, "execution_controller", None)
+        controller = self._execution_controller
         event = getattr(controller, "event", None)
         if not callable(event):
             return
@@ -1226,8 +1249,8 @@ class EditModeController:
 
     def _registry(self):
         registry = self._native_action_registry
-        if registry is None and self._parser is not None:
-            registry = getattr(self._parser, "app_action_registry", None)
+        if registry is None:
+            registry = self._app_action_registry
         if registry is None:
             raise Stage5EditError("문서 편집용 네이티브 어댑터가 준비되지 않았습니다.")
         return registry
@@ -1289,18 +1312,18 @@ class EditModeController:
         )
 
     def _recover_pending_confirmation(self, request, chat_session_id):
-        if self._parser is None:
+        if self._confirmations is None:
             return None
         machine = self.session_manager.state_machine_for(request.edit_session_id)
         if machine.state is not EditSessionState.APPROVAL_REQUIRED:
             return None
-        record = self._parser.pending_confirmation_manager.active_record(chat_session_id)
+        record = self._confirmations.pending.active_record(chat_session_id)
         if (
             record
             and record.get("payload", {}).get("kind") == "prepared_edit_action"
             and self._payload_matches_request(record.get("payload", {}), request)
         ):
-            return self._parser._confirmation_result(record)
+            return self._confirmations.result(record)
         if record is None:
             self.session_manager.reset_ready(
                 request.edit_session_id,
@@ -1310,7 +1333,7 @@ class EditModeController:
         raise EditSessionBusy("이 대화에는 이미 다른 확인 요청이 대기 중입니다.")
 
     def _queue_confirmation(self, request, prepared, chat_session_id):
-        if self._parser is None:
+        if self._confirmations is None:
             raise Stage5EditError("편집 미리보기를 표시할 확인 서비스가 준비되지 않았습니다.")
         preview = dict(prepared.metadata.get("preview") or {})
         target = (
@@ -1341,9 +1364,13 @@ class EditModeController:
             "cancel": True,
             "aliases": ["아니", "아니요", "그만", "하지마", "취소해"],
         })
-        record = self._parser.pending_confirmation_manager.create(
+        current = self._execution_controller.current
+        execution_id = (
+            current.get("execution_id", "") if isinstance(current, dict) else ""
+        )
+        record = self._confirmations.pending.create(
             session_id=chat_session_id,
-            execution_id=self._parser._current_execution_id(),
+            execution_id=execution_id,
             original_command=request.text,
             reason="document_edit_preview",
             message=edit_preview_message(prepared),
@@ -1356,7 +1383,7 @@ class EditModeController:
                 "edit_request": request.to_dict(),
             },
         )
-        return self._parser._confirmation_result(record)
+        return self._confirmations.result(record)
 
     def _record_preference_feedback(
         self,
@@ -1565,7 +1592,7 @@ class EditModeController:
         prepared,
         chat_session_id,
     ):
-        if self._parser is None:
+        if self._confirmations is None:
             raise Stage5EditError("고위험 VBA 재확인 서비스를 사용할 수 없습니다.")
         capabilities = list(
             prepared.metadata.get("dangerous_capabilities") or []
@@ -1577,9 +1604,13 @@ class EditModeController:
             "registry": "레지스트리 접근",
         }
         warning = ", ".join(labels.get(item, item) for item in capabilities)
-        record = self._parser.pending_confirmation_manager.create(
+        current = self._execution_controller.current
+        execution_id = (
+            current.get("execution_id", "") if isinstance(current, dict) else ""
+        )
+        record = self._confirmations.pending.create(
             session_id=chat_session_id,
-            execution_id=self._parser._current_execution_id(),
+            execution_id=execution_id,
             original_command=request.text,
             reason="high_risk_vba_reconfirmation",
             message=(
@@ -1613,7 +1644,7 @@ class EditModeController:
                 "approval_round": 2,
             },
         )
-        return self._parser._confirmation_result(record)
+        return self._confirmations.result(record)
 
     def handle(self, request, *, chat_session_id=None, log_callback=None):
         pending = self._recover_pending_confirmation(request, chat_session_id)
