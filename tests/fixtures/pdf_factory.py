@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -136,6 +137,45 @@ def write_scanned_pdf(path: str | Path) -> Path:
     return _write_pdf_objects(Path(path), objects)
 
 
+def _write_filtered_text_pdf(
+    path: str | Path,
+    stream: bytes,
+    filter_name: str,
+) -> Path:
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+        ),
+        (
+            b"<< /Length "
+            + str(len(stream)).encode("ascii")
+            + f" /Filter /{filter_name} >>\nstream\n".encode("ascii")
+            + stream
+            + b"\nendstream"
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    return _write_pdf_objects(Path(path), objects)
+
+
+def write_compressed_text_pdf(path: str | Path, text: str) -> Path:
+    """Write a text PDF whose page content uses FlateDecode compression."""
+    return _write_filtered_text_pdf(
+        path,
+        zlib.compress(_text_stream([text])),
+        "FlateDecode",
+    )
+
+
+def write_asciihex_text_pdf(path: str | Path, text: str) -> Path:
+    """Write an owned PDF with a deliberately unsupported content filter."""
+    encoded = _text_stream([text]).hex().encode("ascii") + b">"
+    return _write_filtered_text_pdf(path, encoded, "ASCIIHexDecode")
+
+
 def write_encrypted_pdf(
     path: str | Path,
     *,
@@ -159,6 +199,26 @@ def write_encrypted_pdf(
     return destination
 
 
+def write_mixed_pdf(path: str | Path) -> Path:
+    """Write one text page followed by one image-only page."""
+    destination = Path(path)
+    text_source = destination.with_name(f".{destination.stem}.text.pdf")
+    scan_source = destination.with_name(f".{destination.stem}.scan.pdf")
+    write_text_pdf(text_source, ["Mixed Jarvis Text Page"])
+    write_scanned_pdf(scan_source)
+    try:
+        writer = PdfWriter()
+        writer.add_page(PdfReader(text_source).pages[0])
+        writer.add_page(PdfReader(scan_source).pages[0])
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("wb") as output:
+            writer.write(output)
+    finally:
+        text_source.unlink(missing_ok=True)
+        scan_source.unlink(missing_ok=True)
+    return destination
+
+
 def write_corrupt_pdf(path: str | Path) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +234,8 @@ class OwnedPdfFixtures:
     corrupt: Path
     rotated: Path
     table: Path
+    mixed: Path
+    compressed: Path
 
     def as_dict(self) -> dict[str, Path]:
         return {
@@ -183,6 +245,8 @@ class OwnedPdfFixtures:
             "corrupt": self.corrupt,
             "rotated": self.rotated,
             "table": self.table,
+            "mixed": self.mixed,
+            "compressed": self.compressed,
         }
 
 
@@ -206,5 +270,10 @@ def create_owned_pdf_fixtures(root: str | Path) -> OwnedPdfFixtures:
         table=write_text_pdf(
             directory / "table.pdf",
             [["Item Amount", "Alpha 10", "Beta 20"]],
+        ),
+        mixed=write_mixed_pdf(directory / "mixed.pdf"),
+        compressed=write_compressed_text_pdf(
+            directory / "compressed.pdf",
+            "Compressed Jarvis Page",
         ),
     )

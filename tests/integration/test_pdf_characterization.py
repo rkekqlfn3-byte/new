@@ -15,7 +15,16 @@ class PdfReaderCharacterizationTests(unittest.TestCase):
 
     def test_fixture_set_is_complete_and_caller_owned(self):
         self.assertEqual(
-            {"text", "scanned", "encrypted", "corrupt", "rotated", "table"},
+            {
+                "text",
+                "scanned",
+                "encrypted",
+                "corrupt",
+                "rotated",
+                "table",
+                "mixed",
+                "compressed",
+            },
             set(self.fixtures.as_dict()),
         )
         for path in self.fixtures.as_dict().values():
