@@ -30,6 +30,11 @@ MANUAL_CHECK_IDS = (
     "voice_input",
     "novice_user_observation",
 )
+MANUAL_PROTOCOL_IDS = {
+    "screen_reader": "jarvis-screen-reader-v1",
+    "voice_input": "jarvis-voice-input-v1",
+    "novice_user_observation": "jarvis-novice-observation-v1",
+}
 HWP_SECURITY_MODULE_COMPONENT = "hwp_automation_security_module"
 HWP_SECURITY_MODULE_GUIDE_URL = "https://developer.hancom.com/hwpautomation"
 HWP_SECURITY_MODULE_BLOCK_REASONS = frozenset(
@@ -349,7 +354,16 @@ def _test_summary(result) -> dict[str, Any]:
     }
 
 
+def _valid_manual_timestamp(value: str) -> bool:
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
+
+
 def _manual_checks(value: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
+    schema_version = int((value or {}).get("schema_version") or 0)
     supplied = dict((value or {}).get("checks") or {})
     checks = {}
     for check_id in MANUAL_CHECK_IDS:
@@ -358,9 +372,26 @@ def _manual_checks(value: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]
         status = str(item.get("status") or "pending").casefold()
         if status not in {"passed", "failed", "pending"}:
             status = "pending"
+        performed_at = str(item.get("performed_at") or "")[:40]
+        protocol_id = str(item.get("protocol_id") or "")[:80]
+        attested = item.get("attested") is True
+        evidence_valid = (
+            status == "pending"
+            or (
+                schema_version >= 2
+                and protocol_id == MANUAL_PROTOCOL_IDS[check_id]
+                and attested
+                and _valid_manual_timestamp(performed_at)
+            )
+        )
+        if status == "passed" and not evidence_valid:
+            status = "pending"
         checks[check_id] = {
             "status": status,
-            "performed_at": str(item.get("performed_at") or "")[:40] or None,
+            "performed_at": performed_at or None,
+            "protocol_id": protocol_id or MANUAL_PROTOCOL_IDS[check_id],
+            "attested": attested,
+            "evidence_valid": evidence_valid,
         }
     return checks
 
@@ -512,7 +543,10 @@ def evaluate_acceptance(
             for item in axes.values()
         )
     )
-    manual_passed = all(item["status"] == "passed" for item in manual.values())
+    manual_passed = all(
+        item["status"] == "passed" and item["evidence_valid"]
+        for item in manual.values()
+    )
     if not automated_passed:
         overall_status = (
             "environment_blocked"

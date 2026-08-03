@@ -226,15 +226,27 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
     def test_only_explicit_manual_passes_complete_acceptance(self):
         self._write_all_probes()
         manual = {
+            "schema_version": 2,
             "checks": {
                 check_id: {
                     "status": "passed",
                     "performed_at": "2026-07-18T15:00:00+0900",
+                    "protocol_id": f"jarvis-{check_id.replace('_', '-')}-v1",
+                    "attested": True,
                     "notes": "must not be copied",
                 }
                 for check_id in MANUAL_CHECK_IDS
             }
         }
+        manual["checks"]["screen_reader"]["protocol_id"] = (
+            "jarvis-screen-reader-v1"
+        )
+        manual["checks"]["voice_input"]["protocol_id"] = (
+            "jarvis-voice-input-v1"
+        )
+        manual["checks"]["novice_user_observation"]["protocol_id"] = (
+            "jarvis-novice-observation-v1"
+        )
         report = evaluate_acceptance(
             report_dir=self.root,
             test_summary={"status": "passed"},
@@ -247,6 +259,38 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
         self.assertEqual("accepted", report["overall_status"])
         self.assertNotIn(
             "must not be copied", json.dumps(report, ensure_ascii=False)
+        )
+
+    def test_unattested_manual_pass_cannot_complete_acceptance(self):
+        self._write_all_probes()
+        manual = {
+            "schema_version": 2,
+            "checks": {
+                check_id: {
+                    "status": "passed",
+                    "performed_at": "2026-07-18T15:00:00+09:00",
+                    "protocol_id": "wrong-protocol",
+                    "attested": False,
+                }
+                for check_id in MANUAL_CHECK_IDS
+            },
+        }
+
+        report = evaluate_acceptance(
+            report_dir=self.root,
+            test_summary={"status": "passed"},
+            manual_evidence=manual,
+            now=NOW,
+            expected_source=TEST_SOURCE,
+        )
+
+        self.assertFalse(report["manual_passed"])
+        self.assertEqual("automated_pass_manual_pending", report["overall_status"])
+        self.assertTrue(
+            all(
+                item["status"] == "pending" and not item["evidence_valid"]
+                for item in report["manual_acceptance"].values()
+            )
         )
 
     def test_missing_probe_fails_only_affected_axes_and_overall_gate(self):
