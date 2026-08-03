@@ -42,6 +42,7 @@ from engine.app_actions import (
 from engine.edit_mode.controller import EditModeController
 from engine.decision import DecisionEngine, PreferenceManager
 from engine.builtins import BuiltinMacros
+from engine.parsing.office_command_parser import EXCEL_FORMAT_PREFERENCE_KEY
 
 class CommandParser:
     @property
