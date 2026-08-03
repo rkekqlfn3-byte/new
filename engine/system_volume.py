@@ -11,10 +11,10 @@ from comtypes import (
     COMMETHOD,
     GUID,
     HRESULT,
-    IUnknown,
     CoCreateInstance,
     CoInitialize,
     CoUninitialize,
+    IUnknown,
 )
 
 

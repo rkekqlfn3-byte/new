@@ -11,7 +11,6 @@ from engine.edit_mode.native_bridge import (
 )
 from engine.edit_mode.session import canonical_document_path
 
-
 SUPPORTED_DOCUMENT_EXTENSIONS = {
     ".xlsx": "excel",
     ".xlsm": "excel",
@@ -142,7 +141,7 @@ class FileIntakeManager:
 
         try:
             document = self.bridge.find_document(app_type, canonical_path)
-        except NativeOfficeBusy as error:
+        except NativeOfficeBusy:
             # Do not launch the path again while Office is busy: the exact file
             # may already be open and a duplicate launch can create a modal.
             try:

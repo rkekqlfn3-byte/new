@@ -6,11 +6,11 @@ from unittest import mock
 
 from engine.api import command_api
 from engine.app_actions.base import AppActionBlocked, AppActionContextChanged
-from engine.app_actions.excel_adapter import ExcelAdapter, XL_NONE
+from engine.app_actions.excel_adapter import XL_NONE, ExcelAdapter
 from engine.app_actions.registry import AppActionRegistry
 from engine.app_actions.value_normalizer import excel_column_letters, excel_column_number
-from engine.execution_runtime import ExecutionController
 from engine.decision import PreferenceManager
+from engine.execution_runtime import ExecutionController
 from engine.parser import CommandParser
 
 

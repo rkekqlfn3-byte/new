@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 EXCEL_WRITE_COMMAND_RE = re.compile(
     r"^(?:엑셀|excel)(?:에서)?\s+"
     r"(?P<cell>\$?[a-z]{1,3}\$?[1-9]\d{0,6})\s*(?:셀)?\s*(?:에|으로)\s*"

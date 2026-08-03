@@ -11,7 +11,6 @@ from datetime import datetime
 from engine.skills.postconditions import normalize_postconditions
 from engine.skills.skill_profile import SkillProfile
 
-
 RUN_POLICIES = frozenset({"confirm", "auto"})
 POLICY_CHANGE_ACTORS = frozenset({"user", "migration", "system_default"})
 AUTO_SUCCESS_THRESHOLD = 5

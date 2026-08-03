@@ -4,8 +4,8 @@ from unittest import mock
 import jarvis_app
 from engine.browser_launcher import (
     BrowserAttempt,
-    BrowserLaunchError,
     BrowserLauncher,
+    BrowserLaunchError,
     BrowserLaunchResult,
     format_browser_failure,
 )

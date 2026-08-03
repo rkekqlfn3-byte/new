@@ -11,6 +11,15 @@ exclude = [
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 
+[tool.ruff.lint.per-file-ignores]
+"jarvis_app.py" = ["E402"]
+"verification/exe_verified_output.py" = ["E402"]
+"verification/phase4_excel_core_probe.py" = ["E402"]
+"verification/phase6_excel_aux_probe.py" = ["E402"]
+"verification/phase7_hwp_core_probe.py" = ["E402"]
+"verification/product_goal_acceptance.py" = ["E402"]
+"verification/utterance_acceptance_battery.py" = ["E402"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

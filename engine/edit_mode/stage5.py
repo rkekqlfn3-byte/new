@@ -17,7 +17,6 @@ from engine.edit_mode.contracts import (
     RiskLevel,
 )
 
-
 _CELL_OR_RANGE = re.compile(
     r"^([A-Z]{1,3})([1-9]\d*)(?::([A-Z]{1,3})([1-9]\d*))?$",
     re.IGNORECASE,

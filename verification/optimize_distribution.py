@@ -8,7 +8,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-
 REMOVABLE_METADATA_FILES = frozenset({
     "INSTALLER",
     "RECORD",

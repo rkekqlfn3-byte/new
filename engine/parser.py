@@ -1,48 +1,53 @@
-import os
 import copy
 import json
-import subprocess  # Kept as a compatibility patch point for older integrations.
+import os
 import re
-from engine.managers.dict_manager import DictionaryManager
-from engine.llm_engine import LLMEngine
-from engine.template_matcher import LearnedTemplateMatcher
+import subprocess  # Public compatibility patch point for older integrations.
+
 from engine.action_executor import (
-    ActionExecutor, ActionPlanError,
+    ActionExecutor,
+    ActionPlanError,
     ActionPlanVerificationError,
 )
-from engine.execution_runtime import ExecutionCancelled, ExecutionController
+from engine.ai_actions import AIActionHandler
+from engine.app_actions import (
+    AppActionRegistry,
+    AppCommandRouter,
+)
+from engine.builtins import BuiltinMacros
+from engine.confirmation import ConfirmationRegistry
+from engine.decision import DecisionEngine, PreferenceManager
+from engine.edit_mode.controller import EditModeController
 from engine.execution_result import (
     failure_result,
     normalize_error_type,
     normalize_execution_result,
     success_result,
 )
-from engine.macro_runner import MacroRunner, MacroTimeoutError
-from engine.confirmation import ConfirmationRegistry
-from engine.ai_actions import AIActionHandler
-from engine.skills import (
-    CandidateRecordingService,
-    SkillExecutor,
-    SkillExecutionServices,
-    SkillLearningService,
-    LearnedReplayService,
-    SkillRunPolicyService,
-)
+from engine.execution_runtime import ExecutionCancelled, ExecutionController
+from engine.llm_engine import LLMEngine
 from engine.local_commands import LocalCommandAnalyzer
-from engine.pipeline import CommandPipeline
-from engine.runtime_services import ParserRuntimeServices
+from engine.macro_runner import MacroRunner, MacroTimeoutError
+from engine.managers.dict_manager import DictionaryManager
 from engine.managers.native_action_candidate_manager import (
     NativeActionCandidateManager,
 )
-from engine.security import DynamicCodePreflight
-from engine.app_actions import (
-    AppCommandRouter,
-    AppActionRegistry,
-)
-from engine.edit_mode.controller import EditModeController
-from engine.decision import DecisionEngine, PreferenceManager
-from engine.builtins import BuiltinMacros
 from engine.parsing.office_command_parser import EXCEL_FORMAT_PREFERENCE_KEY
+from engine.pipeline import CommandPipeline
+from engine.runtime_services import ParserRuntimeServices
+from engine.security import DynamicCodePreflight
+from engine.skills import (
+    CandidateRecordingService,
+    LearnedReplayService,
+    SkillExecutionServices,
+    SkillExecutor,
+    SkillLearningService,
+    SkillRunPolicyService,
+)
+from engine.template_matcher import LearnedTemplateMatcher
+
+__all__ = ["CommandParser", "EXCEL_FORMAT_PREFERENCE_KEY", "subprocess"]
+
 
 class CommandParser:
     @property

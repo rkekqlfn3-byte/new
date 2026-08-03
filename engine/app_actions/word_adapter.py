@@ -21,7 +21,6 @@ from engine.app_actions.office_helpers import (
     stable_state_fingerprint,
 )
 
-
 MAX_WORD_TEXT_CHARS = 5_000_000
 MAX_WORD_SELECTION_CHARS = 50_000
 MAX_WORD_REPLACEMENT_CHARS = 10_000

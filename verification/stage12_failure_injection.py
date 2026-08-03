@@ -5,7 +5,6 @@ from __future__ import annotations
 import gc
 import io
 import json
-import time
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +16,6 @@ import win32process
 
 from engine.app_actions.base import AppActionError
 from engine.app_actions.excel_adapter import ExcelAdapter
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "stage12_failure_injection_report.json"
@@ -62,7 +60,7 @@ def live_disconnect():
         application.DisplayAlerts = False
         _, owned_pid = win32process.GetWindowThreadProcessId(int(application.Hwnd))
         workbook = application.Workbooks.Add()
-        sheet = workbook.Worksheets(1)
+        workbook.Worksheets(1)
         adapter = ExcelAdapter(
             application_getter=lambda: application,
             process_counter=lambda: 1,

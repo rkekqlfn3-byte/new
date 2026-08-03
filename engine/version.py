@@ -11,7 +11,6 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
-
 # Prototype 1.0 edit mode and Prototype 1.1 workflow release candidate.  It
 # becomes a runtime build only after the complete validation gate passes from
 # a clean, tagged commit.

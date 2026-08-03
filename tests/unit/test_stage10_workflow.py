@@ -1,10 +1,11 @@
-import tempfile
-import unittest
 import queue
 import re
+import tempfile
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 from engine.workflows import (
     ExcelSalesAnalyzer,
     HwpReportWriter,
@@ -12,14 +13,13 @@ from engine.workflows import (
     HwpWorkflowTimeout,
     PowerPointSummaryWriter,
     WordReportWriter,
-    WorkProductData,
     WorkflowError,
     WorkflowExecutionError,
     WorkflowExecutor,
     WorkflowJoinValidationError,
     WorkflowSourceScopeValidationError,
+    WorkProductData,
 )
-from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 
 
 def product(source):

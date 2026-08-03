@@ -3,13 +3,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.app_actions import PreparedAction
 from engine.api import command_api, edit_api
+from engine.app_actions import PreparedAction
 from engine.edit_mode.controller import EditModeController
 from engine.edit_mode.intake import EditAppBusy
 from engine.edit_mode.session import EditSessionManager
-from engine.parser import CommandParser
 from engine.learning import UserPreferenceLearningManager
+from engine.parser import CommandParser
 
 
 class FakeIntakeManager:

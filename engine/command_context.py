@@ -7,7 +7,6 @@ import json
 import re
 from dataclasses import dataclass
 
-
 TEXT_RE = re.compile(r"[0-9a-zA-Z가-힣]+")
 REFERENCE_RE = re.compile(
     r"(?:이거|그거|저거|방금|아까|이전|지난번|하던\s*거|"

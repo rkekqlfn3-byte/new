@@ -2,8 +2,8 @@
 
 import difflib
 import re
-from engine.execution_result import ERROR_TYPES, normalize_error_type
 
+from engine.execution_result import ERROR_TYPES, normalize_error_type
 
 LEARNED_STATES = {"active", "needs_review", "broken", "disabled"}
 FAILURE_TYPES = set(ERROR_TYPES)

@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import sys
-import gc
 import time
 from datetime import datetime
 
-import pythoncom
 import psutil
+import pythoncom
 import win32com.client
 import win32process
 

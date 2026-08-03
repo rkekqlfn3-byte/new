@@ -2,8 +2,8 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 from engine.api import config_api
 from engine.document_reader import extract_text, resolve_file_path

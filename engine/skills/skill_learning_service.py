@@ -7,8 +7,8 @@ import re
 from engine.learning_quality import clean_trigger_list, find_trigger_conflicts
 from engine.learning_schema import literal_utterances, normalize_learning_metadata
 from engine.skills.postconditions import normalize_postconditions
-from engine.skills.skill_profile import SkillProfile
 from engine.skills.run_policy import ensure_run_policy_fields
+from engine.skills.skill_profile import SkillProfile
 
 
 class SkillLearningService:

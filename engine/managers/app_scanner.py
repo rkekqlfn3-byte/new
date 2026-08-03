@@ -1,11 +1,10 @@
 import logging
 import os
 import re
-import winreg
 import time
+import winreg
 
 from engine.security.launch_policy import is_safe_launch_target
-
 
 logger = logging.getLogger(__name__)
 

@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import argparse
 import ast
-from collections import deque
 import functools
 import inspect
 import json
 import os
 import re
 import subprocess
+from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from verification.release_security_audit import GENERIC_SECRET_PATTERNS
-
 
 DEFAULT_MAX_PARSER_LINES = 1000
 DEFAULT_LARGE_FILE_BYTES = 5 * 1024 * 1024

@@ -22,7 +22,6 @@ from pywinauto import Desktop
 from engine.hotkeys import press_hotkey
 from engine.ui_automation import UIAutomationError, WindowsUIAutomation
 
-
 WM_CLOSE = 0x0010
 DISCARD_LABELS = ("저장 안 함", "저장하지 않음", "don't save")
 

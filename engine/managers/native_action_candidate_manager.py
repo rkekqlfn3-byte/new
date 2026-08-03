@@ -17,7 +17,6 @@ from datetime import datetime
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
 
-
 CANDIDATES_PATH = user_data_path("native_action_candidates.json")
 SCHEMA_VERSION = 3
 DEFAULT_THRESHOLD = 3

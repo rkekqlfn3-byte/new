@@ -191,7 +191,7 @@ def section_c(parser):
 
 def section_d():
     """4개 앱 편집 의도: 구조화 해석 / 안전 안내 / 크래시 분류."""
-    from engine.edit_mode.stage5 import StructuredEditIntentAnalyzer, Stage5EditError
+    from engine.edit_mode.stage5 import Stage5EditError, StructuredEditIntentAnalyzer
     from engine.edit_mode.stage6 import StructuredStage6IntentAnalyzer
 
     excel_ctx = {

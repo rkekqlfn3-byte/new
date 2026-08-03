@@ -1,15 +1,5 @@
 """Contracts, state, and execution boundaries for document edit mode."""
 
-from engine.edit_mode.contracts import (
-    EditAdapter,
-    EditContractError,
-    EditExecutionResult,
-    EditPreparedAction,
-    EditRequest,
-    RequestMode,
-    RiskLevel,
-    validate_edit_adapter,
-)
 from engine.edit_mode.context import (
     EDIT_CONTEXT_SCHEMA_VERSION,
     ContextProvider,
@@ -27,6 +17,17 @@ from engine.edit_mode.context import (
     WordContextProvider,
     default_context_providers,
 )
+from engine.edit_mode.contracts import (
+    EditAdapter,
+    EditContractError,
+    EditExecutionResult,
+    EditPreparedAction,
+    EditRequest,
+    RequestMode,
+    RiskLevel,
+    validate_edit_adapter,
+)
+from engine.edit_mode.controller import EditModeController
 from engine.edit_mode.coordinator import (
     EditApprovalRequired,
     EditContextChanged,
@@ -34,12 +35,11 @@ from engine.edit_mode.coordinator import (
     EditExecutionError,
     EditVerificationError,
 )
-from engine.edit_mode.controller import EditModeController
 from engine.edit_mode.intake import (
     APP_LABELS,
     SUPPORTED_DOCUMENT_EXTENSIONS,
-    EditAppUnavailable,
     EditAppBusy,
+    EditAppUnavailable,
     EditDocumentAmbiguous,
     EditDocumentOpenTimeout,
     EditIntakeError,
@@ -53,11 +53,13 @@ from engine.edit_mode.permissions import (
     assert_action_allowed,
     normalize_request_mode,
 )
-from engine.edit_mode.state_machine import (
-    EditSessionState,
-    EditSessionStateMachine,
-    EditStateConflict,
-    EditStateTransitionError,
+from engine.edit_mode.selection_overlay import (
+    ExcelComSelectionLocator,
+    ExcelSelectionLocator,
+    ScreenRectangle,
+    SelectionOverlayManager,
+    Win32SelectionOverlayBackend,
+    normalized_excel_range,
 )
 from engine.edit_mode.session import (
     EditSession,
@@ -69,14 +71,6 @@ from engine.edit_mode.session import (
     canonical_document_path,
     document_identity_fingerprint,
     runtime_document_identity_fingerprint,
-)
-from engine.edit_mode.selection_overlay import (
-    ExcelComSelectionLocator,
-    ExcelSelectionLocator,
-    ScreenRectangle,
-    SelectionOverlayManager,
-    Win32SelectionOverlayBackend,
-    normalized_excel_range,
 )
 from engine.edit_mode.stage5 import (
     EditIntent,
@@ -109,10 +103,10 @@ from engine.edit_mode.stage9 import (
     VbaIntent,
 )
 from engine.edit_mode.stage10 import (
+    WORKFLOW_OPERATIONS,
     Stage10EditError,
     Stage10NativeEditAdapter,
     StructuredWorkflowIntentAnalyzer,
-    WORKFLOW_OPERATIONS,
 )
 from engine.edit_mode.stage11 import (
     LEARNING_OPERATIONS,
@@ -120,6 +114,12 @@ from engine.edit_mode.stage11 import (
     Stage11EditError,
     Stage11NativeEditAdapter,
     StructuredPreferenceIntentAnalyzer,
+)
+from engine.edit_mode.state_machine import (
+    EditSessionState,
+    EditSessionStateMachine,
+    EditStateConflict,
+    EditStateTransitionError,
 )
 from engine.edit_mode.window_layout import (
     DocumentWindowActivator,

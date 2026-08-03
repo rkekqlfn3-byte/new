@@ -191,7 +191,10 @@ class Stage9NativeEditAdapter(Stage7NativeEditAdapter):
             after = (
                 f"{native.params.get('module_name')}.{native.params.get('procedure_name')} 실행"
             )
-        trim = lambda value: str(value)[:4000] + ("…" if len(str(value)) > 4000 else "")
+        def trim(value):
+            return str(value)[:4000] + (
+                "…" if len(str(value)) > 4000 else ""
+            )
         return {
             "description": description,
             "before": trim(before),

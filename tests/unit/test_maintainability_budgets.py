@@ -1,9 +1,8 @@
 """Source budgets for high-risk workflow and native-edit boundaries."""
 
 import ast
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_FUNCTION_LINES = 99

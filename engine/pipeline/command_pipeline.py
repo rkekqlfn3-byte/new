@@ -1,18 +1,17 @@
 from engine.edit_mode import ModePermissionError, RequestMode, normalize_request_mode
 from engine.execution_result import failure_result
+from engine.managers.app_scanner import matches_requested_app_candidate
 from engine.pipeline.ai_fallback_route import execute_ai_fallback_route
 from engine.pipeline.conversation_route import execute_conversation_route
 from engine.pipeline.edit_route import execute_edit_route
 from engine.pipeline.macro_route import try_execute_macro_route
 from engine.pipeline.native_route import try_execute_native_route
-from engine.managers.app_scanner import matches_requested_app_candidate
 from engine.recovery import (
     PreExecutionRecoveryContract,
     recovery_target_signature,
 )
 from engine.security.launch_policy import looks_like_shell_execution_request
 from engine.skills import strip_run_directive
-
 
 _APPROVAL_WORDS = {
     "예", "네", "y", "yes", "응", "학습", "저장", "맞아", "그래", "ㅇㅇ", "ㅇ",

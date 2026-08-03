@@ -13,7 +13,6 @@ from engine.edit_mode import (
 )
 from engine.parser import CommandParser
 
-
 APP_BY_SUFFIX = {
     ".xlsx": "excel",
     ".hwp": "hwp",

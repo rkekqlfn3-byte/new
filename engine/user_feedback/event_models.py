@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
-import re
 from typing import Any, Mapping
-
 
 USER_FEEDBACK_SCHEMA_VERSION = 1
 

@@ -30,7 +30,6 @@ from verification.prototype1_stage3_probe import (
 )
 from verification.source_identity import source_identity
 
-
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "prototype1_stage5_report.json"
 

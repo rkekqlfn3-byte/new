@@ -9,9 +9,9 @@ from verification.maintenance_audit import (
     audit_large_workspace_files,
     audit_module_line_budgets,
     audit_parser_budget,
-    retained_parent_reference_paths,
     audit_secrets,
     audit_tracked_artifacts,
+    retained_parent_reference_paths,
 )
 from verification.test_gate_selector import select_test_gates
 

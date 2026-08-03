@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import hashlib
+import os
 import re
 import secrets
 import time
 from pathlib import Path
 
 from engine.app_actions.com_lifecycle import com_apartment
-
 
 APP_PROGIDS = {
     "excel": "Excel.Application",

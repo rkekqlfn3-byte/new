@@ -2,43 +2,40 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import os
 import uuid
+from datetime import datetime
 from pathlib import Path
 
+from engine.edit_mode.connected_document_recovery import (
+    ConnectedDocumentRecoveryService,
+)
 from engine.edit_mode.context import (
     EditContextInactive,
     EditContextManager,
     EditContextUnavailable,
 )
-from engine.edit_mode.connected_document_recovery import (
-    ConnectedDocumentRecoveryService,
-)
 from engine.edit_mode.contracts import EditPreparedAction, EditRequest
 from engine.edit_mode.coordinator import EditExecutionCoordinator
 from engine.edit_mode.file_picker import choose_edit_document
 from engine.edit_mode.intake import FileIntakeManager
+from engine.edit_mode.selection_overlay import SelectionOverlayManager
 from engine.edit_mode.session import (
     EditSessionBusy,
     EditSessionManager,
     EditSessionNotFound,
     EditSessionStale,
-    document_identity_fingerprint,
 )
-from engine.edit_mode.selection_overlay import SelectionOverlayManager
 from engine.edit_mode.stage5 import (
     Stage5EditError,
     edit_preview_message,
     edit_success_message,
 )
 from engine.edit_mode.stage7 import (
-    Stage7NativeEditAdapter,
     TEXT_REPLACE_OPERATIONS,
     build_commit_records,
     rewrite_pending_command,
 )
-from engine.edit_mode.stage9 import Stage9NativeEditAdapter
 from engine.edit_mode.stage11 import (
     LEARNING_OPERATIONS,
     Stage11NativeEditAdapter,

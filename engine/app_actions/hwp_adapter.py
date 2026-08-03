@@ -29,7 +29,6 @@ from engine.app_actions.office_helpers import (
 )
 from engine.app_actions.office_undo_services import HwpUndoService
 
-
 MAX_DOCUMENT_TEXT_CHARS = 5_000_000
 MAX_INSERT_TEXT_CHARS = 5_000
 MAX_REPLACE_MATCHES = 10_000

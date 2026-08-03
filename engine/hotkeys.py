@@ -3,7 +3,6 @@
 import ctypes
 import re
 
-
 KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_KEYUP = 0x0002
 

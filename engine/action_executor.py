@@ -13,20 +13,22 @@ import win32con
 import win32gui
 import win32process
 
-from engine.hotkeys import press_hotkey, resolve_key
 from engine.action_registry import (
-    ALLOWED_ACTIONS, action_spec, app_target_actions, retry_limit,
+    ALLOWED_ACTIONS,
+    action_spec,
+    app_target_actions,
+    retry_limit,
 )
+from engine.app_actions.base import PreparedAction
+from engine.execution_runtime import ExecutionCancelled
+from engine.hotkeys import press_hotkey, resolve_key
+from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_target
 from engine.ui_automation import (
     MATCH_MODES,
     SELECTOR_FIELDS,
     UIAutomationError,
     WindowsUIAutomation,
 )
-from engine.execution_runtime import ExecutionCancelled
-from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_target
-from engine.app_actions.base import PreparedAction
-
 
 PLACEHOLDER_RE = re.compile(r"\{([0-9a-zA-Z가-힣_]+)\}")
 MOVE_DIRECTIONS = {

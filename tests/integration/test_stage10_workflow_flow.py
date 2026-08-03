@@ -4,13 +4,13 @@ import unittest
 from pathlib import Path
 
 from engine.edit_mode import EditModeController, EditSessionManager
-from engine.parser import CommandParser
-from engine.workflows import HwpSecurityModuleUnavailable, WorkflowExecutor
-from engine.workflows.business_workflow import file_fingerprint
 from engine.learning import (
     BusinessWorkflowSkillManager,
     UserPreferenceLearningManager,
 )
+from engine.parser import CommandParser
+from engine.workflows import HwpSecurityModuleUnavailable, WorkflowExecutor
+from engine.workflows.business_workflow import file_fingerprint
 
 
 def digest(value):

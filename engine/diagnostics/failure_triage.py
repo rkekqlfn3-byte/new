@@ -16,12 +16,10 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any, Mapping
 
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
-
 
 TRIAGE_SCHEMA_VERSION = 1
 DEVELOPER_ISSUE_SCHEMA_VERSION = 1

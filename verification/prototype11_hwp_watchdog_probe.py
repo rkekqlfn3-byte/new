@@ -20,7 +20,6 @@ from engine.workflows import (
 )
 from verification.source_identity import source_identity
 
-
 REPORT_PATH = Path(__file__).with_name(
     "prototype11_hwp_watchdog_report.json"
 )

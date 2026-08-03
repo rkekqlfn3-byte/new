@@ -1,15 +1,15 @@
 import logging
 
 import eel
+
 from engine.core import get_parser
-from engine.execution_runtime import ExecutionBusyError, ExecutionCancelled
 from engine.execution_result import failure_result
+from engine.execution_runtime import ExecutionBusyError, ExecutionCancelled
 from engine.managers.pending_confirmation_manager import normalize_session_id
 from engine.user_feedback import (
     event_from_execution_result,
     event_from_runtime_event,
 )
-
 
 logger = logging.getLogger(__name__)
 

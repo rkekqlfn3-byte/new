@@ -1,0 +1,2 @@
+# Development-only quality gates.
+ruff>=0.16,<0.17

@@ -15,7 +15,6 @@ from pathlib import Path
 
 from engine.version import APP_VERSION
 
-
 PRIVATE_SOURCE_DIRS = {
     ".git", ".venv", "__pycache__", "backups", "build", "data", "dist"
 }

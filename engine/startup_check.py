@@ -6,7 +6,6 @@ import importlib
 import sys
 from pathlib import Path
 
-
 REQUIRED_MODULES = (
     "eel",
     "olefile",

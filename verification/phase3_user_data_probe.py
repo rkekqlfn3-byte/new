@@ -14,7 +14,6 @@ import tempfile
 import time
 from pathlib import Path
 
-
 CORE_FILES = ("dictionaries.json", "user_memory.json", "user_preferences.json")
 
 

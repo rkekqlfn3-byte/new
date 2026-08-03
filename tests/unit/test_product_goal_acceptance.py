@@ -13,7 +13,6 @@ from verification.product_goal_acceptance import (
     validate_probe_report,
 )
 
-
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
 TEST_SOURCE = {
     "identity_version": 1,

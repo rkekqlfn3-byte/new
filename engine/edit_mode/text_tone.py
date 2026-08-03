@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 
-
 TONE_FORMAL = "formal"
 TONE_FRIENDLY = "friendly"
 TONE_PLAIN = "plain"

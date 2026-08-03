@@ -6,7 +6,6 @@ import ssl
 import urllib.request
 from functools import lru_cache
 
-
 TLS_CERTIFICATE_MESSAGE = (
     "보안 인증서 검증에 실패했습니다. 시스템 날짜·시간과 Windows 루트 "
     "인증서를 확인해주세요. 안전을 위해 인증서 검증을 끄지 않았습니다."

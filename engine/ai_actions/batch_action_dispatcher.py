@@ -11,7 +11,6 @@ from engine.ai_actions.learned_action_executor import (
     execute_learned_action,
 )
 
-
 _HANDLERS = {
     "open_app": execute_open_app,
     "read_and_analyze": execute_read_and_analyze,

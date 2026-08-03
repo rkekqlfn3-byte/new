@@ -46,7 +46,6 @@ from engine.app_actions.value_normalizer import (
     serializable_excel_value,
 )
 
-
 XL_WORKSHEET = -4167
 XL_UP = -4162
 XL_CELL_VALUE = 1

@@ -1,18 +1,20 @@
+import ctypes
 import logging
 import os
-import subprocess
-import urllib.parse
-import ctypes
 import re
 import shlex
+import subprocess
 import time
+import urllib.parse
 from datetime import datetime
+
 import psutil
+import win32con
 import win32gui
 import win32process
-import win32con
+
+from engine.execution_result import failure_result, success_result
 from engine.hotkeys import press_hotkey
-from engine.execution_result import failure_result, normalize_execution_result, success_result
 from engine.local_commands.local_command_analyzer import (
     extract_volume_adjustment,
     extract_volume_percent,
@@ -29,7 +31,6 @@ from engine.system_volume import (
     set_system_muted,
     set_system_volume,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,8 @@ class BuiltinMacros:
         if app_path:
             try:
                 clean_path = validate_launch_target(app_path, app_name)
-                if log_callback: log_callback(f"[Execution] {clean_path} 실행 중...")
+                if log_callback:
+                    log_callback(f"[Execution] {clean_path} 실행 중...")
                 os.startfile(clean_path)
                 focused = False
                 if not clean_path.casefold().startswith(("http://", "https://")):
@@ -254,7 +256,8 @@ class BuiltinMacros:
         for hwnd in target_hwnds:
             win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
 
-        if log_callback: log_callback("[Execution] 종료 시그널 전송... 확인 중")
+        if log_callback:
+            log_callback("[Execution] 종료 시그널 전송... 확인 중")
 
         start_time = time.time()
         while time.time() - start_time < 3.0:
@@ -468,7 +471,8 @@ class BuiltinMacros:
         now = datetime.now()
         ampm = "오후" if now.hour >= 12 else "오전"
         hour = now.hour if now.hour <= 12 else now.hour - 12
-        if hour == 0: hour = 12
+        if hour == 0:
+            hour = 12
         return success_result(
             f"지금은 {ampm} {hour}시 {now.minute}분입니다.",
             action="time", verified=True,

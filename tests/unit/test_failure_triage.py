@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 from engine.diagnostics.failure_triage import (
-    DeveloperIssueRegistry,
     DeterministicFailureClassifier,
+    DeveloperIssueRegistry,
     FailureCategory,
     FailureOwner,
     normalize_triage,

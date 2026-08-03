@@ -5,7 +5,6 @@ from engine.api import command_api
 from engine.execution_result import success_result
 from engine.parser import CommandParser
 
-
 FINGERPRINT = "C" * 64
 EDIT_CONTEXT = {
     "edit_session_id": "edit-session-1",

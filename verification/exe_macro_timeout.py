@@ -4,7 +4,6 @@ import sys
 
 from engine.macro_runner import MacroRunner, MacroTimeoutError
 
-
 output_path = pathlib.Path(sys.argv[1])
 try:
     MacroRunner(timeout=0.2).run("import time\ntime.sleep(5)")

@@ -17,7 +17,6 @@ from engine.edit_mode.stage7 import (
     rewrite_text_candidate,
 )
 
-
 FP_A = "A" * 64
 FP_B = "B" * 64
 

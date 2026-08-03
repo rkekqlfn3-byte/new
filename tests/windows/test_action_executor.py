@@ -8,7 +8,9 @@ from unittest import mock
 import win32con
 
 from engine.action_executor import (
-    ActionExecutor, ActionPlanError, ActionPlanVerificationError,
+    ActionExecutor,
+    ActionPlanError,
+    ActionPlanVerificationError,
     ActionTargetNotFoundError,
 )
 from engine.builtins import BuiltinMacros

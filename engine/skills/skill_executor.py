@@ -15,22 +15,21 @@ from engine.action_executor import (
 from engine.action_registry import app_target_actions
 from engine.execution_result import (
     failure_result,
-    normalize_execution_result,
     normalize_error_type,
+    normalize_execution_result,
 )
 from engine.execution_runtime import ExecutionCancelled
 from engine.macro_runner import MacroTimeoutError
 from engine.security import BLOCKED, CONFIRMATION_REQUIRED, SAFE
-from engine.ui_automation import UIAutomationAmbiguousTarget
 from engine.skills.postconditions import FAILED, PostconditionEvaluator
 from engine.skills.route_selector import (
     ROUTE_PLAN_KEYS,
     RouteSelector,
     SkillRouteUnavailable,
 )
-from engine.skills.skill_profile import SkillProfile
 from engine.skills.run_policy import skill_policy_fingerprint
-
+from engine.skills.skill_profile import SkillProfile
+from engine.ui_automation import UIAutomationAmbiguousTarget
 
 # Failures where nothing external changed yet, so one alternate route is safe.
 FALLBACK_ALLOWED_CODES = frozenset({
@@ -837,7 +836,6 @@ class SkillExecutor:
 
     def _finish_success(self, route, skill, params, diagnostic, raw_result, started):
         normalized = normalize_execution_result(raw_result, action=route)
-        status = str(normalized.get("status") or "")
         # Stage 7-0 B: any explicit success=false is never a successful run,
         # including confirmation_required and future failure statuses.
         if normalized.get("success") is False:

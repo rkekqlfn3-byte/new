@@ -14,10 +14,10 @@ def main():
     output = Path(sys.argv[1]).resolve()
 
     import pythoncom
+    import win32com.client
     import win32con
     import win32gui
     import win32process
-    import win32com.client
 
     from engine.edit_mode.selection_overlay import SelectionOverlayManager
     from engine.version import runtime_info

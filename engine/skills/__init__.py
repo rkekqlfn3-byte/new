@@ -1,6 +1,7 @@
 """Learning, recording, and execution services for reusable local skills."""
 
 from engine.skills.candidate_recording_service import CandidateRecordingService
+from engine.skills.learned_replay_service import LearnedReplayService
 from engine.skills.postconditions import (
     FAILED,
     MANUAL_CONFIRMATION_REQUIRED,
@@ -17,23 +18,6 @@ from engine.skills.route_selector import (
     RouteSelector,
     SkillRouteUnavailable,
 )
-from engine.skills.skill_executor import (
-    SkillConfirmationRequired,
-    SkillContextChanged,
-    SkillExecutionError,
-    SkillExecutionServices,
-    SkillExecutor,
-    SkillNotFoundError,
-    SkillPreflightBlocked,
-    SkillPreflightDecision,
-    SkillReturnedFailure,
-    SkillStateError,
-    SkillTargetContractError,
-    SkillVerificationFailed,
-)
-from engine.skills.skill_learning_service import SkillLearningService
-from engine.skills.learned_replay_service import LearnedReplayService
-from engine.skills.skill_profile import SkillProfile
 from engine.skills.run_policy import (
     AUTO_SUCCESS_THRESHOLD,
     DIRECTIVE_CONFIRM,
@@ -50,6 +34,22 @@ from engine.skills.run_policy import (
     skill_policy_fingerprint,
     strip_run_directive,
 )
+from engine.skills.skill_executor import (
+    SkillConfirmationRequired,
+    SkillContextChanged,
+    SkillExecutionError,
+    SkillExecutionServices,
+    SkillExecutor,
+    SkillNotFoundError,
+    SkillPreflightBlocked,
+    SkillPreflightDecision,
+    SkillReturnedFailure,
+    SkillStateError,
+    SkillTargetContractError,
+    SkillVerificationFailed,
+)
+from engine.skills.skill_learning_service import SkillLearningService
+from engine.skills.skill_profile import SkillProfile
 
 __all__ = [
     "CandidateRecordingService",

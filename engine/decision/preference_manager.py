@@ -10,7 +10,6 @@ from datetime import datetime
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
 
-
 PREFERENCE_SCHEMA_VERSION = 1
 DEFAULT_PREFERENCE_PATH = user_data_path("user_preferences.json")
 PREFERENCE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,119}$")

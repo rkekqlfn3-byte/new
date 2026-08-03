@@ -5,10 +5,10 @@ from pathlib import Path
 from engine.app_actions import PreparedAction
 from engine.edit_mode import (
     EditContextInactive,
-    FileIntakeManager,
     EditModeController,
     EditSessionManager,
     EditSessionStale,
+    FileIntakeManager,
 )
 from engine.edit_mode.context import EditContextUnavailable
 from engine.edit_mode.contracts import EditRequest

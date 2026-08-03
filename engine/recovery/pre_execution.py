@@ -7,7 +7,6 @@ import json
 import re
 import uuid
 
-
 RECOVERY_CONTRACT_SCHEMA_VERSION = 1
 _SAFE_OUTCOMES = frozenset({"recovered", "not_found", "unavailable"})
 

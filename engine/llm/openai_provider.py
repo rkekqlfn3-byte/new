@@ -198,7 +198,8 @@ class OpenAIProvider(ProviderBase):
                         decoded_line = line.decode('utf-8').strip()
                         if decoded_line.startswith("data: "):
                             data_str = decoded_line[6:]
-                            if data_str == "[DONE]": break
+                            if data_str == "[DONE]":
+                                break
                             try:
                                 chunk = json.loads(data_str)
                                 delta = chunk["choices"][0].get("delta", {})

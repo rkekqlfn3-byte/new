@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from engine.parser import CommandParser
 from engine.execution_result import failure_result
 from engine.managers.dict_manager import DictionaryManager
+from engine.parser import CommandParser
 
 
 class CompoundCommandTests(unittest.TestCase):

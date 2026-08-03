@@ -3,11 +3,10 @@
 import glob
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
-
 
 _ISOLATED_DATA = tempfile.TemporaryDirectory(prefix="jarvis-exe-verified-data-")
 os.environ["JARVIS_DATA_DIR"] = _ISOLATED_DATA.name

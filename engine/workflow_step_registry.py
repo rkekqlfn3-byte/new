@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 from typing import Any, Mapping
 
-
 WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION = 1
 
 _STEP_DEFINITIONS = {

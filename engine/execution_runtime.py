@@ -14,7 +14,6 @@ from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
 from engine.version import runtime_info
 
-
 DIAGNOSTICS_PATH = user_data_path("execution_diagnostics.json")
 _DEFAULT_INCIDENT_MANAGER = object()
 

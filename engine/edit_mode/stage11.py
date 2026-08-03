@@ -13,7 +13,6 @@ from engine.edit_mode.contracts import EditPreparedAction, EditRequest, RiskLeve
 from engine.edit_mode.stage10 import Stage10EditError, Stage10NativeEditAdapter
 from engine.learning import UserPreferenceLearningManager
 
-
 LEARNING_OPERATIONS = frozenset(
     {
         "record_user_preference_evidence",

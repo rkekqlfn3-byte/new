@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import sys
-import gc
 import time
 from datetime import datetime
 
 import psutil
+import pythoncom
 import win32com.client
 import win32process
-import pythoncom
-
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from engine.app_actions.excel_adapter import ExcelAdapter
-
 
 REPORT_PATH = os.path.join(ROOT, "verification", "phase6_excel_aux_report.json")
 

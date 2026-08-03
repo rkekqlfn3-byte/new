@@ -1,8 +1,8 @@
 """Privacy-bounded incident collection and deterministic self-diagnosis."""
 
 from engine.diagnostics.failure_triage import (
-    DeveloperIssueRegistry,
     DeterministicFailureClassifier,
+    DeveloperIssueRegistry,
     EvidenceCode,
     FailureCategory,
     FailureOwner,

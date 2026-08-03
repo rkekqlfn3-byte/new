@@ -7,7 +7,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 APP_NAME = "Jarvis"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", PROJECT_ROOT))

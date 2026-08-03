@@ -4,7 +4,6 @@ import sys
 
 from engine.macro_runner import MacroExecutionError, MacroRunner
 
-
 output_path = pathlib.Path(sys.argv[1])
 try:
     MacroRunner(timeout=3).run("raise RuntimeError('의도한-실패')")

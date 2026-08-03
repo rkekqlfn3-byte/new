@@ -6,10 +6,9 @@ import logging
 
 import eel
 
-from engine.core import get_parser
 from engine.app_actions import vba_trust_status
+from engine.core import get_parser
 from engine.execution_result import failure_result, success_result
-
 
 logger = logging.getLogger(__name__)
 parser = None

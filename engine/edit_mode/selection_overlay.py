@@ -12,7 +12,6 @@ import warnings
 from dataclasses import dataclass
 from typing import Callable
 
-
 _CELL_RANGE = re.compile(
     r"^\$?(?P<first_col>[A-Z]{1,3})\$?(?P<first_row>[1-9]\d{0,6})"
     r"(?::\$?(?P<last_col>[A-Z]{1,3})\$?(?P<last_row>[1-9]\d{0,6}))?$"

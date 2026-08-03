@@ -13,14 +13,12 @@ from datetime import datetime
 import pythoncom
 import win32com.client
 
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from engine.app_actions.base import AppActionBlocked, AppActionContextChanged
 from engine.app_actions.hwp_adapter import HwpAdapter
-
 
 REPORT_PATH = os.path.join(ROOT, "verification", "phase7_hwp_core_report.json")
 PROGRESS_PATH = os.path.join(ROOT, "verification", "phase7_hwp_core_progress.txt")

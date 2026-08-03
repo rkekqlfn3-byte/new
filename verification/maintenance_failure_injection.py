@@ -9,7 +9,6 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-
 SCENARIOS = (
     (
         "confirmation_expiry",

@@ -10,9 +10,12 @@ from engine.app_actions.word_adapter import WordAdapter
 from tests.windows.test_excel_native_write import (
     FakeExcel,
     FakeSheet,
+)
+from tests.windows.test_excel_native_write import (
     adapter_for as excel_adapter_for,
 )
-from tests.windows.test_hwp_actions import FakeHwp, adapter_for as hwp_adapter_for
+from tests.windows.test_hwp_actions import FakeHwp
+from tests.windows.test_hwp_actions import adapter_for as hwp_adapter_for
 from tests.windows.test_word_powerpoint_actions import (
     Collection,
     FakePptApplication,

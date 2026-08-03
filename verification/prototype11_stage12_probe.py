@@ -13,7 +13,6 @@ from engine.diagnostics import DiagnosticIncidentManager
 from engine.execution_runtime import ExecutionController
 from verification.source_identity import source_identity
 
-
 REPORT_PATH = Path(__file__).with_name("prototype11_stage12_report.json")
 
 
@@ -37,7 +36,6 @@ def run_probe():
         root = Path(temp_dir)
         incident_path = root / "diagnostic_incidents.json"
         controller = ExecutionController(root / "execution_diagnostics.json")
-        manager = controller.incident_manager
 
         for index in range(2):
             execution_id = controller.begin(

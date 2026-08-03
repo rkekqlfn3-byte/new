@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import shutil
 import tempfile
 import time
-import gc
 
 import psutil
 import pythoncom

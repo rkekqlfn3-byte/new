@@ -4,8 +4,8 @@ import subprocess
 import sys
 
 import eel
-from engine.core import get_dict_manager, get_parser
 
+from engine.core import get_dict_manager, get_parser
 
 logger = logging.getLogger(__name__)
 

@@ -1,10 +1,10 @@
 """Architecture contracts for the lightweight CommandParser facade."""
 
 import ast
-from dataclasses import fields
 import inspect
-from pathlib import Path
 import unittest
+from dataclasses import fields
+from pathlib import Path
 from unittest import mock
 
 from engine.ai_actions import AIActionHandler
@@ -23,7 +23,6 @@ from engine.skills import (
     SkillLearningService,
 )
 from verification.maintenance_audit import retained_parent_reference_paths
-
 
 ROOT = Path(__file__).resolve().parents[2]
 PARSER_PATH = ROOT / "engine" / "parser.py"

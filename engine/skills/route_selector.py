@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from engine.skills.skill_profile import SkillProfile
 
-
 # Routes JARVIS can currently attempt. ``uia`` and ``native`` are alternate
 # stored plans executed by the same ``ActionExecutor`` engine (they are not a
 # new execution engine); stage 9 enriches the UIA locator ladder.

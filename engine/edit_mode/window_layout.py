@@ -116,6 +116,7 @@ class Win32DocumentActivationBackend:
     @staticmethod
     def request_foreground(handle: int) -> None:
         import ctypes
+
         import win32api
         import win32con
         import win32gui

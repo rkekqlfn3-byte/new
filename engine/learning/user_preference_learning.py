@@ -9,12 +9,10 @@ import os
 import re
 import threading
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Mapping
 
 from engine.runtime_paths import user_data_path
 from engine.storage.json_store import atomic_write_json, safe_read_json
-
 
 LEARNING_SCHEMA_VERSION = 1
 DEFAULT_LEARNING_PATH = user_data_path("user_style_preferences.json")

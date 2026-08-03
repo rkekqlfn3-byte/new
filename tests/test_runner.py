@@ -14,7 +14,6 @@ import argparse
 import sys
 import unittest
 
-
 TEST_GROUPS = {
     "unit": (
         "tests.unit.test_execution_busy",

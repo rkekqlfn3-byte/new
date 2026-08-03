@@ -9,17 +9,15 @@ text is intentionally kept out of permanent evidence.
 from __future__ import annotations
 
 import argparse
+import json
+import sys
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
-import os
 from pathlib import Path
-import sys
-import tempfile
 from typing import Callable
 from unittest import mock
-
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT = Path(__file__).with_name("utterance_acceptance_report.json")

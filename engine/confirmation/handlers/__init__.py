@@ -1,8 +1,8 @@
 from engine.confirmation.handlers.action_plan import resolve as resolve_action_plan
 from engine.confirmation.handlers.app_method import resolve as resolve_app_method
 from engine.confirmation.handlers.app_target import resolve as resolve_app_target
-from engine.confirmation.handlers.clarification import resolve as resolve_clarification
 from engine.confirmation.handlers.basic import resolve_command_macro, resolve_demo
+from engine.confirmation.handlers.clarification import resolve as resolve_clarification
 from engine.confirmation.handlers.dynamic_code import resolve as resolve_dynamic_code
 from engine.confirmation.handlers.edit_action import resolve as resolve_edit_action
 from engine.confirmation.handlers.hwp_scope import resolve as resolve_hwp_scope

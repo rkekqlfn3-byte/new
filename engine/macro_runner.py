@@ -6,8 +6,8 @@ import sys
 import tempfile
 import time
 
-from engine.execution_runtime import ExecutionCancelled
 from engine.execution_result import success_result
+from engine.execution_runtime import ExecutionCancelled
 from engine.macro_worker import MACRO_WORKER_FLAG
 
 

@@ -15,11 +15,11 @@ from pathlib import Path
 
 from engine.runtime_paths import PROJECT_ROOT
 from engine.security.code_risk_policy import (
+    BLOCK_MODULE_PREFIXES,
     BLOCKED_BUILTINS,
     BLOCKED_INTROSPECTION_ATTRIBUTES,
     BLOCKED_SCRIPT_SUFFIXES,
     BLOCKED_SHELL_EXECUTABLES,
-    BLOCK_MODULE_PREFIXES,
     CONFIRM_MODULE_PREFIXES,
     MAX_AST_NODES,
     MAX_CODE_CHARACTERS,
@@ -38,7 +38,6 @@ from engine.security.risk_models import (
     DynamicCodePreflightResult,
     RiskFinding,
 )
-
 
 _INDIRECT_CAPABILITY_OBJECTS = frozenset({
     "aiohttp", "comtypes", "ctypes", "ftplib", "glob", "http.client",

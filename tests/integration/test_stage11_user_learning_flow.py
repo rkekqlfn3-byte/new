@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from engine.app_actions.excel_vba_adapter import ExcelVbaAdapter
 from engine.edit_mode import EditModeController, EditSessionManager
 from engine.learning import (
     BusinessWorkflowSkillManager,
@@ -10,6 +11,33 @@ from engine.learning import (
 from engine.parser import CommandParser
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
+from tests.integration.test_stage6_edit_flow import (
+    FakeIntakeManager as OfficeIntake,
+)
+from tests.integration.test_stage6_edit_flow import (
+    FakeLayoutManager as OfficeLayout,
+)
+from tests.integration.test_stage6_edit_flow import (
+    FakeNativeAdapter as OfficeNativeAdapter,
+)
+from tests.integration.test_stage6_edit_flow import (
+    FakeRegistry as OfficeRegistry,
+)
+from tests.integration.test_stage6_edit_flow import (
+    StaticContextManager as OfficeContext,
+)
+from tests.integration.test_stage9_vba_flow import (
+    Context as VbaContext,
+)
+from tests.integration.test_stage9_vba_flow import (
+    Intake as VbaIntake,
+)
+from tests.integration.test_stage9_vba_flow import (
+    NoLayout as VbaNoLayout,
+)
+from tests.integration.test_stage9_vba_flow import (
+    Registry as VbaRegistry,
+)
 from tests.integration.test_stage10_workflow_flow import (
     Analyzer,
     Context,
@@ -17,25 +45,11 @@ from tests.integration.test_stage10_workflow_flow import (
     NoLayout,
     Registry,
 )
-from engine.app_actions.excel_vba_adapter import ExcelVbaAdapter
-from tests.integration.test_stage9_vba_flow import (
-    Context as VbaContext,
-    Intake as VbaIntake,
-    NoLayout as VbaNoLayout,
-    Registry as VbaRegistry,
-)
 from tests.windows.test_excel_vba_actions import (
     FakeApplication,
     FakeComponent,
     FakeProject,
     FakeWorkbook,
-)
-from tests.integration.test_stage6_edit_flow import (
-    FakeIntakeManager as OfficeIntake,
-    FakeLayoutManager as OfficeLayout,
-    FakeNativeAdapter as OfficeNativeAdapter,
-    FakeRegistry as OfficeRegistry,
-    StaticContextManager as OfficeContext,
 )
 
 

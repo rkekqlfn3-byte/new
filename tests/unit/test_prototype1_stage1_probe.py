@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from verification.prototype1_stage1_probe import (
-    extract_server_executable,
     executable_bits,
+    extract_server_executable,
     live_checks_passed,
     run_live_probe,
 )

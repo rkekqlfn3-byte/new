@@ -11,7 +11,6 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Mapping, Protocol, runtime_checkable
 
-
 EDIT_CONTRACT_SCHEMA_VERSION = 2
 MAX_EDIT_TEXT_CHARS = 10_000
 MAX_SERIALIZED_ACTION_BYTES = 256 * 1024

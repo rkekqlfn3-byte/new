@@ -24,7 +24,6 @@ from engine.edit_mode.target_identity import (
 )
 from engine.edit_mode.text_tone import classify_text_tone
 
-
 UNDO_PHRASES = (
     "방금 거 취소해",
     "방금거 취소해",

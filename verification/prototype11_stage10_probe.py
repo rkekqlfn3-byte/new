@@ -21,7 +21,6 @@ from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
 from verification.source_identity import source_identity
 
-
 REPORT_PATHS = {
     report_format: Path(__file__).with_name(
         f"prototype11_stage10_{report_format}_report.json"

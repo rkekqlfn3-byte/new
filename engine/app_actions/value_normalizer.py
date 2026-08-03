@@ -9,7 +9,6 @@ from decimal import Decimal
 
 from engine.app_actions.base import AppActionBlocked
 
-
 INTEGER_RE = re.compile(r"^[+-]?\d+$")
 DECIMAL_RE = re.compile(r"^[+-]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?$")
 CELL_RE = re.compile(r"^\$?([A-Z]{1,3})\$?([1-9]\d{0,6})$", re.IGNORECASE)

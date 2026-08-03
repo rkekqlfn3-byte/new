@@ -31,7 +31,6 @@ from engine.edit_mode.session import (
 )
 from engine.edit_mode.text_tone import classify_text_tone
 
-
 EDIT_CONTEXT_SCHEMA_VERSION = 1
 MAX_CONTEXT_PREVIEW_CHARS = 240
 MAX_EXCEL_PREVIEW_CELLS = 25

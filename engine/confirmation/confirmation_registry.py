@@ -7,8 +7,10 @@ from engine.confirmation.confirmation_factory import ConfirmationFactory
 from engine.confirmation.confirmation_response_handler import (
     ConfirmationResponseHandler,
 )
-from engine.managers.pending_confirmation_manager import PendingConfirmationManager
-from engine.managers.pending_confirmation_manager import normalize_session_id
+from engine.managers.pending_confirmation_manager import (
+    PendingConfirmationManager,
+    normalize_session_id,
+)
 
 
 class ConfirmationRegistry:

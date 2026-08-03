@@ -7,16 +7,16 @@ from types import SimpleNamespace
 from unittest import mock
 
 from engine.edit_mode import (
+    DocumentWindowActivator,
     EditAppBusy,
     EditAppUnavailable,
     EditDocumentAmbiguous,
     EditDocumentOpenTimeout,
     EditRequest,
-    DocumentWindowActivator,
-    EditSessionManager,
     EditSessionBusy,
-    EditSessionState,
+    EditSessionManager,
     EditSessionStale,
+    EditSessionState,
     FileIntakeManager,
     UnsupportedEditDocument,
     WindowLayoutManager,

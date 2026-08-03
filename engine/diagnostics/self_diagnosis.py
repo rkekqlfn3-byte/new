@@ -15,16 +15,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from engine.runtime_paths import user_data_path
-from engine.storage.json_store import atomic_write_json, safe_read_json
-from engine.version import runtime_info
 from engine.diagnostics.failure_triage import (
-    DeveloperIssueRegistry,
     DeterministicFailureClassifier,
+    DeveloperIssueRegistry,
     normalize_triage,
     unknown_triage,
 )
-
+from engine.runtime_paths import user_data_path
+from engine.storage.json_store import atomic_write_json, safe_read_json
+from engine.version import runtime_info
 
 INCIDENT_SCHEMA_VERSION = 2
 DEFAULT_INCIDENT_PATH = user_data_path("diagnostic_incidents.json")

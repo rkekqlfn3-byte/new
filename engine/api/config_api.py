@@ -9,13 +9,12 @@ import eel
 
 from engine.core import get_dict_manager
 from engine.runtime_paths import user_data_path
-from engine.version import runtime_info
 from engine.storage.json_store import (
     atomic_write_json,
     get_recovery_events,
     safe_read_json,
 )
-
+from engine.version import runtime_info
 
 logger = logging.getLogger(__name__)
 

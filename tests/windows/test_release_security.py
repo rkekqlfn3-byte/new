@@ -14,7 +14,6 @@ from verification.optimize_distribution import EXCLUDED_BINARIES
 from verification.release_security_audit import audit_default_data, scan_blob
 from verification.runtime_entrypoint import configure_pywin32_dlls
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 

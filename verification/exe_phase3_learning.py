@@ -7,7 +7,6 @@ from pathlib import Path
 from engine.managers.dict_manager import DictionaryManager
 from engine.parser import CommandParser
 
-
 APP_NAME = "시스템"
 MACRO_NAME = "3차_패키지_학습"
 UTTERANCE = "3차 패키지 학습 실행"

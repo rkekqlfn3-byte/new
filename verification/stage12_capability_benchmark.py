@@ -13,6 +13,7 @@ from pathlib import Path
 from engine.builtins import BuiltinMacros
 from engine.llm_engine import LLMEngine
 from engine.managers.dict_manager import DictionaryManager
+from engine.parser import CommandParser
 from engine.parsing.office_command_parser import (
     parse_native_excel_filter_command,
     parse_native_excel_find_replace_command,
@@ -27,8 +28,6 @@ from engine.parsing.office_command_parser import (
     parse_native_hwp_save_command,
     parse_native_hwp_text_format_command,
 )
-from engine.parser import CommandParser
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "stage12_capability_report.json"

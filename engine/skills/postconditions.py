@@ -9,7 +9,6 @@ from typing import Any, Callable
 
 from engine.execution_result import normalize_execution_result
 
-
 PASSED = "passed"
 FAILED = "failed"
 NOT_AVAILABLE = "not_available"

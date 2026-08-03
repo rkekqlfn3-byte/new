@@ -1,6 +1,6 @@
-import unittest
 import threading
 import time
+import unittest
 from types import SimpleNamespace
 
 from engine.edit_mode.selection_overlay import (

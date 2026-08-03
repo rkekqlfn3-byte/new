@@ -19,7 +19,6 @@ from engine.workflow_step_registry import (
     validate_report_workflow_step_recipe,
 )
 
-
 WORKFLOW_SKILL_SCHEMA_VERSION = 4
 DEFAULT_WORKFLOW_SKILL_PATH = user_data_path("business_workflow_skills.json")
 EVIDENCE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")

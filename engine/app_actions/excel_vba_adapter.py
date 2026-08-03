@@ -25,7 +25,6 @@ from engine.app_actions.office_helpers import (
 )
 from engine.runtime_paths import USER_DATA_DIR
 
-
 VBA_DOCUMENT_EXTENSIONS = frozenset({".xlsm", ".xlsb"})
 VBA_OPERATIONS = frozenset({
     "vba_inspect_project",

@@ -4,7 +4,6 @@ import sys
 
 from engine.macro_runner import MacroRunner
 
-
 output_path = pathlib.Path(sys.argv[1])
 result = MacroRunner(timeout=3).run(
     "import sys\nprint('nested-worker:' + sys.argv[1])",

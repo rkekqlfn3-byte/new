@@ -28,12 +28,10 @@ from engine.app_actions.base import (
     AppActionAmbiguousTarget,
     AppActionBlocked,
     AppActionContextChanged,
-    AppActionError,
     AppActionVerificationError,
 )
 from engine.app_actions.excel_adapter import ExcelAdapter
 from engine.decision import DecisionEngine
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "stage12_excel_scenarios_report.json"

@@ -55,7 +55,6 @@ class LLMService:
         config = engine.dict_mgr.get_ai_config()
         provider = config.get("provider", "openai")
         api_key = config.get("api_key", "").strip()
-        routing_mode = config.get("routing_mode", "auto")
 
         system_prompt = "당신은 사용자의 컴퓨터 제어를 돕는 유능한 데스크탑 AI 어시스턴트입니다."
 

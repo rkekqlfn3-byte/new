@@ -12,7 +12,6 @@ from pathlib import Path
 
 from engine.parser import CommandParser
 
-
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "stage12_performance_report.json"
 

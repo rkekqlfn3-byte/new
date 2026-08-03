@@ -4,7 +4,6 @@ import difflib
 import os
 import re
 
-
 _VOLUME_PERCENT_RE = re.compile(
     r"(?:시스템\s*)?(?:볼륨|소리)(?:을|를|은|는)?\s*"
     r"(?:크기(?:를)?\s*)?[\s:=]*(-?\d{1,3})(?!\d)\s*(?:%|퍼센트|프로)?"

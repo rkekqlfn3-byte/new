@@ -1,5 +1,5 @@
-from engine.pipeline.learned_route import execute_learned_route
 from engine.execution_result import failure_result, success_result
+from engine.pipeline.learned_route import execute_learned_route
 
 
 def execute_compound(parser, macro_data, log_callback, image_data, mode):

@@ -7,7 +7,6 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-
 SAFE = "safe"
 CONFIRMATION_REQUIRED = "confirmation_required"
 BLOCKED = "blocked"

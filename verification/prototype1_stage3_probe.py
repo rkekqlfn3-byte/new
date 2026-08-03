@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import gc
 import json
-import os
 import tempfile
 import time
 import uuid
@@ -26,7 +25,6 @@ from engine.edit_mode.native_bridge import (
     _rot_office_reference,
     _same_path,
 )
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "prototype1_stage3_report.json"

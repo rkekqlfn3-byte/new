@@ -38,7 +38,6 @@ from verification.prototype1_stage5_probe import (
 from verification.prototype1_stage6_probe import _OwnedOfficeProvider
 from verification.source_identity import source_identity
 
-
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "prototype1_stage8_report.json"
 APP_TYPES = ("excel", "hwp", "word", "powerpoint")

@@ -23,7 +23,6 @@ from engine.recovery import (
     recovery_target_signature,
 )
 
-
 CLICKABLE_CONTROL_TYPES = frozenset({
     "button", "menuitem", "hyperlink", "listitem", "tabitem",
     "checkbox", "radiobutton", "combobox",

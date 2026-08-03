@@ -4,7 +4,9 @@ import unittest
 from unittest import mock
 
 from engine.action_executor import (
-    ActionConfirmationRequired, ActionExecutor, ActionPlanError,
+    ActionConfirmationRequired,
+    ActionExecutor,
+    ActionPlanError,
 )
 from engine.action_registry import ALLOWED_ACTIONS, action_spec
 from engine.parser import CommandParser

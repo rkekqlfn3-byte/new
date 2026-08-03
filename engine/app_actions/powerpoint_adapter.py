@@ -24,7 +24,6 @@ from engine.app_actions.office_helpers import (
 )
 from engine.app_actions.office_undo_services import PowerPointUndoService
 
-
 MAX_PPT_TEXT_CHARS = 20_000
 PPT_SELECTION_SHAPES = 2
 PPT_SELECTION_TEXT = 3

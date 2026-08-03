@@ -19,7 +19,6 @@ from engine.edit_mode import (
     assert_action_allowed,
 )
 
-
 FINGERPRINT = "A" * 64
 CHANGED_FINGERPRINT = "B" * 64
 

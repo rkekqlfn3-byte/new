@@ -14,7 +14,6 @@ import time
 import uuid
 from datetime import datetime
 
-
 DEFAULT_CONFIRMATION_TTL_SECONDS = 300
 DEFAULT_SESSION_ID = "default"
 OPTION_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")

@@ -25,7 +25,6 @@ from verification.prototype1_stage3_probe import (
     _wait_for_processes,
 )
 
-
 APP_TYPES = ("excel", "hwp", "word", "powerpoint")
 
 

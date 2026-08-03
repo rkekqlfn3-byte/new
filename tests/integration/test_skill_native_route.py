@@ -18,8 +18,7 @@ from engine.execution_result import success_result
 from engine.llm_engine import LLMEngine
 from engine.managers.dict_manager import DictionaryManager
 from engine.parser import CommandParser
-from engine.skills.skill_executor import SkillNativeAppActionUnsupported
-from engine.skills.skill_executor import SkillTargetContractError
+from engine.skills.skill_executor import SkillNativeAppActionUnsupported, SkillTargetContractError
 
 
 def _verified(action="native", message="완료"):

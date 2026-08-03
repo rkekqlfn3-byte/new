@@ -5,17 +5,8 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
-from engine.managers.app_scanner import (
-    is_noise_app_candidate,
-    scan_matching_windows_apps,
-    scan_windows_apps,
-    scan_recent_windows_apps,
-)
-from engine.managers.browser_scanner import scan_chrome_bookmarks
-from engine.managers.macro_manager import MacroManager
-from engine.managers.config_manager import ConfigManager
-from engine.runtime_paths import user_data_path
-from engine.learning_schema import literal_utterances, normalize_learning_metadata
+
+from engine.execution_result import normalize_error_type
 from engine.learning_quality import (
     LEARNED_STATES,
     apply_execution_result,
@@ -23,7 +14,17 @@ from engine.learning_quality import (
     ensure_quality_fields,
     find_trigger_conflicts,
 )
-from engine.execution_result import normalize_error_type
+from engine.learning_schema import literal_utterances, normalize_learning_metadata
+from engine.managers.app_scanner import (
+    is_noise_app_candidate,
+    scan_matching_windows_apps,
+    scan_recent_windows_apps,
+    scan_windows_apps,
+)
+from engine.managers.browser_scanner import scan_chrome_bookmarks
+from engine.managers.config_manager import ConfigManager
+from engine.managers.macro_manager import MacroManager
+from engine.runtime_paths import user_data_path
 from engine.security.launch_policy import is_safe_launch_target
 from engine.skills.run_policy import (
     SkillRunPolicyService,

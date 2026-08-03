@@ -1,12 +1,12 @@
-import os
 import logging
+import os
 import socket
 import sys
 import time
 import traceback
 from pathlib import Path
-from engine.macro_worker import is_macro_worker, run_macro_worker
 
+from engine.macro_worker import is_macro_worker, run_macro_worker
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +35,17 @@ if is_macro_worker():
     sys.exit(run_macro_worker())
 
 import eel
+
 from engine.browser_launcher import (
-    BrowserLaunchError,
     BrowserLauncher,
+    BrowserLaunchError,
     format_browser_failure,
     show_browser_failure,
 )
 from engine.logging_config import configure_logging, redact_text
 from engine.runtime_paths import USER_DATA_DIR, initialize_user_data, resource_path
 from engine.version import runtime_info
+
 
 def _write_startup_error(error):
     if any(

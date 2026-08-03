@@ -12,7 +12,6 @@ from pathlib import Path
 from engine.runtime_paths import USER_DATA_DIR
 from engine.version import APP_VERSION
 
-
 LOG_DIR = Path(USER_DATA_DIR).parent / "logs"
 LOG_PATH = LOG_DIR / "jarvis.log"
 ERROR_LOG_PATH = LOG_DIR / "errors.log"

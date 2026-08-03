@@ -2,7 +2,6 @@
 
 import re
 
-
 ALLOWED_NOUN_TYPES = {"app", "website", "file", "folder", "value", "general"}
 ALLOWED_SLOT_TYPES = {
     "app", "text", "number", "color", "direction", "path", "url", "cell", "value"

@@ -8,8 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from engine.managers.dict_manager import DictionaryManager
 from engine.api import config_api
+from engine.managers.dict_manager import DictionaryManager
 from engine.storage import json_store
 from engine.storage.json_store import atomic_write_json, safe_read_json
 

@@ -8,13 +8,13 @@ unit tests or COM automation.
 from __future__ import annotations
 
 import argparse
-from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timedelta, timezone
 import io
 import json
-from pathlib import Path
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +23,6 @@ if str(ROOT) not in sys.path:
 
 from tests.test_runner import run_tests
 from verification.source_identity import source_identity, source_identity_errors
-
 
 REPORT_PATH = Path(__file__).with_name("product_goal_acceptance_report.json")
 MANUAL_CHECK_IDS = (

@@ -15,7 +15,6 @@ from pathlib import Path
 
 from engine.app_actions.word_adapter import WordAdapter
 from engine.edit_mode import EditContextManager, EditModeController, EditSessionManager
-from engine.edit_mode.context import NativeDocumentContextReader
 from engine.edit_mode.native_bridge import NativeDocumentBridge
 from engine.parser import CommandParser
 from verification.prototype1_stage3_probe import (
@@ -24,7 +23,6 @@ from verification.prototype1_stage3_probe import (
     _wait_for_processes,
 )
 from verification.prototype1_stage6_probe import _NoLayout, _OwnedOfficeProvider, _Registry
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "prototype1_stage7_report.json"

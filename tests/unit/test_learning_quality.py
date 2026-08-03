@@ -3,7 +3,9 @@ import tempfile
 import unittest
 
 from engine.learning_quality import (
-    clean_trigger_list, find_trigger_conflicts, looks_like_internal_trigger,
+    clean_trigger_list,
+    find_trigger_conflicts,
+    looks_like_internal_trigger,
 )
 from engine.managers.dict_manager import DictionaryManager
 from engine.template_matcher import LearnedTemplateMatcher

@@ -22,9 +22,9 @@ from engine.learning import (
     UserPreferenceLearningManager,
 )
 from engine.parser import CommandParser
+from engine.workflow_step_registry import validate_report_workflow_step_recipe
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
-from engine.workflow_step_registry import validate_report_workflow_step_recipe
 from verification.prototype11_stage10_probe import (
     _create_source,
     _process_ids,
@@ -33,7 +33,6 @@ from verification.prototype11_stage10_probe import (
     _wait_for_cleanup,
 )
 from verification.source_identity import source_identity
-
 
 REPORT_PATH = Path(__file__).with_name("prototype11_stage11_report.json")
 

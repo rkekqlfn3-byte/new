@@ -5,6 +5,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+from engine.api import command_api
 from engine.execution_result import (
     ERROR_TYPES,
     EXECUTION_RESULT_FIELDS,
@@ -16,7 +17,6 @@ from engine.execution_result import (
     success_result,
 )
 from engine.execution_runtime import ExecutionController
-from engine.api import command_api
 from engine.macro_runner import build_macro_command
 from engine.macro_worker import MACRO_WORKER_FLAG, run_macro_worker
 from engine.parser import CommandParser

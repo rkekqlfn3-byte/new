@@ -5,10 +5,10 @@ from unittest import mock
 
 from engine.api import command_api
 from engine.app_actions.base import AppActionBlocked, AppActionContextChanged
+from engine.app_actions.registry import AppActionRegistry
 from engine.app_actions.value_normalizer import normalize_range_address
 from engine.decision import DecisionEngine, PreferenceManager
 from engine.execution_runtime import ExecutionController
-from engine.app_actions.registry import AppActionRegistry
 from engine.parser import CommandParser
 from tests.windows.test_excel_core_actions import FakeExcel, adapter_for
 

@@ -1,9 +1,9 @@
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 from verification.source_identity import source_identity, source_identity_errors
 

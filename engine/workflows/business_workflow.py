@@ -11,16 +11,19 @@ import os
 import queue
 import re
 import time
-import uuid
-from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from engine.workflows.workflow_join_services import (
-    ExplicitJoinService,
-    JoinPlanValidator,
+from engine.learning import validate_preference_value
+from engine.runtime_paths import USER_DATA_DIR
+from engine.storage.json_store import atomic_write_json, safe_read_json
+from engine.workflow_step_registry import (
+    WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
+    registered_workflow_step_names,
+    report_workflow_step_order,
+    report_workflow_step_recipe,
 )
 from engine.workflows.excel_analysis_services import (
     ExcelWorkbookAnalysisService,
@@ -32,17 +35,10 @@ from engine.workflows.workflow_execution_services import (
     WorkflowPlanPreparationService,
     WorkflowStepRunService,
 )
-
-from engine.learning import validate_preference_value
-from engine.runtime_paths import USER_DATA_DIR
-from engine.storage.json_store import atomic_write_json, safe_read_json
-from engine.workflow_step_registry import (
-    WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
-    registered_workflow_step_names,
-    report_workflow_step_order,
-    report_workflow_step_recipe,
+from engine.workflows.workflow_join_services import (
+    ExplicitJoinService,
+    JoinPlanValidator,
 )
-
 
 WORKFLOW_SCHEMA_VERSION = 6
 WORKFLOW_STEP_CONTRACT_SCHEMA_VERSION = 1

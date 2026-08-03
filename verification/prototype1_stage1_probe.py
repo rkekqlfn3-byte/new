@@ -29,7 +29,6 @@ import psutil
 
 from engine.version import runtime_info
 
-
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "prototype1_stage1_report.json"
 

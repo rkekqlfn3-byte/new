@@ -7,7 +7,6 @@ import runpy
 import sys
 import traceback
 
-
 MACRO_WORKER_FLAG = "--jarvis-macro-worker"
 
 

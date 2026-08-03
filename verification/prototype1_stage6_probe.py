@@ -6,7 +6,6 @@ import argparse
 import gc
 import json
 import multiprocessing
-import os
 import queue
 import shutil
 import tempfile
@@ -29,7 +28,6 @@ from verification.prototype1_stage3_probe import (
     _wait_for_processes,
 )
 from verification.source_identity import source_identity
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = ROOT / "verification" / "prototype1_stage6_report.json"
@@ -182,7 +180,6 @@ def _probe_word():
         text_verified = str(document.Range(0, len(replacement)).Text) == replacement
 
         stage = "observe_collapsed_word_formatting_correction"
-        post_status = controller.status()
         post_action = dict(
             controller.session_manager.continuation_state(
                 session["session_id"]

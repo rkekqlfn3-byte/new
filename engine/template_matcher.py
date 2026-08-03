@@ -2,7 +2,6 @@
 
 import re
 
-
 SLOT_TOKEN_RE = re.compile(r"\{([0-9a-zA-Z가-힣_]+)\}")
 DIRECTIONS = {
     "왼쪽", "오른쪽", "위", "아래", "가운데", "중앙", "좌측", "우측",
