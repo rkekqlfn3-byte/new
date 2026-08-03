@@ -44,11 +44,11 @@ def pending_candidate():
 
 class SkillLearningServiceTests(unittest.TestCase):
     def test_stage_and_review_keep_code_private(self):
-        owner = SimpleNamespace(
-            pending_macros=[],
-            dict_mgr=SimpleNamespace(macro_dict={}, learned_macros={}),
+        service = SkillLearningService(
+            SimpleNamespace(macro_dict={}, learned_macros={}),
+            mock.Mock(),
+            mock.Mock(),
         )
-        service = SkillLearningService(owner)
 
         service.stage_candidate(pending_candidate())
         review = service.get_pending_review()
@@ -114,15 +114,12 @@ class CandidateRecordingServiceTests(unittest.TestCase):
             manager = NativeActionCandidateManager(
                 os.path.join(temp_dir, "native_action_candidates.json")
             )
-            owner = SimpleNamespace(
-                _native_candidate_manager_injected=True,
-                native_action_candidate_manager=manager,
-                dict_mgr=DictionaryManager(
-                    os.path.join(temp_dir, "dictionaries.json")
-                ),
-                _current_execution_id=lambda: "same-execution",
+            service = CandidateRecordingService(
+                manager,
+                DictionaryManager(os.path.join(temp_dir, "dictionaries.json")),
+                SimpleNamespace(current={"execution_id": "same-execution"}),
+                injected=True,
             )
-            service = CandidateRecordingService(owner)
             learned = {
                 "code": "print('ok')",
                 "verification_status": "user_confirmed",
@@ -147,13 +144,11 @@ class CandidateRecordingServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="jarvis-candidate-service-") as temp_dir:
             stale = os.path.join(temp_dir, "stale", "candidate.json")
             dictionary_path = os.path.join(temp_dir, "active", "dictionaries.json")
-            owner = SimpleNamespace(
-                _native_candidate_manager_injected=False,
-                native_action_candidate_manager=NativeActionCandidateManager(stale),
-                dict_mgr=DictionaryManager(dictionary_path),
-                _current_execution_id=lambda: "",
+            service = CandidateRecordingService(
+                NativeActionCandidateManager(stale),
+                DictionaryManager(dictionary_path),
+                SimpleNamespace(current=None),
             )
-            service = CandidateRecordingService(owner)
 
             selected = service.manager()
 

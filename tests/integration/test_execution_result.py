@@ -6,7 +6,14 @@ import unittest
 from unittest.mock import patch
 
 from engine.execution_result import (
-    ERROR_TYPES, failure_result, normalize_execution_result, success_result,
+    ERROR_TYPES,
+    EXECUTION_RESULT_FIELDS,
+    ExecutionResult,
+    execution_result_contract_errors,
+    failure_result,
+    is_execution_result,
+    normalize_execution_result,
+    success_result,
 )
 from engine.execution_runtime import ExecutionController
 from engine.api import command_api
@@ -22,15 +29,100 @@ class ExecutionResultContractTests(unittest.TestCase):
             "실패", action="test", error_type="target_not_found",
             failed_step=2, retryable=True,
         )
-        required = {
-            "success", "message", "action", "target", "verified", "status",
-            "error_type", "failed_step", "retryable", "data",
-        }
-        self.assertTrue(required.issubset(success))
-        self.assertTrue(required.issubset(failure))
+        self.assertTrue(EXECUTION_RESULT_FIELDS.issubset(success))
+        self.assertTrue(EXECUTION_RESULT_FIELDS.issubset(failure))
+        self.assertTrue(is_execution_result(success))
+        self.assertTrue(is_execution_result(failure))
         self.assertTrue(success["success"])
         self.assertFalse(failure["success"])
         self.assertEqual("target_not_found", failure["error_type"])
+
+    def test_malformed_legacy_mapping_fails_closed_at_the_boundary(self):
+        result = normalize_execution_result({
+            "success": 1,
+            "message": 123,
+            "verified": 0,
+            "data": ["legacy"],
+            "error_type": "execution_error",
+        })
+
+        self.assertTrue(is_execution_result(result))
+        self.assertFalse(result["success"])
+        self.assertFalse(result["verified"])
+        self.assertEqual("contract_error", result["error_type"])
+        self.assertIn("success_not_bool", result["data"]["contract_errors"])
+        self.assertIn("verified_not_bool", result["data"]["contract_errors"])
+        self.assertIn("data_not_mapping", result["data"]["contract_errors"])
+
+    def test_incomplete_but_typed_mapping_is_canonicalized(self):
+        result = normalize_execution_result({
+            "success": True,
+            "message": "완료",
+        })
+
+        self.assertTrue(is_execution_result(result))
+        self.assertTrue(result["success"])
+        self.assertFalse(result["verified"])
+        self.assertEqual("success", result["status"])
+
+    def test_string_booleans_and_contradictory_status_fail_closed(self):
+        cases = [
+            {
+                "success": "false", "message": "실패", "verified": "false",
+                "status": "failed", "error_type": "execution_error",
+            },
+            {
+                "success": True, "message": "모순", "verified": True,
+                "status": "failed", "error_type": None,
+            },
+            {
+                "success": False, "message": "모순", "verified": True,
+                "status": "failed", "error_type": "execution_error",
+            },
+            {
+                "success": False, "message": "알 수 없는 오류", "verified": False,
+                "status": "failed", "error_type": "invented_error",
+            },
+            {
+                "success": False, "message": "잘못된 상태", "verified": False,
+                "status": None, "error_type": "execution_error",
+            },
+        ]
+        for raw in cases:
+            with self.subTest(raw=raw):
+                result = normalize_execution_result(raw)
+                self.assertFalse(result["success"])
+                self.assertFalse(result["verified"])
+                self.assertEqual("contract_error", result["error_type"])
+
+    def test_result_constructor_and_helpers_reject_non_boolean_fields(self):
+        with self.assertRaisesRegex(TypeError, "success_not_bool"):
+            ExecutionResult("false", "실패")
+        with self.assertRaisesRegex(TypeError, "verified_not_bool"):
+            success_result("완료", verified="yes")
+        with self.assertRaisesRegex(TypeError, "retryable_not_bool"):
+            failure_result("실패", retryable=1)
+
+    def test_result_helpers_reject_contradictory_reserved_overrides(self):
+        with self.assertRaisesRegex(ValueError, "failure_status_is_success"):
+            success_result("모순", status="failed")
+        with self.assertRaisesRegex(ValueError, "non_terminal_result_is_success"):
+            success_result("모순", status="confirmation_required")
+
+    def test_contract_reports_non_terminal_policy_violations(self):
+        invalid = success_result("대기", verified=True)
+        invalid["success"] = False
+        invalid["status"] = "confirmation_required"
+        invalid["error_type"] = "execution_error"
+
+        self.assertEqual(
+            (
+                "failed_result_is_verified",
+                "non_terminal_result_has_error_type",
+                "non_terminal_result_is_verified",
+            ),
+            execution_result_contract_errors(invalid),
+        )
 
     def test_legacy_text_is_only_normalized_at_compatibility_boundary(self):
         result = normalize_execution_result("외부 플러그인 응답")
@@ -95,7 +187,7 @@ class ExecutionResultContractTests(unittest.TestCase):
 
     def test_error_taxonomy_is_closed(self):
         self.assertEqual({
-            "validation_error", "verification_error", "execution_error",
+            "contract_error", "validation_error", "verification_error", "execution_error",
             "timeout", "target_not_found", "user_cancelled",
             "environment_error", "busy", "unknown",
         }, set(ERROR_TYPES))

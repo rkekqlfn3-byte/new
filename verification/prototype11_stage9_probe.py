@@ -21,6 +21,7 @@ from engine.app_actions.excel_vba_adapter import (
     analyze_vba_code,
     vba_trust_status,
 )
+from verification.source_identity import source_identity
 
 
 REPORT_PATH = Path(__file__).with_name("prototype11_stage9_report.json")
@@ -360,6 +361,7 @@ def run_probe(timeout=180):
         result.setdefault("stage", "owned_process_cleanup")
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": source_identity(),
         "probe": "prototype11_stage9_excel_vba",
         "success": result["status"] == "passed",
         "user_documents_modified": False,

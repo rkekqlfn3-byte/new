@@ -171,11 +171,6 @@ class ConfirmationExecutionRuntimeTests(unittest.TestCase):
 
 
 class ConfirmationResponseHandlerTests(unittest.TestCase):
-    class Owner:
-        def __init__(self, manager, controller):
-            self.pending_confirmation_manager = manager
-            self.execution_controller = controller
-
     def test_text_response_consumes_once_before_domain_execution(self):
         manager = PendingConfirmationManager()
         controller = mock.Mock()
@@ -188,7 +183,7 @@ class ConfirmationResponseHandlerTests(unittest.TestCase):
             options=_options(),
             payload={"kind": "demo"},
         )
-        handler = ConfirmationResponseHandler(self.Owner(manager, controller))
+        handler = ConfirmationResponseHandler(manager, controller)
 
         first = handler.resolve_selection("handler-session", user_text="네")
         duplicate = handler.resolve_selection(
@@ -214,7 +209,7 @@ class ConfirmationResponseHandlerTests(unittest.TestCase):
             message="계속할까요?",
             options=_options(),
         )
-        handler = ConfirmationResponseHandler(self.Owner(manager, controller))
+        handler = ConfirmationResponseHandler(manager, controller)
 
         waiting = handler.resolve_selection(
             "handler-session", user_text="무슨 말인지 모르겠어"
@@ -241,7 +236,7 @@ class ConfirmationResponseHandlerTests(unittest.TestCase):
             message="continue?",
             options=_options(),
         )
-        handler = ConfirmationResponseHandler(self.Owner(manager, controller))
+        handler = ConfirmationResponseHandler(manager, controller)
 
         result = handler.resolve_selection(
             "handler-session", confirmation_id=record["confirmation_id"], option_id="continue"
@@ -267,12 +262,11 @@ class ConfirmationResponseHandlerTests(unittest.TestCase):
 class ConfirmationApiFlowTests(unittest.TestCase):
     @staticmethod
     def _parser(temp_dir):
-        parser = CommandParser()
-        parser.execution_controller = ExecutionController(
-            os.path.join(temp_dir, "diagnostics.json")
+        parser = CommandParser(
+            execution_controller=ExecutionController(
+                os.path.join(temp_dir, "diagnostics.json")
+            )
         )
-        parser.action_executor.controller = parser.execution_controller
-        parser.macro_runner.controller = parser.execution_controller
         return parser
 
     def test_demo_confirmation_text_and_button_flow_are_one_shot(self):

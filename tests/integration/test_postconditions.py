@@ -176,7 +176,7 @@ class PostconditionEvaluatorTests(unittest.TestCase):
         owner = SimpleNamespace(
             action_executor=SimpleNamespace(ui_automation=uia)
         )
-        summary = PostconditionEvaluator(owner).evaluate(
+        summary = PostconditionEvaluator(owner.action_executor).evaluate(
             _success(),
             route="uia",
             conditions=[
@@ -218,7 +218,9 @@ class SkillPostconditionIntegrationTests(unittest.TestCase):
             os.path.join(self.temp_dir.name, "dictionaries.json")
         )
         self.parser.llm_engine = LLMEngine(self.parser.dict_mgr)
-        self.parser.builtins = BuiltinMacros(self.parser.dict_mgr, self.parser)
+        self.parser.builtins = BuiltinMacros(
+            self.parser.dict_mgr, self.parser.action_executor
+        )
         self.parser.action_executor.noun_dict = self.parser.dict_mgr.noun_dict
         self.executor = self.parser.skill_executor
 

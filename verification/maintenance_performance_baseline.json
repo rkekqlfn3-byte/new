@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "probe": "maintenance_performance_baseline",
+  "generated_at": "2026-07-29T20:48:24+09:00",
+  "environment": {
+    "os": "Windows",
+    "os_release": "11",
+    "python": "3.12.10",
+    "machine": "AMD64"
+  },
+  "metrics": {
+    "startup_preflight": {
+      "iterations": 3,
+      "median_ms": 1218.7445,
+      "p95_ms": 1400.5822,
+      "max_ms": 1400.5822
+    },
+    "parser_initialization": {
+      "iterations": 7,
+      "median_ms": 33.4089,
+      "p95_ms": 37.0355,
+      "max_ms": 37.0355
+    },
+    "local_parse": {
+      "iterations": 500,
+      "median_ms": 0.1028,
+      "p95_ms": 0.2408,
+      "max_ms": 4.3009
+    },
+    "local_command": {
+      "iterations": 200,
+      "median_ms": 0.0158,
+      "p95_ms": 0.0412,
+      "max_ms": 1.5588
+    },
+    "execution_result_normalize": {
+      "iterations": 5000,
+      "median_ms": 0.002,
+      "p95_ms": 0.0022,
+      "max_ms": 1.4491
+    },
+    "atomic_json_write": {
+      "iterations": 30,
+      "median_ms": 6.8457,
+      "p95_ms": 16.4852,
+      "max_ms": 17.2882
+    }
+  },
+  "sizes": {
+    "tracked_source_files": 402,
+    "tracked_source_bytes": 4397683,
+    "engine_python_files": 155,
+    "engine_python_bytes": 1972305
+  }
+}

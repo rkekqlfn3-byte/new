@@ -19,6 +19,7 @@ import psutil
 from engine.edit_mode.stage10 import StructuredWorkflowIntentAnalyzer
 from engine.workflows import WorkflowExecutor
 from engine.workflows.business_workflow import file_fingerprint
+from verification.source_identity import source_identity
 
 
 REPORT_PATHS = {
@@ -1021,6 +1022,7 @@ def run_probe(timeout=240, report_format="word"):
         result.setdefault("stage", "owned_process_cleanup")
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": source_identity(),
         "probe": "prototype11_stage10_document_workflow",
         "report_format": report_format,
         "success": result["status"] == "passed",

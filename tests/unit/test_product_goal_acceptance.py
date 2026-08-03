@@ -15,11 +15,20 @@ from verification.product_goal_acceptance import (
 
 
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
+TEST_SOURCE = {
+    "identity_version": 1,
+    "commit": "a" * 40,
+    "branch": "test",
+    "dirty": True,
+    "tree_hash": "b" * 64,
+    "changed_paths_hash": "c" * 64,
+}
 
 
 def probe_report(spec, *, success=True, generated_at=NOW, checks=True):
     report = {
         "generated_at": generated_at.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": dict(TEST_SOURCE),
         "probe": spec["probe"],
         "success": success,
         "user_documents_modified": False,
@@ -116,6 +125,34 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             validate_probe_report(failed, spec, now=NOW, max_age_hours=168),
         )
 
+    def test_probe_validation_rejects_missing_or_different_source_identity(self):
+        spec = PROBE_SPECS["workflow_hwp"]
+        missing = probe_report(spec)
+        missing.pop("source")
+        self.assertIn(
+            "probe_source_identity_missing",
+            validate_probe_report(
+                missing,
+                spec,
+                now=NOW,
+                max_age_hours=168,
+                expected_source=TEST_SOURCE,
+            ),
+        )
+
+        changed = probe_report(spec)
+        changed["source"]["tree_hash"] = "d" * 64
+        self.assertIn(
+            "probe_source_tree_hash_mismatch",
+            validate_probe_report(
+                changed,
+                spec,
+                now=NOW,
+                max_age_hours=168,
+                expected_source=TEST_SOURCE,
+            ),
+        )
+
     def test_probe_validation_rejects_success_when_one_app_was_skipped(self):
         spec = PROBE_SPECS["native_excel_hwp"]
         report = probe_report(spec)
@@ -171,6 +208,7 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
                 "failures": 0, "errors": 0, "skipped": 3,
             },
             now=NOW,
+            expected_source=TEST_SOURCE,
         )
 
         self.assertTrue(report["automated_passed"])
@@ -180,6 +218,10 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(
             set(MANUAL_CHECK_IDS), set(report["manual_acceptance"])
+        )
+        self.assertEqual(
+            "not_automated",
+            report["goal_axes"]["novice_accessibility"]["automated_status"],
         )
 
     def test_only_explicit_manual_passes_complete_acceptance(self):
@@ -199,6 +241,7 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             test_summary={"status": "passed"},
             manual_evidence=manual,
             now=NOW,
+            expected_source=TEST_SOURCE,
         )
 
         self.assertTrue(report["manual_passed"])
@@ -215,6 +258,7 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             report_dir=self.root,
             test_summary={"status": "passed"},
             now=NOW,
+            expected_source=TEST_SOURCE,
         )
 
         self.assertFalse(report["automated_passed"])
@@ -238,6 +282,7 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             report_dir=self.root,
             test_summary={"status": "passed"},
             now=NOW,
+            expected_source=TEST_SOURCE,
         )
 
         self.assertFalse(report["automated_passed"])
@@ -273,6 +318,7 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             report_dir=self.root,
             test_summary={"status": "passed"},
             now=NOW,
+            expected_source=TEST_SOURCE,
         )
 
         self.assertFalse(report["environment_blocked"])

@@ -28,7 +28,9 @@ class SkillExecutorTests(unittest.TestCase):
             os.path.join(self.temp_dir.name, "dictionaries.json")
         )
         self.parser.llm_engine = LLMEngine(self.parser.dict_mgr)
-        self.parser.builtins = BuiltinMacros(self.parser.dict_mgr, self.parser)
+        self.parser.builtins = BuiltinMacros(
+            self.parser.dict_mgr, self.parser.action_executor
+        )
         self.parser.action_executor.noun_dict = self.parser.dict_mgr.noun_dict
 
     def tearDown(self):
@@ -189,7 +191,9 @@ class SkillExecutorEntryPointTests(unittest.TestCase):
             os.path.join(self.temp_dir.name, "dictionaries.json")
         )
         self.parser.llm_engine = LLMEngine(self.parser.dict_mgr)
-        self.parser.builtins = BuiltinMacros(self.parser.dict_mgr, self.parser)
+        self.parser.builtins = BuiltinMacros(
+            self.parser.dict_mgr, self.parser.action_executor
+        )
         self.parser.action_executor.noun_dict = self.parser.dict_mgr.noun_dict
         self.completed = success_result(
             "완료",
@@ -257,6 +261,7 @@ class SkillExecutorEntryPointTests(unittest.TestCase):
             self.parser.skill_executor, "execute", return_value=self.completed
         ) as execute:
             waiting = self.parser.ai_action_handler.execute_batch(
+                self.parser,
                 "실행합니다.", actions, [], "공통 실행 테스트",
                 session_id="skill-entry-policy",
             )

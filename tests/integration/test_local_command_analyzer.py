@@ -18,7 +18,14 @@ class LocalCommandAnalyzerTests(unittest.TestCase):
         self.assertIsInstance(
             self.parser.local_command_analyzer, LocalCommandAnalyzer
         )
-        self.assertIs(self.parser, self.parser.local_command_analyzer.owner)
+        self.assertIs(
+            self.parser.dict_mgr, self.parser.local_command_analyzer.dict_mgr
+        )
+        self.assertIs(
+            self.parser.template_matcher,
+            self.parser.local_command_analyzer.template_matcher,
+        )
+        self.assertFalse(hasattr(self.parser.local_command_analyzer, "owner"))
 
     def test_public_analysis_delegates_to_local_analyzer(self):
         expected = {"kind": "single", "executable": False}

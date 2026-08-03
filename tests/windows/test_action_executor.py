@@ -349,7 +349,7 @@ class ActionPlanLearningTests(unittest.TestCase):
         parser = CommandParser()
         parser.dict_mgr = DictionaryManager(path)
         parser.llm_engine = LLMEngine(parser.dict_mgr)
-        parser.builtins = BuiltinMacros(parser.dict_mgr, parser)
+        parser.builtins = BuiltinMacros(parser.dict_mgr, parser.action_executor)
         return parser
 
     def test_learned_plan_reuses_new_slots_without_ai_or_python(self):

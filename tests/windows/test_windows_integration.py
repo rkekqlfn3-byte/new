@@ -23,7 +23,9 @@ from engine.system_volume import adjust_system_volume, set_system_volume
 @unittest.skipUnless(os.name == "nt", "Windows-only integration tests")
 class WindowsBuiltinIntegrationTests(unittest.TestCase):
     def setUp(self):
-        self.builtins = BuiltinMacros(dict_mgr=mock.Mock(), parser=mock.Mock())
+        self.builtins = BuiltinMacros(
+            dict_mgr=mock.Mock(), action_executor=mock.Mock()
+        )
 
     def test_close_kills_only_the_unique_background_process(self):
         ping = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "ping.exe")

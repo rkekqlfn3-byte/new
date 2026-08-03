@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 from typing import Callable
@@ -27,6 +26,8 @@ DEFAULT_REPORT = Path(__file__).with_name("utterance_acceptance_report.json")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from verification.source_identity import source_identity
+
 
 @dataclass(frozen=True)
 class AcceptanceCase:
@@ -35,23 +36,6 @@ class AcceptanceCase:
     text: str
     expected: str
     evaluate: Callable[[object, str], bool]
-
-
-def _git_source() -> dict:
-    def run(*args: str) -> str:
-        completed = subprocess.run(
-            ["git", *args], cwd=ROOT, check=True, capture_output=True, text=True
-        )
-        return completed.stdout.strip()
-
-    try:
-        return {
-            "commit": run("rev-parse", "HEAD"),
-            "branch": run("branch", "--show-current"),
-            "dirty": bool(run("status", "--porcelain")),
-        }
-    except (OSError, subprocess.SubprocessError):
-        return {"commit": None, "branch": None, "dirty": None}
 
 
 def _make_parser(data_dir: Path):
@@ -78,7 +62,7 @@ def _make_parser(data_dir: Path):
     ), mock.patch("engine.parser.PreferenceManager", return_value=preference_manager):
         parser = CommandParser()
     parser.llm_engine = LLMEngine(parser.dict_mgr)
-    parser.builtins = BuiltinMacros(parser.dict_mgr, parser)
+    parser.builtins = BuiltinMacros(parser.dict_mgr, parser.action_executor)
     parser.action_executor.noun_dict = parser.dict_mgr.noun_dict
     parser.dict_mgr.noun_dict = {
         "메모장": "notepad.exe",
@@ -416,7 +400,7 @@ def run_battery(report_path: Path | None = None) -> dict:
         "schema_version": 1,
         "probe": "prototype_goal_1000_utterance_acceptance",
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-        "source": _git_source(),
+        "source": source_identity(ROOT),
         "isolated_data_directory": True,
         "case_count": len(cases),
         "category_counts": actual_counts,

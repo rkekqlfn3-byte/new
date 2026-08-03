@@ -77,7 +77,7 @@ class ParserRouterTests(unittest.TestCase):
         parser.dict_mgr = DictionaryManager(path)
         parser.dict_mgr.ai_config["routing_mode"] = routing_mode
         parser.llm_engine = LLMEngine(parser.dict_mgr)
-        parser.builtins = BuiltinMacros(parser.dict_mgr, parser)
+        parser.builtins = BuiltinMacros(parser.dict_mgr, parser.action_executor)
         return parser
 
     def test_local_only_unknown_command_never_calls_ai(self):

@@ -21,7 +21,9 @@ class AIActionHandlerBoundaryTests(unittest.TestCase):
             os.path.join(self.temp_dir.name, "dictionaries.json")
         )
         self.parser.llm_engine = LLMEngine(self.parser.dict_mgr)
-        self.parser.builtins = BuiltinMacros(self.parser.dict_mgr, self.parser)
+        self.parser.builtins = BuiltinMacros(
+            self.parser.dict_mgr, self.parser.action_executor
+        )
         self.parser.action_executor.noun_dict = self.parser.dict_mgr.noun_dict
 
     def tearDown(self):
@@ -47,7 +49,8 @@ class AIActionHandlerBoundaryTests(unittest.TestCase):
         self.assertIsInstance(self.parser.ai_action_handler, AIActionHandler)
         self.assertEqual("분리된 처리기에서 완료했습니다.", result["message"])
         handle.assert_called_once()
-        self.assertIs(llm_result, handle.call_args.args[0])
+        self.assertIs(self.parser, handle.call_args.args[0])
+        self.assertIs(llm_result, handle.call_args.args[1])
 
     def test_blocked_dynamic_action_cannot_bypass_handler_preflight(self):
         result = {
@@ -78,6 +81,7 @@ class AIActionHandlerBoundaryTests(unittest.TestCase):
 
         with mock.patch.object(self.parser.macro_runner, "run") as run:
             blocked = self.parser.ai_action_handler.handle_result(
+                self.parser,
                 result,
                 "레지스트리 변경",
                 session_id="ai-handler-security",
@@ -111,7 +115,9 @@ class AIActionHandlerBoundaryTests(unittest.TestCase):
             }],
         }
 
-        _, actions, issues = self.parser.ai_action_handler.validate_result(result)
+        _, actions, issues = self.parser.ai_action_handler.validate_result(
+            self.parser, result
+        )
 
         self.assertEqual([], issues)
         plan = actions[0]["plan"]

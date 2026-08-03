@@ -526,6 +526,42 @@ class ExcelParserConfirmationFlowTests(unittest.TestCase):
         self.assertTrue(completed["success"])
         self.assertEqual("최종 값", excel.ActiveSheet.Range("A1").Value2)
 
+    def test_repeated_target_changes_require_a_fresh_confirmation_each_time(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-excel-write-") as temp_dir:
+            excel = FakeExcel()
+            excel.ActiveSheet.Range("A1").Value2 = "처음"
+            parser = self._parser(temp_dir, excel)
+            with mock.patch.object(command_api, "parser", parser):
+                first = command_api.parse_command(
+                    "엑셀 A1에 최종 값을 입력해줘", session_id="excel-repeat"
+                )
+                first_id = first["data"]["confirmation"]["confirmation_id"]
+                excel.ActiveSheet.Range("A1").Value2 = "첫 번째 외부 변경"
+                second = command_api.resolve_confirmation(
+                    first_id, "write", "excel-repeat"
+                )
+                second_id = second["data"]["confirmation"]["confirmation_id"]
+                self.assertEqual("첫 번째 외부 변경", excel.ActiveSheet.Range("A1").Value2)
+
+                excel.ActiveSheet.Range("A1").Value2 = "두 번째 외부 변경"
+                third = command_api.resolve_confirmation(
+                    second_id, "write", "excel-repeat"
+                )
+                third_id = third["data"]["confirmation"]["confirmation_id"]
+                self.assertEqual("두 번째 외부 변경", excel.ActiveSheet.Range("A1").Value2)
+
+                completed = command_api.resolve_confirmation(
+                    third_id, "write", "excel-repeat"
+                )
+
+        self.assertEqual("confirmation_required", second["status"])
+        self.assertEqual("confirmation_required", third["status"])
+        self.assertEqual("context_changed", second["data"]["confirmation"]["reason"])
+        self.assertEqual("context_changed", third["data"]["confirmation"]["reason"])
+        self.assertEqual(3, len({first_id, second_id, third_id}))
+        self.assertTrue(completed["success"])
+        self.assertEqual("최종 값", excel.ActiveSheet.Range("A1").Value2)
+
     def test_cancel_leaves_existing_cell_unchanged(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-excel-write-") as temp_dir:
             excel = FakeExcel()

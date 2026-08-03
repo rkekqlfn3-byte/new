@@ -18,6 +18,7 @@ from engine.workflows import (
     HwpSecurityModuleUnavailable,
     HwpWorkflowTimeout,
 )
+from verification.source_identity import source_identity
 
 
 REPORT_PATH = Path(__file__).with_name(
@@ -192,6 +193,7 @@ def run_probe(timeout=90) -> dict:
         result["status"] = "failed"
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": source_identity(),
         "probe": "prototype11_hwp_workflow_watchdog",
         "success": result.get("status") == "passed",
         "user_documents_modified": False,

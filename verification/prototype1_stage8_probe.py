@@ -36,6 +36,7 @@ from verification.prototype1_stage5_probe import (
     _stop_created_processes,
 )
 from verification.prototype1_stage6_probe import _OwnedOfficeProvider
+from verification.source_identity import source_identity
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -797,6 +798,7 @@ def run_probe(apps=APP_TYPES, timeout=None):
     )
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": source_identity(ROOT),
         "probe": "prototype1_stage8_four_app_stability",
         "success": all(item["status"] == "passed" for item in attempted),
         "prototype_1_0_ready": all_four_passed,

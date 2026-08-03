@@ -201,7 +201,7 @@ class Stage11UserLearningFlowTests(unittest.TestCase):
         self.assertEqual("confirmation_required", preview["status"])
         self.assertIn("적용할 학습 기본값", preview["message"])
         self.assertIn("글자 강조=굵게", preview["message"])
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage11-chat"
         )
         prepared = pending["payload"]["prepared_action"]
@@ -344,7 +344,7 @@ class Stage11VbaPreferenceFlowTests(unittest.TestCase):
                 },
             )
             self.assertEqual("confirmation_required", result["status"])
-            pending = parser.pending_confirmation_manager.active_record("stage11-vba")
+            pending = parser.confirmations.pending.active_record("stage11-vba")
             prepared = pending["payload"]["prepared_action"]
             self.assertEqual(
                 "fix_last_row",
@@ -468,7 +468,7 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
 
             self.assertEqual("confirmation_required", result["status"])
             self.assertIn("학습 기본값 가운데 정렬", result["message"])
-            pending = parser.pending_confirmation_manager.active_record(
+            pending = parser.confirmations.pending.active_record(
                 "stage11-formatting-word"
             )
             prepared = pending["payload"]["prepared_action"]
@@ -491,7 +491,7 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
             )
 
             self.assertEqual("confirmation_required", result["status"])
-            pending = parser.pending_confirmation_manager.active_record(
+            pending = parser.confirmations.pending.active_record(
                 "stage11-formatting-powerpoint"
             )
             prepared = pending["payload"]["prepared_action"]
@@ -517,7 +517,7 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
                 "confirmation_required", result["status"], result
             )
             self.assertIn("학습 기본값 작게", result["message"])
-            pending = parser.pending_confirmation_manager.active_record(
+            pending = parser.confirmations.pending.active_record(
                 "stage11-formatting-hwp"
             )
             prepared = pending["payload"]["prepared_action"]
@@ -571,7 +571,7 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
                     self.assertEqual(
                         "confirmation_required", result["status"], result
                     )
-                    pending = parser.pending_confirmation_manager.active_record(
+                    pending = parser.confirmations.pending.active_record(
                         "stage11-formatting-hwp"
                     )
                     prepared = pending["payload"]["prepared_action"]
@@ -598,7 +598,7 @@ class Stage11CrossAppLearningFlowTests(unittest.TestCase):
             )
 
             self.assertEqual("confirmation_required", result["status"])
-            pending = parser.pending_confirmation_manager.active_record(
+            pending = parser.confirmations.pending.active_record(
                 "stage11-formatting-word"
             )
             prepared = pending["payload"]["prepared_action"]

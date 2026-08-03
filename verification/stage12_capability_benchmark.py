@@ -13,6 +13,20 @@ from pathlib import Path
 from engine.builtins import BuiltinMacros
 from engine.llm_engine import LLMEngine
 from engine.managers.dict_manager import DictionaryManager
+from engine.parsing.office_command_parser import (
+    parse_native_excel_filter_command,
+    parse_native_excel_find_replace_command,
+    parse_native_excel_format_command,
+    parse_native_excel_range_format_command,
+    parse_native_excel_sort_command,
+    parse_native_excel_sum_command,
+    parse_native_excel_write_command,
+    parse_native_hwp_find_replace_command,
+    parse_native_hwp_insert_command,
+    parse_native_hwp_paragraph_format_command,
+    parse_native_hwp_save_command,
+    parse_native_hwp_text_format_command,
+)
 from engine.parser import CommandParser
 
 
@@ -186,23 +200,23 @@ def route(parser, text):
     if text in {"확인 카드 테스트", "확인카드 테스트"}:
         return "confirmation_demo"
     for function in (
-        parser._parse_native_excel_write_command,
-        parser._parse_native_excel_sum_command,
-        parser._parse_native_excel_format_command,
-        parser._parse_native_excel_range_format_command,
-        parser._parse_native_excel_filter_command,
-        parser._parse_native_excel_find_replace_command,
-        parser._parse_native_excel_sort_command,
+        parse_native_excel_write_command,
+        parse_native_excel_sum_command,
+        parse_native_excel_format_command,
+        parse_native_excel_range_format_command,
+        parse_native_excel_filter_command,
+        parse_native_excel_find_replace_command,
+        parse_native_excel_sort_command,
     ):
         request = function(text)
         if request:
             return f"native_excel:{request['operation']}"
     for function in (
-        parser._parse_native_hwp_find_replace_command,
-        parser._parse_native_hwp_text_format_command,
-        parser._parse_native_hwp_paragraph_format_command,
-        parser._parse_native_hwp_insert_command,
-        parser._parse_native_hwp_save_command,
+        parse_native_hwp_find_replace_command,
+        parse_native_hwp_text_format_command,
+        parse_native_hwp_paragraph_format_command,
+        parse_native_hwp_insert_command,
+        parse_native_hwp_save_command,
     ):
         request = function(text)
         if request:
@@ -255,8 +269,14 @@ def main():
     with tempfile.TemporaryDirectory(prefix="jarvis-stage12-capability-") as temp_dir:
         parser = CommandParser()
         parser.dict_mgr = DictionaryManager(os.path.join(temp_dir, "dictionaries.json"))
+        # Keep the offline route benchmark deterministic even when the host's
+        # application scan has not populated a fresh isolated dictionary.
+        parser.dict_mgr.noun_dict.update({
+            "메모장": r"C:\Windows\System32\notepad.exe",
+            "계산기": r"C:\Windows\System32\calc.exe",
+        })
         parser.llm_engine = LLMEngine(parser.dict_mgr)
-        parser.builtins = BuiltinMacros(parser.dict_mgr, parser)
+        parser.builtins = BuiltinMacros(parser.dict_mgr, parser.action_executor)
         parser.action_executor.noun_dict = parser.dict_mgr.noun_dict
         install_learned_benchmark_macros(parser)
 

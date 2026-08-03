@@ -58,7 +58,7 @@ class LearningLoopTests(unittest.TestCase):
         parser = CommandParser()
         parser.dict_mgr = DictionaryManager(path)
         parser.llm_engine = LLMEngine(parser.dict_mgr)
-        parser.builtins = BuiltinMacros(parser.dict_mgr, parser)
+        parser.builtins = BuiltinMacros(parser.dict_mgr, parser.action_executor)
         return parser
 
     def test_approved_sentence_runs_locally_next_time_with_saved_target(self):

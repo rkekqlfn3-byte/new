@@ -473,7 +473,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "1번 후보로 왼쪽 조인해서 Word 보고서와 5장 PPT 만들어줘",
             "stage10-numbered-candidate-preview",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"][
@@ -686,7 +686,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "Word 보고서만 만들어줘",
             "stage10-report-only-create",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"][
@@ -751,7 +751,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "PPT만 7장으로 만들어줘",
             "stage10-presentation-only-create",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"][
@@ -872,7 +872,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "지난번처럼 한글 보고서와 7장짜리 PPT로 해줘",
             "workflow-skill-explicit-override",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
@@ -923,7 +923,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "현재 엑셀을 한글 보고서와 발표자료 7장으로 정리해줘",
             "contextual-workflow-explicit",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
@@ -945,7 +945,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "선택한 범위만 분석해서 Word 보고서와 5장짜리 PPT 만들어줘",
             "selection-scope",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
@@ -1004,7 +1004,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "Word 보고서와 5장짜리 PPT 만들어줘",
             "join-complete",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
@@ -1043,7 +1043,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "5장짜리 PPT 만들어줘",
             "join-aggregate",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]
@@ -1081,7 +1081,7 @@ class Stage10WorkflowFlowTests(unittest.TestCase):
             "보고서와 5장짜리 PPT 만들어줘",
             "join-multi-aggregate",
         )
-        pending = self.parser.pending_confirmation_manager.active_record(
+        pending = self.parser.confirmations.pending.active_record(
             "stage10-chat"
         )
         plan = pending["payload"]["prepared_action"]["arguments"]["workflow_plan"]

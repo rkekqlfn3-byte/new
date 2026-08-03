@@ -32,6 +32,7 @@ from verification.prototype11_stage10_probe import (
     _verify_word,
     _wait_for_cleanup,
 )
+from verification.source_identity import source_identity
 
 
 REPORT_PATH = Path(__file__).with_name("prototype11_stage11_report.json")
@@ -986,6 +987,7 @@ def run_probe(timeout=240):
         result.setdefault("stage", "owned_process_cleanup")
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": source_identity(),
         "probe": "prototype11_stage11_user_preference_learning",
         "success": result["status"] == "passed",
         "user_documents_modified": False,

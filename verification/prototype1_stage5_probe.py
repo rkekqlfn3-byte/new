@@ -28,6 +28,7 @@ from verification.prototype1_stage3_probe import (
     _process_ids,
     _wait_for_processes,
 )
+from verification.source_identity import source_identity
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -554,6 +555,7 @@ def run_probe(apps=("excel", "hwp")) -> dict:
     ]
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "source": source_identity(ROOT),
         "probe": "prototype1_stage5_owned_fixture_editing",
         "success": all(value["status"] == "passed" for value in attempted),
         "user_documents_modified": False,

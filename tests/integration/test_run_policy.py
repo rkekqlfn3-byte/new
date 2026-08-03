@@ -121,7 +121,9 @@ class RunPolicyIntegrationTests(unittest.TestCase):
         self.parser = CommandParser()
         self.parser.dict_mgr = DictionaryManager(self.path)
         self.parser.llm_engine = LLMEngine(self.parser.dict_mgr)
-        self.parser.builtins = BuiltinMacros(self.parser.dict_mgr, self.parser)
+        self.parser.builtins = BuiltinMacros(
+            self.parser.dict_mgr, self.parser.action_executor
+        )
         self.parser.action_executor.noun_dict = self.parser.dict_mgr.noun_dict
 
     def tearDown(self):

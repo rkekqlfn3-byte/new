@@ -100,6 +100,26 @@ class DynamicCodePolicyTests(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertEqual(BLOCKED, self.preflight.analyze(code).status)
 
+    def test_indirect_risky_callable_references_are_blocked(self):
+        cases = [
+            "import os\nf, g = (os.system, print)\nf('echo blocked')",
+            "import os\n(lambda f: f('echo blocked'))(os.system)",
+            "import os\nfunctions = [os.system]\nfunctions[0]('echo blocked')",
+            "import os\nfunctions = {'run': os.system}\nfunctions['run']('echo blocked')",
+            "import os\nmodules = [os]\nmodules[0].system('echo blocked')",
+            "from pathlib import Path\nclasses = [Path]\nclasses[0]('x').write_text('blocked')",
+            "import subprocess\nrunner = subprocess.run\nrunner(['notepad.exe'])",
+            "writer = open\nwriter('C:/Temp/result.txt', 'w').write('blocked')",
+        ]
+        for code in cases:
+            with self.subTest(code=code):
+                result = self.preflight.analyze(code)
+                self.assertEqual(BLOCKED, result.status)
+                self.assertTrue(any(
+                    item.code.startswith("indirect_capability_reference:")
+                    for item in result.findings
+                ))
+
     def test_broad_delete_and_jarvis_self_modification_are_blocked(self):
         broad = self.preflight.analyze(
             "import glob, os\nfor path in glob.glob('C:/Temp/*'):\n    os.remove(path)"
@@ -164,7 +184,9 @@ class DynamicCodeParserIntegrationTests(unittest.TestCase):
         )
         self.parser.dict_mgr = DictionaryManager(dictionary_path)
         self.parser.llm_engine = LLMEngine(self.parser.dict_mgr)
-        self.parser.builtins = BuiltinMacros(self.parser.dict_mgr, self.parser)
+        self.parser.builtins = BuiltinMacros(
+            self.parser.dict_mgr, self.parser.action_executor
+        )
         self.parser.action_executor.noun_dict = self.parser.dict_mgr.noun_dict
         self.runner_result = success_result(
             "ran",
@@ -275,6 +297,21 @@ class DynamicCodeParserIntegrationTests(unittest.TestCase):
         self.assertEqual("blocked", blocked["status"])
         run.assert_not_called()
         self.assertEqual([], self.parser.pending_macros)
+        self.assertIsNone(
+            self.parser.get_pending_confirmation("security-session")
+        )
+
+    def test_indirect_process_callable_is_blocked_before_macro_runner(self):
+        result = {
+            "response": "간접 실행을 시도합니다.",
+            "actions": [self._dynamic_action(
+                "import os\nf, g = (os.system, print)\nf('echo blocked')"
+            )],
+        }
+        with mock.patch.object(self.parser.macro_runner, "run") as run:
+            blocked = self._run_ai_result(result)
+        self.assertEqual("blocked", blocked["status"])
+        run.assert_not_called()
         self.assertIsNone(
             self.parser.get_pending_confirmation("security-session")
         )

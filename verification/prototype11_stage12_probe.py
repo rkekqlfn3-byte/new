@@ -11,6 +11,7 @@ from pathlib import Path
 
 from engine.diagnostics import DiagnosticIncidentManager
 from engine.execution_runtime import ExecutionController
+from verification.source_identity import source_identity
 
 
 REPORT_PATH = Path(__file__).with_name("prototype11_stage12_report.json")
@@ -142,6 +143,7 @@ def run_probe():
         success = all(checks.values())
         return {
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "source": source_identity(),
             "probe": "prototype11_stage12_self_diagnosis",
             "success": success,
             "failure_injection_only": True,

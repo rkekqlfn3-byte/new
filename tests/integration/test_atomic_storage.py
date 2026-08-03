@@ -70,6 +70,39 @@ class AtomicJsonStorageTests(unittest.TestCase):
             self.assertFalse(list(Path(temp_dir).glob("*.tmp")))
             self.assertFalse(list(Path(temp_dir).glob(".*.tmp")))
 
+    def test_fsync_failure_keeps_original_and_removes_temporary_file(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-storage-test-") as temp_dir:
+            path = Path(temp_dir) / "state.json"
+            path.write_text('{"stable": true}', encoding="utf-8")
+
+            with mock.patch.object(
+                json_store.os, "fsync", side_effect=OSError("disk unavailable")
+            ):
+                with self.assertRaises(OSError):
+                    atomic_write_json(path, {"stable": False})
+
+            self.assertEqual(
+                {"stable": True}, json.loads(path.read_text(encoding="utf-8"))
+            )
+            self.assertFalse(list(Path(temp_dir).glob(".*.tmp")))
+
+    def test_valid_backup_is_returned_when_primary_restore_is_locked(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-storage-test-") as temp_dir:
+            path = Path(temp_dir) / "state.json"
+            backup = Path(f"{path}.bak")
+            path.write_text("{broken", encoding="utf-8")
+            backup.write_text('{"preserved": true}', encoding="utf-8")
+
+            with mock.patch.object(
+                json_store,
+                "atomic_write_json",
+                side_effect=PermissionError("locked"),
+            ):
+                recovered = safe_read_json(path, {"fallback": True})
+
+            self.assertEqual({"preserved": True}, recovered)
+            self.assertEqual("{broken", path.read_text(encoding="utf-8"))
+
     def test_replace_retries_short_windows_lock(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-storage-test-") as temp_dir:
             path = Path(temp_dir) / "state.json"

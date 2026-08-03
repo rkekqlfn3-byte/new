@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tests.test_runner import run_tests
+from verification.source_identity import source_identity, source_identity_errors
 
 
 REPORT_PATH = Path(__file__).with_name("product_goal_acceptance_report.json")
@@ -254,6 +255,7 @@ def validate_probe_report(
     *,
     now: datetime,
     max_age_hours: int,
+    expected_source: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """Return content-free reasons that make one probe unacceptable."""
     reasons = []
@@ -300,6 +302,8 @@ def validate_probe_report(
             reasons.append("generated_at_in_future")
         elif now - generated_at > timedelta(hours=max_age_hours):
             reasons.append("probe_report_stale")
+    if expected_source is not None:
+        reasons.extend(source_identity_errors(report.get("source"), expected_source))
     if any(value is not False for value in _nested_values(report, "user_documents_modified")):
         reasons.append("user_document_safety_unproven")
     for key in (
@@ -413,10 +417,12 @@ def evaluate_acceptance(
     manual_evidence: Mapping[str, Any] | None = None,
     now: datetime | None = None,
     max_probe_age_hours: int = 168,
+    expected_source: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = now or datetime.now().astimezone()
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
+    expected_source = dict(expected_source or source_identity(ROOT))
     probes = {}
     for probe_id, spec in PROBE_SPECS.items():
         path = Path(report_dir) / spec["file"]
@@ -428,7 +434,11 @@ def evaluate_acceptance(
             reasons = ["probe_report_missing_or_invalid"]
         if isinstance(report, Mapping):
             reasons = validate_probe_report(
-                report, spec, now=now, max_age_hours=max_probe_age_hours
+                report,
+                spec,
+                now=now,
+                max_age_hours=max_probe_age_hours,
+                expected_source=expected_source,
             )
         environment = _recognized_environment_block(
             probe_id, report if isinstance(report, Mapping) else None, reasons
@@ -462,7 +472,9 @@ def evaluate_acceptance(
         failed_statuses = {
             probes[probe_id]["status"] for probe_id in failed_probes
         }
-        if tests_passed and not failed_probes:
+        if not required:
+            automated_status = "not_automated"
+        elif tests_passed and not failed_probes:
             automated_status = "passed"
         elif (
             tests_passed
@@ -481,7 +493,10 @@ def evaluate_acceptance(
     manual = _manual_checks(manual_evidence)
     automated_passed = tests_passed and all(
         item["status"] == "passed" for item in probes.values()
-    ) and all(item["automated_status"] == "passed" for item in axes.values())
+    ) and all(
+        item["automated_status"] in {"passed", "not_automated"}
+        for item in axes.values()
+    )
     environment_blocked = (
         tests_passed
         and any(
@@ -493,7 +508,8 @@ def evaluate_acceptance(
             for item in probes.values()
         )
         and all(
-            item["automated_status"] in {"passed", "environment_blocked"}
+            item["automated_status"]
+            in {"passed", "environment_blocked", "not_automated"}
             for item in axes.values()
         )
     )
@@ -509,7 +525,7 @@ def evaluate_acceptance(
     else:
         overall_status = "accepted"
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "goal_axes": axes,
         "automated_tests": dict(test_summary),
@@ -523,19 +539,7 @@ def evaluate_acceptance(
             "document_paths_or_contents_reported": False,
             "manual_notes_copied": False,
         },
-    }
-
-
-def _git_identity() -> dict[str, Any]:
-    def command(*args):
-        completed = subprocess.run(
-            ["git", *args], cwd=ROOT, capture_output=True, text=True, check=False
-        )
-        return completed.stdout.strip() if completed.returncode == 0 else ""
-
-    return {
-        "commit": command("rev-parse", "HEAD"),
-        "dirty": bool(command("status", "--porcelain")),
+        "source": expected_source,
     }
 
 
@@ -585,7 +589,6 @@ def main(argv=None) -> int:
         manual_evidence=manual,
         max_probe_age_hours=max(1, int(args.max_probe_age_hours)),
     )
-    report["source"] = _git_identity()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",

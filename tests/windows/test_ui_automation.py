@@ -472,7 +472,8 @@ class StructuredUIAutomationTests(unittest.TestCase):
             "failed_step": 1,
             "learning_candidate": {"plan": plan, "name": "저장 클릭"},
         }
-        waiting = parser._queue_uia_target_choice(
+        waiting = parser.confirmations.queue_uia_target(
+            parser,
             ambiguity, payload, "uia-session", "저장을 눌러"
         )
         self.assertEqual("clarification_required", waiting["status"])
@@ -545,7 +546,8 @@ class StructuredUIAutomationTests(unittest.TestCase):
             },
             "learning": {"intent": "CLICK_SAVE", "slots": []},
         }
-        waiting = parser._queue_learned_uia_target_choice(
+        waiting = parser.confirmations.queue_learned_uia_target(
+            parser,
             ambiguity,
             app_name="테스트",
             macro_name="저장클릭",
