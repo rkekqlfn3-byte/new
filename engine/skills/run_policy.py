@@ -253,8 +253,7 @@ class RunPolicyAssessment:
 
 
 class SkillRunPolicyService:
-    def __init__(self, owner=None, threshold=AUTO_SUCCESS_THRESHOLD):
-        self.owner = owner
+    def __init__(self, threshold=AUTO_SUCCESS_THRESHOLD):
         self.threshold = max(1, int(threshold))
 
     def assess(self, skill, user_text=""):

@@ -4,11 +4,9 @@ from engine.ai_actions.batch_result_aggregator import finalize_batch_result
 
 
 class BatchExecutor:
-    def __init__(self, owner):
-        self.owner = owner
-
     def execute(
         self,
+        parser,
         response,
         actions,
         validation_issues,
@@ -22,7 +20,7 @@ class BatchExecutor:
         use_api=False,
     ):
         context = BatchExecutionContext.create(
-            self.owner,
+            parser,
             response,
             actions,
             validation_issues,
@@ -44,5 +42,5 @@ class BatchExecutor:
             if immediate_result is not None:
                 return immediate_result
             if action_name == "open_app" and index < len(actions) - 1:
-                self.owner.execution_controller.wait(0.15)
+                parser.execution_controller.wait(0.15)
         return finalize_batch_result(context)

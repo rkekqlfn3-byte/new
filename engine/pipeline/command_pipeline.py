@@ -202,11 +202,9 @@ def _recover_missing_app_target(parser, raw_input, analysis, log_callback=None):
 class CommandPipeline:
     """Route one command through local, native-app, learned, and AI stages."""
 
-    def __init__(self, owner):
-        self.owner = owner
-
     def execute(
         self,
+        parser,
         user_input,
         log_callback=None,
         image_data=None,
@@ -218,7 +216,6 @@ class CommandPipeline:
         session_id=None,
         edit_context=None,
     ):
-        parser = self.owner
         parser.action_executor.noun_dict = parser.dict_mgr.noun_dict
         try:
             mode = normalize_request_mode(mode).value
@@ -276,7 +273,7 @@ class CommandPipeline:
         if learning_review is not None:
             return learning_review
         if normalized_input in {"확인 카드 테스트", "확인카드 테스트"}:
-            return parser._queue_demo_confirmation(normalized_input, session_id)
+            return parser.confirmations.queue_demo(normalized_input, session_id)
 
         native_result = try_execute_native_route(
             parser,

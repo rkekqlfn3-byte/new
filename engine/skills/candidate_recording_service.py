@@ -15,27 +15,38 @@ from engine.managers.native_action_candidate_manager import (
 class CandidateRecordingService:
     """Own candidate-store selection and success/failure telemetry."""
 
-    def __init__(self, owner):
-        self.owner = owner
+    def __init__(
+        self,
+        native_manager,
+        dict_mgr,
+        execution_controller,
+        *,
+        injected=False,
+    ):
+        self._manager = native_manager
+        self.dict_mgr = dict_mgr
+        self.execution_controller = execution_controller
+        self.injected = bool(injected)
 
     def manager(self):
-        if self.owner._native_candidate_manager_injected:
-            return self.owner.native_action_candidate_manager
-        dictionary_path = os.path.abspath(self.owner.dict_mgr.dictionary_path)
+        if self.injected:
+            return self._manager
+        dictionary_path = os.path.abspath(self.dict_mgr.dictionary_path)
         expected_path = os.path.join(
             os.path.dirname(dictionary_path), "native_action_candidates.json"
         )
         current_path = os.path.abspath(
-            self.owner.native_action_candidate_manager.path
+            self._manager.path
         )
         if os.path.normcase(current_path) != os.path.normcase(expected_path):
-            self.owner.native_action_candidate_manager = (
-                NativeActionCandidateManager(expected_path)
-            )
-        return self.owner.native_action_candidate_manager
+            self._manager = NativeActionCandidateManager(expected_path)
+        return self._manager
 
     def execution_id(self):
-        return self.owner._current_execution_id() or uuid.uuid4().hex
+        current = self.execution_controller.current
+        if isinstance(current, dict) and current.get("execution_id"):
+            return current["execution_id"]
+        return uuid.uuid4().hex
 
     def signature_for(self, app_name, learning):
         return self.manager().signature_for(app_name, learning)

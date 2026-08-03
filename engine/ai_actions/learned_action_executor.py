@@ -73,7 +73,8 @@ def execute_learned_action(context, action):
             status="context_changed",
         ))
     except UIAutomationAmbiguousTarget as error:
-        return parser._queue_learned_uia_target_choice(
+        return parser.confirmations.queue_learned_uia_target(
+            parser,
             error,
             app_name=app_name,
             macro_name=macro_name,

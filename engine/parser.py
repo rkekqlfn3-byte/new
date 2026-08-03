@@ -18,19 +18,12 @@ from engine.execution_result import (
     success_result,
 )
 from engine.macro_runner import MacroRunner, MacroTimeoutError
-from engine.managers.pending_confirmation_manager import (
-    PendingConfirmationManager,
-    normalize_session_id,
-)
-from engine.confirmation import (
-    ConfirmationDispatcher,
-    ConfirmationFactory,
-    ConfirmationResponseHandler,
-)
+from engine.confirmation import ConfirmationRegistry
 from engine.ai_actions import AIActionHandler
 from engine.skills import (
     CandidateRecordingService,
     SkillExecutor,
+    SkillExecutionServices,
     SkillLearningService,
     LearnedReplayService,
     SkillRunPolicyService,
@@ -51,58 +44,220 @@ from engine.builtins import BuiltinMacros
 from engine.parsing.office_command_parser import (
     EXCEL_FORMAT_METHODS,
     EXCEL_FORMAT_PREFERENCE_KEY,
-    parse_native_excel_filter_command,
-    parse_native_excel_clarification_command,
-    parse_native_excel_find_replace_command,
-    parse_native_excel_format_command,
-    parse_native_excel_range_format_command,
-    parse_native_excel_sort_command,
-    parse_native_excel_sum_command,
-    parse_native_excel_write_command,
-    parse_native_hwp_find_replace_command,
-    parse_native_hwp_insert_command,
-    parse_native_hwp_paragraph_format_command,
-    parse_native_hwp_save_command,
-    parse_native_hwp_text_format_command,
 )
 
 class CommandParser:
+    @property
+    def _native_candidate_manager_injected(self):
+        service = getattr(self, "candidate_recording_service", None)
+        if service is not None:
+            return service.injected
+        return getattr(self, "_native_candidate_injected_value", False)
+
+    @_native_candidate_manager_injected.setter
+    def _native_candidate_manager_injected(self, value):
+        self._native_candidate_injected_value = bool(value)
+        service = getattr(self, "candidate_recording_service", None)
+        if service is not None:
+            service.injected = bool(value)
+
+    @property
+    def pending_macros(self):
+        service = getattr(self, "skill_learning_service", None)
+        if service is not None:
+            return service.pending_macros
+        return getattr(self, "_pending_macros", [])
+
+    @pending_macros.setter
+    def pending_macros(self, value):
+        self._pending_macros = value
+        service = getattr(self, "skill_learning_service", None)
+        if service is not None:
+            service.pending_macros = value
+
+    _BUILTIN_HANDLER_NAMES = {
+        "OPEN": "handle_open",
+        "CLOSE": "handle_close",
+        "SEARCH": "handle_search",
+        "PLAYPAUSE": "handle_playpause",
+        "VOL_UP": "handle_vol_up",
+        "VOL_DOWN": "handle_vol_down",
+        "VOL_SET": "handle_vol_set",
+        "MUTE": "handle_mute",
+        "SHUTDOWN": "handle_shutdown",
+        "CANCEL_SHUTDOWN": "handle_cancel_shutdown",
+        "TIME": "handle_time",
+        "DATE": "handle_date",
+        "WEATHER": "handle_weather",
+    }
+
+    @property
+    def builtins(self):
+        return self._builtins
+
+    @builtins.setter
+    def builtins(self, value):
+        self._builtins = value
+        handlers = getattr(self, "_handlers", None)
+        if handlers is not None:
+            for name, method_name in self._BUILTIN_HANDLER_NAMES.items():
+                handlers[name] = getattr(value, method_name)
+        analyzer = getattr(self, "local_command_analyzer", None)
+        if analyzer is not None:
+            analyzer.builtins = value
+
+    @property
+    def dict_mgr(self):
+        return self._dict_mgr
+
+    @dict_mgr.setter
+    def dict_mgr(self, value):
+        self._dict_mgr = value
+        analyzer = getattr(self, "local_command_analyzer", None)
+        if analyzer is not None:
+            analyzer.dict_mgr = value
+        builtins = getattr(self, "builtins", None)
+        if builtins is not None:
+            builtins.dict_mgr = value
+        candidate_service = getattr(self, "candidate_recording_service", None)
+        if candidate_service is not None:
+            candidate_service.dict_mgr = value
+        learning_service = getattr(self, "skill_learning_service", None)
+        if learning_service is not None:
+            learning_service.dict_mgr = value
+        skill_executor = getattr(self, "skill_executor", None)
+        if skill_executor is not None:
+            skill_executor.services.dict_mgr = value
+
+    @property
+    def native_action_candidate_manager(self):
+        service = getattr(self, "candidate_recording_service", None)
+        if service is not None:
+            return service._manager
+        return self._native_action_candidate_manager
+
+    @native_action_candidate_manager.setter
+    def native_action_candidate_manager(self, value):
+        self._native_action_candidate_manager = value
+        service = getattr(self, "candidate_recording_service", None)
+        if service is not None:
+            service._manager = value
+
+    @property
+    def execution_controller(self):
+        return self._execution_controller
+
+    @execution_controller.setter
+    def execution_controller(self, value):
+        self._execution_controller = value
+        confirmations = getattr(self, "confirmations", None)
+        if confirmations is not None:
+            confirmations.responses.execution_controller = value
+        action_executor = getattr(self, "action_executor", None)
+        if action_executor is not None:
+            action_executor.controller = value
+        macro_runner = getattr(self, "macro_runner", None)
+        if macro_runner is not None:
+            macro_runner.controller = value
+        candidate_service = getattr(self, "candidate_recording_service", None)
+        if candidate_service is not None:
+            candidate_service.execution_controller = value
+        skill_executor = getattr(self, "skill_executor", None)
+        if skill_executor is not None:
+            skill_executor.services.execution_controller = value
+        edit_controller = getattr(self, "edit_mode_controller", None)
+        if edit_controller is not None:
+            edit_controller._execution_controller = value
+
+    @property
+    def app_action_registry(self):
+        return self._app_action_registry
+
+    @app_action_registry.setter
+    def app_action_registry(self, value):
+        self._app_action_registry = value
+        router = getattr(self, "app_command_router", None)
+        if router is not None:
+            router.registry = value
+        edit_controller = getattr(self, "edit_mode_controller", None)
+        if edit_controller is not None:
+            edit_controller._app_action_registry = value
+
+    @property
+    def decision_engine(self):
+        return self._decision_engine
+
+    @decision_engine.setter
+    def decision_engine(self, value):
+        self._decision_engine = value
+        router = getattr(self, "app_command_router", None)
+        if router is not None:
+            router.decision_engine = value
+
+    @property
+    def preference_manager(self):
+        return self._preference_manager
+
+    @preference_manager.setter
+    def preference_manager(self, value):
+        self._preference_manager = value
+        router = getattr(self, "app_command_router", None)
+        if router is not None:
+            router.preference_manager = value
+        skill_executor = getattr(self, "skill_executor", None)
+        if skill_executor is not None:
+            skill_executor.services.preference_manager = value
+
     def __init__(
         self,
         native_action_candidate_manager=None,
         edit_mode_controller=None,
+        execution_controller=None,
     ):
         self.dict_mgr = DictionaryManager()
         self.llm_engine = LLMEngine(self.dict_mgr)
         
-        self.pending_macros = []
         self.template_matcher = LearnedTemplateMatcher()
-        self.local_command_analyzer = LocalCommandAnalyzer(self)
-        self.command_pipeline = CommandPipeline(self)
-        self.execution_controller = ExecutionController()
-        self.pending_confirmation_manager = PendingConfirmationManager()
-        self.confirmation_response_handler = ConfirmationResponseHandler(self)
-        self.confirmation_dispatcher = ConfirmationDispatcher(self)
-        self.confirmation_factory = ConfirmationFactory(self)
-        self.ai_action_handler = AIActionHandler(self)
+        self.command_pipeline = CommandPipeline()
+        self.execution_controller = execution_controller or ExecutionController()
+        self.confirmations = ConfirmationRegistry(self.execution_controller)
+        self.ai_action_handler = AIActionHandler()
         self.app_action_registry = AppActionRegistry()
         self.edit_mode_controller = edit_mode_controller or EditModeController()
-        bind_parser = getattr(self.edit_mode_controller, "bind_parser", None)
-        if callable(bind_parser):
-            bind_parser(self)
+        bind_services = getattr(self.edit_mode_controller, "bind_services", None)
+        if callable(bind_services):
+            bind_services(
+                self.execution_controller,
+                self.app_action_registry,
+                self.confirmations,
+            )
         self.edit_mode_handler = self.edit_mode_controller
         self.decision_engine = DecisionEngine()
         self.preference_manager = PreferenceManager()
-        self.app_command_router = AppCommandRouter(self)
+        self.app_command_router = AppCommandRouter(
+            self.app_action_registry,
+            self.decision_engine,
+            self.preference_manager,
+            self.confirmations,
+        )
         self._native_candidate_manager_injected = (
             native_action_candidate_manager is not None
         )
         self.native_action_candidate_manager = (
             native_action_candidate_manager or NativeActionCandidateManager()
         )
-        self.candidate_recording_service = CandidateRecordingService(self)
-        self.skill_learning_service = SkillLearningService(self)
-        self.learned_replay_service = LearnedReplayService(self)
+        self.candidate_recording_service = CandidateRecordingService(
+            self.native_action_candidate_manager,
+            self.dict_mgr,
+            self.execution_controller,
+            injected=self._native_candidate_manager_injected,
+        )
+        self.skill_learning_service = SkillLearningService(
+            self.dict_mgr,
+            self.template_matcher,
+            self.candidate_recording_service,
+        )
+        self.learned_replay_service = LearnedReplayService()
         self.action_executor = ActionExecutor(
             self.dict_mgr.noun_dict,
             controller=self.execution_controller,
@@ -110,11 +265,19 @@ class CommandParser:
         )
         self.macro_runner = MacroRunner(self.execution_controller)
         self.dynamic_code_preflight = DynamicCodePreflight()
-        self.skill_executor = SkillExecutor(self)
-        self.skill_run_policy = SkillRunPolicyService(self)
-        
-        # Load Builtin Handlers
-        self.builtins = BuiltinMacros(self.dict_mgr, self)
+        self.builtins = BuiltinMacros(self.dict_mgr, self.action_executor)
+        self.skill_executor = SkillExecutor(SkillExecutionServices(
+            dict_mgr=self.dict_mgr,
+            dynamic_code_preflight=self.dynamic_code_preflight,
+            execution_controller=self.execution_controller,
+            action_executor=self.action_executor,
+            app_command_router=self.app_command_router,
+            candidate_recording_service=self.candidate_recording_service,
+            macro_runner=self.macro_runner,
+            confirmations=self.confirmations,
+            preference_manager=self.preference_manager,
+        ))
+        self.skill_run_policy = SkillRunPolicyService()
         
         # Register command handlers
         self._handlers = {
@@ -132,6 +295,12 @@ class CommandParser:
             "DATE": self.builtins.handle_date,
             "WEATHER": self.builtins.handle_weather
         }
+        self.local_command_analyzer = LocalCommandAnalyzer(
+            self.dict_mgr,
+            self.template_matcher,
+            self.builtins,
+            self._handlers,
+        )
 
     @staticmethod
     def _latest_user_text(user_input):
@@ -330,93 +499,11 @@ class CommandParser:
         )
 
     def get_pending_confirmation(self, session_id=None):
-        return self.confirmation_response_handler.get_pending(session_id)
+        return self.confirmations.get_pending(session_id)
 
     def _current_execution_id(self):
         current = self.execution_controller.current
         return current.get("execution_id", "") if isinstance(current, dict) else ""
-
-    def _confirmation_result(self, record, message=None):
-        return self.confirmation_response_handler.confirmation_result(
-            record, message
-        )
-
-    def _queue_demo_confirmation(self, original_command, session_id):
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id(),
-            original_command=original_command,
-            reason="confirmation_demo",
-            message="확인 카드 테스트를 계속할까요? 외부 파일이나 프로그램은 변경하지 않습니다.",
-            action="confirmation_demo",
-            options=[
-                {
-                    "id": "continue",
-                    "label": "계속",
-                    "description": "아무 작업도 변경하지 않고 확인 흐름만 완료합니다.",
-                    "recommended": True,
-                    "aliases": ["예", "네", "응", "ㅇㅇ", "진행", "계속해"],
-                },
-                {
-                    "id": "cancel",
-                    "label": "취소",
-                    "description": "테스트를 취소합니다.",
-                    "cancel": True,
-                    "aliases": ["아니", "아니요", "그만", "하지마"],
-                },
-            ],
-            payload={"kind": "demo"},
-        )
-        return self._confirmation_result(record)
-
-    def _queue_command_macro_confirmation(
-        self, macro_name, macro_data, original_command, session_id
-    ):
-        return self.confirmation_factory.queue_command_macro(
-            macro_name, macro_data, original_command, session_id
-        )
-
-    _parse_native_excel_write_command = staticmethod(parse_native_excel_write_command)
-
-    _parse_native_excel_sum_command = staticmethod(parse_native_excel_sum_command)
-
-    _parse_native_excel_format_command = staticmethod(parse_native_excel_format_command)
-
-    _parse_native_excel_range_format_command = staticmethod(parse_native_excel_range_format_command)
-
-    _parse_native_excel_filter_command = staticmethod(parse_native_excel_filter_command)
-
-    _parse_native_excel_clarification_command = staticmethod(parse_native_excel_clarification_command)
-
-    _parse_native_excel_find_replace_command = staticmethod(parse_native_excel_find_replace_command)
-
-    _parse_native_excel_sort_command = staticmethod(parse_native_excel_sort_command)
-
-    _parse_native_hwp_find_replace_command = staticmethod(parse_native_hwp_find_replace_command)
-
-    _parse_native_hwp_text_format_command = staticmethod(parse_native_hwp_text_format_command)
-
-    _parse_native_hwp_paragraph_format_command = staticmethod(parse_native_hwp_paragraph_format_command)
-
-    _parse_native_hwp_insert_command = staticmethod(parse_native_hwp_insert_command)
-
-    _parse_native_hwp_save_command = staticmethod(parse_native_hwp_save_command)
-
-    def _queue_app_method_choice(
-        self,
-        request,
-        session_id,
-        original_command,
-        log_callback=None,
-        continuation=None,
-    ):
-        return self.confirmation_factory.queue_app_method(
-            request,
-            session_id,
-            original_command,
-            log_callback=log_callback,
-            continuation=continuation,
-        )
 
     def _handle_format_method_request(
         self,
@@ -443,165 +530,26 @@ class CommandParser:
                 log_callback(
                     f"[Preference] {preferred_method} 선호를 자동 적용합니다."
                 )
-            result = self._execute_native_app_command(
+            result = self.app_command_router.execute(
                 candidate,
                 session_id,
                 original_command,
                 log_callback=log_callback,
                 continuation=continuation,
+                runtime=self,
             )
             if result.get("status") == "confirmation_required":
                 return result
-            return self._complete_app_command_continuation(
-                result, continuation
-            )
-        return self._queue_app_method_choice(
-            request,
-            session_id,
-            original_command,
-            log_callback=log_callback,
-            continuation=continuation,
-        )
-
-    def _queue_hwp_scope_choice(
-        self,
-        request,
-        session_id,
-        original_command,
-        log_callback=None,
-        continuation=None,
-    ):
-        return self.confirmation_factory.queue_hwp_scope(
-            request,
-            session_id,
-            original_command,
-            log_callback=log_callback,
-            continuation=continuation,
-        )
-
-    def _queue_app_target_choice(
-        self,
-        request,
-        ambiguity,
-        session_id,
-        original_command,
-        continuation=None,
-    ):
-        return self.confirmation_factory.queue_app_target(
-            request,
-            ambiguity,
-            session_id,
-            original_command,
-            continuation=continuation,
-        )
-
-    def _queue_missing_information(
-        self, request, session_id, original_command, log_callback=None
-    ):
-        return self.confirmation_factory.queue_missing_information(
-            request,
-            session_id,
-            original_command,
-            log_callback=log_callback,
-        )
-
-    def _prepared_action_success(
-        self,
-        prepared,
-        execution_result,
-        confirmation_id=None,
-        preference_selection=None,
-    ):
-        return self.app_command_router.build_success(
-            prepared,
-            execution_result,
-            confirmation_id=confirmation_id,
-            preference_selection=preference_selection,
-        )
-
-    def _app_action_failure(self, error, target=None):
-        return self.app_command_router.failure(error, target)
-
-    def _complete_app_command_continuation(self, result, continuation=None):
-        if not isinstance(continuation, dict):
+            if (
+                isinstance(continuation, dict)
+                and continuation.get("kind") == "learned_native"
+            ):
+                return self.skill_executor.complete_native_confirmation(
+                    continuation, result
+                )
             return result
-        if continuation.get("kind") != "learned_native":
-            return result
-        return self.skill_executor.complete_native_confirmation(
-            continuation, result
-        )
-
-    def _validate_app_command_continuation(self, continuation=None):
-        if not isinstance(continuation, dict):
-            return None
-        if continuation.get("kind") != "learned_native":
-            return None
-        _, error = self.skill_executor.validate_native_continuation(
-            continuation
-        )
-        return error
-
-    def _queue_prepared_action_confirmation(
-        self,
-        prepared,
-        request,
-        decision,
-        session_id,
-        original_command,
-        execution_id="",
-        preference_selection=None,
-        continuation=None,
-    ):
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=(
-                self._current_execution_id() or str(execution_id or "")
-            ),
-            original_command=original_command,
-            reason=decision.reason or "destructive_action",
-            message=decision.message or "준비된 앱 작업을 실행할까요?",
-            action="app_command",
-            target=f"{prepared.workbook_name}/{prepared.sheet}/{prepared.target}",
-            options=decision.options,
-            payload={
-                "kind": "prepared_app_action",
-                "request": copy.deepcopy(request),
-                "prepared_action": prepared.to_dict(),
-                "preference_selection": copy.deepcopy(preference_selection),
-                "continuation": copy.deepcopy(continuation),
-            },
-        )
-        return self._confirmation_result(record)
-
-    def _queue_changed_app_context(
-        self,
-        request,
-        previous,
-        session_id,
-        original_command,
-        execution_id="",
-        preference_selection=None,
-        continuation=None,
-    ):
-        return self.app_command_router.queue_changed_context(
-            request,
-            previous,
-            session_id,
-            original_command,
-            execution_id=execution_id,
-            preference_selection=preference_selection,
-            continuation=continuation,
-        )
-
-    def _execute_native_app_command(
-        self,
-        request,
-        session_id,
-        original_command,
-        log_callback=None,
-        continuation=None,
-    ):
-        return self.app_command_router.execute(
+        return self.confirmations.queue_app_method(
+            self,
             request,
             session_id,
             original_command,
@@ -697,47 +645,11 @@ class CommandParser:
             data={"risk_analysis": result.to_dict()},
         )
 
-    def _queue_dynamic_code_confirmation(
-        self,
-        items,
-        resume_payload,
-        session_id,
-        original_command,
-        prior_approvals=None,
-    ):
-        return self.confirmation_factory.queue_dynamic_code(
-            items,
-            resume_payload,
-            session_id,
-            original_command,
-            prior_approvals=prior_approvals,
-        )
-
-    def _queue_local_learned_dynamic_confirmation(
-        self,
-        app_name,
-        macro_name,
-        argument,
-        result,
-        fingerprint,
-        session_id,
-        original_command,
-    ):
-        return self.confirmation_factory.queue_local_learned_dynamic(
-            app_name,
-            macro_name,
-            argument,
-            result,
-            fingerprint,
-            session_id,
-            original_command,
-        )
-
     def _resume_local_learned_dynamic(
         self, payload, confirmation_id, log_callback=None
     ):
         return self.learned_replay_service.resume_local_dynamic(
-            payload, confirmation_id, log_callback=log_callback
+            self, payload, confirmation_id, log_callback=log_callback
         )
 
     def _skill_policy_preview_result(
@@ -745,27 +657,6 @@ class CommandParser:
     ):
         return self.learned_replay_service.preview_result(
             app_name, macro_name, skill, assessment
-        )
-
-    def _queue_skill_run_policy_confirmation(
-        self,
-        *,
-        app_name,
-        macro_name,
-        skill,
-        assessment,
-        session_id,
-        original_command,
-        resume_payload,
-    ):
-        return self.confirmation_factory.queue_skill_run_policy(
-            app_name=app_name,
-            macro_name=macro_name,
-            skill=skill,
-            assessment=assessment,
-            session_id=session_id,
-            original_command=original_command,
-            resume_payload=resume_payload,
         )
 
     def _local_skill_policy_gate(
@@ -780,6 +671,7 @@ class CommandParser:
         original_command,
     ):
         return self.learned_replay_service.local_policy_gate(
+            self,
             app_name=app_name,
             macro_name=macro_name,
             skill=skill,
@@ -787,76 +679,6 @@ class CommandParser:
             argument=argument,
             session_id=session_id,
             original_command=original_command,
-        )
-
-    def _queue_action_plan_confirmation(
-        self, error, payload, session_id, original_command
-    ):
-        record = self.pending_confirmation_manager.create(
-            session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or payload.get("execution_id", ""),
-            original_command=original_command,
-            reason="destructive_action",
-            message=f"대상 파일이 이미 있습니다. 기존 파일을 덮어쓸까요?\n{error.target}",
-            action=error.action,
-            target=error.target,
-            options=[
-                {
-                    "id": "overwrite",
-                    "label": "덮어쓰기",
-                    "description": "기존 파일을 새 내용으로 교체합니다.",
-                    "danger": True,
-                    "aliases": ["예", "네", "응", "덮어써", "교체", "진행"],
-                },
-                {
-                    "id": "cancel",
-                    "label": "취소",
-                    "description": "원본 파일을 유지하고 작업을 취소합니다.",
-                    "cancel": True,
-                    "aliases": ["아니", "아니요", "그만", "하지마"],
-                },
-            ],
-            payload={
-                **copy.deepcopy(payload),
-                "kind": "action_plan_overwrite",
-                "confirmation_action": error.action,
-                "confirmation_target": error.target,
-            },
-        )
-        return self._confirmation_result(record)
-
-    def _queue_uia_target_choice(
-        self, ambiguity, payload, session_id, original_command
-    ):
-        return self.confirmation_factory.queue_uia_target(
-            ambiguity, payload, session_id, original_command
-        )
-
-    def _queue_learned_uia_target_choice(
-        self,
-        ambiguity,
-        *,
-        app_name,
-        macro_name,
-        skill,
-        slots,
-        session_id,
-        original_command,
-        argument="",
-        source="confirmation_resume",
-        target="",
-    ):
-        return self.confirmation_factory.queue_learned_uia_target(
-            ambiguity,
-            app_name=app_name,
-            macro_name=macro_name,
-            skill=skill,
-            slots=slots,
-            session_id=session_id,
-            original_command=original_command,
-            argument=argument,
-            source=source,
-            target=target,
         )
 
     def resolve_pending_confirmation(
@@ -868,7 +690,8 @@ class CommandParser:
         log_callback=None,
         remember_preference=False,
     ):
-        return self.confirmation_dispatcher.resolve(
+        return self.confirmations.resolve(
+            self,
             session_id,
             confirmation_id=confirmation_id,
             option_id=option_id,
@@ -896,7 +719,7 @@ class CommandParser:
 
     def retry_learned_macro_step(self, app_name, macro_name, step_number):
         return self.learned_replay_service.retry_step(
-            app_name, macro_name, step_number
+            self, app_name, macro_name, step_number
         )
 
     def parse_and_execute(
@@ -964,6 +787,7 @@ class CommandParser:
         edit_context=None,
     ):
         return self.command_pipeline.execute(
+            self,
             user_input,
             log_callback=log_callback,
             image_data=image_data,
@@ -992,6 +816,7 @@ class CommandParser:
         use_api=False,
     ):
         return self.ai_action_handler.execute_batch(
+            self,
             response,
             actions,
             validation_issues,
@@ -1063,26 +888,19 @@ class CommandParser:
         return json.dumps(values, ensure_ascii=False)
 
     def _validate_llm_result(self, result):
-        return self.ai_action_handler.validate_result(result)
+        return self.ai_action_handler.validate_result(self, result)
 
     def _resolve_registered_app(self, target):
         return self.local_command_analyzer.resolve_registered_app(target)
 
     def _get_learned_macro(self, app_name, macro_name):
-        if not isinstance(app_name, str) or not isinstance(macro_name, str):
-            return None
-        learned_macros = getattr(self.dict_mgr, "learned_macros", {})
-        app_macros = learned_macros.get(app_name)
-        if not isinstance(app_macros, dict):
-            return None
-        macro = app_macros.get(macro_name)
-        if not isinstance(macro, dict) or macro.get("state", "active") != "active":
-            return None
-        return macro
+        return self.local_command_analyzer.get_learned_macro(
+            app_name, macro_name
+        )
 
     def _validate_generated_code(self, act, require_external_target=False):
         return self.ai_action_handler._validate_generated_code(
-            act, require_external_target=require_external_target
+            self, act, require_external_target=require_external_target
         )
 
     def _identify_macro(self, text):

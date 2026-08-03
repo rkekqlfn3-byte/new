@@ -1,4 +1,30 @@
 from engine.pipeline.learned_route import execute_learned_route
+from engine.execution_result import failure_result, success_result
+
+
+def execute_compound(parser, macro_data, log_callback, image_data, mode):
+    commands = [item.strip() for item in macro_data["data"].split(",")]
+    completed = []
+    for index, command in enumerate(commands, start=1):
+        result = parser.execute_command_result(
+            command, log_callback, image_data, mode
+        )
+        completed.append(result)
+        if not result["success"]:
+            return failure_result(
+                f"연속 동작 {index}단계에서 중단했습니다: {result['message']}",
+                action="compound",
+                error_type=result.get("error_type", "execution_error"),
+                failed_step=index,
+                retryable=result.get("retryable", False),
+                data={"steps": completed},
+            )
+    return success_result(
+        "연속 동작을 모두 수행했습니다.",
+        action="compound",
+        verified=all(item.get("verified") for item in completed),
+        data={"steps": completed},
+    )
 
 
 def try_execute_macro_route(
@@ -24,15 +50,16 @@ def try_execute_macro_route(
     if macro_type == "hotkey":
         return parser.builtins.execute_hotkey(macro_data)
     if macro_type == "cmd":
-        return parser._queue_command_macro_confirmation(
+        return parser.confirmations.queue_command_macro(
+            parser,
             matched_macro,
             macro_data,
             raw_user_input,
             session_id,
         )
     if macro_type == "compound":
-        return parser.builtins.execute_compound(
-            macro_data, log_callback, image_data, mode
+        return execute_compound(
+            parser, macro_data, log_callback, image_data, mode
         )
     if macro_type == "learned":
         return execute_learned_route(

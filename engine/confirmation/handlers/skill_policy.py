@@ -98,7 +98,8 @@ def resolve(owner, context):
             target=macro_name,
         )
     except SkillConfirmationRequired as error:
-        return self._queue_local_learned_dynamic_confirmation(
+        return self.confirmations.queue_local_learned_dynamic(
+            self,
             app_name,
             macro_name,
             payload.get("argument", ""),
@@ -108,7 +109,8 @@ def resolve(owner, context):
             consumed.get("original_command", ""),
         )
     except UIAutomationAmbiguousTarget as error:
-        return self._queue_learned_uia_target_choice(
+        return self.confirmations.queue_learned_uia_target(
+            self,
             error,
             app_name=app_name,
             macro_name=macro_name,

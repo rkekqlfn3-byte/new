@@ -7,7 +7,11 @@ import re
 import time
 from dataclasses import dataclass
 
-from engine.action_executor import ActionConfirmationRequired
+from engine.action_executor import (
+    ActionConfirmationRequired,
+    ActionPlanError,
+    ActionPlanVerificationError,
+)
 from engine.action_registry import app_target_actions
 from engine.execution_result import (
     failure_result,
@@ -15,6 +19,7 @@ from engine.execution_result import (
     normalize_error_type,
 )
 from engine.execution_runtime import ExecutionCancelled
+from engine.macro_runner import MacroTimeoutError
 from engine.security import BLOCKED, CONFIRMATION_REQUIRED, SAFE
 from engine.ui_automation import UIAutomationAmbiguousTarget
 from engine.skills.postconditions import FAILED, PostconditionEvaluator
@@ -167,17 +172,91 @@ class SkillPreflightDecision:
     fingerprint: str = ""
 
 
+@dataclass
+class SkillExecutionServices:
+    """Only the runtime services required by ``SkillExecutor``."""
+
+    dict_mgr: object
+    dynamic_code_preflight: object
+    execution_controller: object
+    action_executor: object
+    app_command_router: object
+    candidate_recording_service: object
+    macro_runner: object
+    confirmations: object
+    preference_manager: object
+
+    def analyze_dynamic_code(
+        self,
+        code,
+        argument,
+        *,
+        action,
+        app_name,
+        macro_name,
+        target,
+        log_callback=None,
+    ):
+        context = {
+            "action": str(action or "dynamic_code")[:80],
+            "app_name": str(app_name or "")[:100],
+            "macro_name": str(macro_name or "")[:100],
+            "target": str(target or "")[:500],
+        }
+        result = self.dynamic_code_preflight.analyze(
+            code, argument=argument, context=context
+        )
+        fingerprint = result.approval_fingerprint(argument, context)
+        self.execution_controller.event(
+            "dynamic_code_preflight",
+            result.status,
+            {
+                "status": result.status,
+                "action": context["action"],
+                "app_name": context["app_name"],
+                "macro_name": context["macro_name"],
+                "code_sha256": result.code_sha256,
+                "finding_codes": [item.code for item in result.findings],
+            },
+        )
+        if log_callback:
+            log_callback(
+                "[Security] 동적 코드 preflight: "
+                f"{result.status} ({context['app_name']}/{context['macro_name']})"
+            )
+        return result, fingerprint
+
+    @staticmethod
+    def failure_type_for_error(error):
+        explicit = getattr(error, "error_type", None)
+        if explicit:
+            return normalize_error_type(explicit)
+        if isinstance(error, ExecutionCancelled):
+            return "user_cancelled"
+        if isinstance(error, MacroTimeoutError):
+            return "timeout"
+        if isinstance(error, ActionPlanVerificationError):
+            return "verification_error"
+        if isinstance(error, (FileNotFoundError, KeyError)):
+            return "target_not_found"
+        if isinstance(error, (ActionPlanError, ValueError, TypeError)):
+            return "validation_error"
+        return "execution_error"
+
+
 class SkillExecutor:
     """Load, select, preflight, execute, verify, and record one skill route."""
 
-    def __init__(self, owner, route_selector=None, postconditions=None):
-        self.owner = owner
+    def __init__(self, services, route_selector=None, postconditions=None):
+        self.services = services
         self.route_selector = route_selector or RouteSelector()
-        self.postconditions = postconditions or PostconditionEvaluator(owner)
+        self.postconditions = postconditions or PostconditionEvaluator(
+            services.action_executor
+        )
 
     @property
     def dict_mgr(self):
-        return self.owner.dict_mgr
+        return self.services.dict_mgr
 
     def load(self, app_name, macro_name):
         learned = getattr(self.dict_mgr, "learned_macros", {}).get(app_name, {})
@@ -235,7 +314,7 @@ class SkillExecutor:
             return SkillPreflightDecision(selection.route, SAFE)
 
         code = skill.get("code", "") if code_override is None else code_override
-        result, fingerprint = self.owner._analyze_dynamic_code(
+        result, fingerprint = self.services.analyze_dynamic_code(
             code,
             argument,
             action=action,
@@ -258,7 +337,7 @@ class SkillExecutor:
         code = getattr(error, "route_failure_code", None)
         if code:
             return str(code)
-        failure_type = self.owner._failure_type_for_error(error)
+        failure_type = self.services.failure_type_for_error(error)
         return _ERROR_TYPE_TO_ROUTE_CODE.get(failure_type, failure_type)
 
     @staticmethod
@@ -380,7 +459,7 @@ class SkillExecutor:
             raise SkillNativeAppActionUnsupported(
                 "V1 학습 네이티브 실행은 Excel 또는 한글 app_command 한 단계만 지원합니다."
             )
-        rendered = self.owner.action_executor.render_plan(
+        rendered = self.services.action_executor.render_plan(
             plan, dict(params["slots"] or {})
         )
         step = rendered[0]
@@ -398,7 +477,7 @@ class SkillExecutor:
             ),
             "params": copy.deepcopy(step.get("params", {})),
         }
-        return self.owner.app_command_router.execute(
+        return self.services.app_command_router.execute(
             request,
             params["session_id"],
             params["original_command"],
@@ -406,6 +485,7 @@ class SkillExecutor:
             continuation=self._native_continuation(
                 route, skill, params, diagnostic
             ),
+            runtime=self.services,
         )
 
     def _run_plan_route(self, route, skill, params, diagnostic):
@@ -415,7 +495,7 @@ class SkillExecutor:
                 f"스킬 실행 경로 '{route}'에 필요한 실행 데이터가 없습니다."
             )
         plan = self._normalize_native_plan(route, plan)
-        rendered = self.owner.action_executor.render_plan(
+        rendered = self.services.action_executor.render_plan(
             plan, dict(params["slots"] or {})
         )
         diagnostic["target_contract"] = self._validate_plan_target_contract(
@@ -425,7 +505,7 @@ class SkillExecutor:
             return self._run_native_app_command(
                 route, rendered, skill, params, diagnostic
             )
-        return self.owner.action_executor.execute_plan(
+        return self.services.action_executor.execute_plan(
             plan,
             dict(params["slots"] or {}),
             params["log_callback"],
@@ -453,14 +533,14 @@ class SkillExecutor:
         diagnostic["preflight_status"] = decision.status
         expected = params["expected_code_sha256"]
         if expected and decision.result.code_sha256 != expected:
-            self.owner.execution_controller.event(
+            self.services.execution_controller.event(
                 "skill_executor", "context_changed", dict(diagnostic)
             )
             raise SkillContextChanged(
                 "확인 후 저장된 스킬 코드가 변경되어 실행하지 않았습니다."
             )
         if decision.status == BLOCKED:
-            self.owner.execution_controller.event(
+            self.services.execution_controller.event(
                 "skill_executor", "blocked", dict(diagnostic)
             )
             raise SkillPreflightBlocked(
@@ -471,13 +551,13 @@ class SkillExecutor:
             decision.status == CONFIRMATION_REQUIRED
             and decision.fingerprint not in approved
         ):
-            self.owner.execution_controller.event(
+            self.services.execution_controller.event(
                 "skill_executor", "confirmation_required", dict(diagnostic)
             )
             raise SkillConfirmationRequired(
                 decision.result, "python", decision.fingerprint
             )
-        return self.owner.macro_runner.run(code, params["argument"])
+        return self.services.macro_runner.run(code, params["argument"])
 
     # ------------------------------------------------------------------
     # Recording helpers
@@ -493,7 +573,7 @@ class SkillExecutor:
             )
         # Only actual dynamic Python work counts toward a native candidate.
         if params["record_candidate"] and route == "python":
-            self.owner.candidate_recording_service.record_success(
+            self.services.candidate_recording_service.record_success(
                 params["app_name"],
                 skill,
                 source=params["source"],
@@ -509,7 +589,7 @@ class SkillExecutor:
                 params["app_name"], params["macro_name"], False, failure_type
             )
         if params["record_candidate"] and route == "python":
-            self.owner.candidate_recording_service.record_failure(
+            self.services.candidate_recording_service.record_failure(
                 params["app_name"], skill, source=params["source"],
                 selected_route=route,
             )
@@ -589,7 +669,7 @@ class SkillExecutor:
             "rollback_success": None,
             "preflight_status": SAFE,
         }
-        self.owner.execution_controller.event(
+        self.services.execution_controller.event(
             "skill_executor", "route_selected", dict(diagnostic)
         )
         if log_callback:
@@ -626,7 +706,7 @@ class SkillExecutor:
                     data["skill_execution"] = pending_diagnostic
                     normalized["data"] = data
                     normalized["skill_execution"] = pending_diagnostic
-                    self.owner.execution_controller.event(
+                    self.services.execution_controller.event(
                         "skill_executor",
                         "confirmation_required",
                         pending_diagnostic,
@@ -750,7 +830,7 @@ class SkillExecutor:
                 str(error),
                 action="learned_macro",
                 target=macro_name,
-                error_type=self.owner._failure_type_for_error(error),
+                error_type=self.services.failure_type_for_error(error),
                 status=getattr(error, "status", "failed"),
                 data={"execution_result": raw_result},
             )
@@ -793,13 +873,13 @@ class SkillExecutor:
         result["skill_execution"] = dict(diagnostic)
 
         self._record_success(params, route, skill, result)
-        self.owner.execution_controller.event(
+        self.services.execution_controller.event(
             "skill_executor", "success", dict(diagnostic)
         )
         return result
 
     def _finish_failure(self, route, skill, params, diagnostic, error, started):
-        failure_type = self.owner._failure_type_for_error(error)
+        failure_type = self.services.failure_type_for_error(error)
         diagnostic.update({
             "error_type": failure_type,
             "duration_ms": round((time.monotonic() - started) * 1000, 2),
@@ -814,7 +894,7 @@ class SkillExecutor:
         except Exception:
             pass
         self._record_failure(params, route, skill, failure_type)
-        self.owner.execution_controller.event(
+        self.services.execution_controller.event(
             "skill_executor", "failed", dict(diagnostic)
         )
 
@@ -828,15 +908,15 @@ class SkillExecutor:
                 self.dict_mgr.record_learned_macro_result(
                     params["app_name"], params["macro_name"], False, "user_cancelled"
                 )
-            self.owner.execution_controller.event(
+            self.services.execution_controller.event(
                 "skill_executor", "cancelled", dict(diagnostic)
             )
         elif isinstance(error, ActionConfirmationRequired):
-            self.owner.execution_controller.event(
+            self.services.execution_controller.event(
                 "skill_executor", "confirmation_required", dict(diagnostic)
             )
         elif isinstance(error, UIAutomationAmbiguousTarget):
-            self.owner.execution_controller.event(
+            self.services.execution_controller.event(
                 "skill_executor", "confirmation_required", dict(diagnostic)
             )
         # SkillConfirmationRequired / SkillPreflightBlocked / SkillContextChanged

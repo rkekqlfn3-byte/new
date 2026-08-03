@@ -59,6 +59,7 @@ def execute_ai_fallback_route(
             error_type="validation_error",
         )
     return parser.ai_action_handler.handle_result(
+        parser,
         result,
         user_input,
         log_callback=log_callback,

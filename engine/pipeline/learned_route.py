@@ -101,7 +101,8 @@ def execute_learned_route(
             target=matched_macro,
         )
     except SkillConfirmationRequired as error:
-        return parser._queue_local_learned_dynamic_confirmation(
+        return parser.confirmations.queue_local_learned_dynamic(
+            parser,
             app_name,
             matched_macro,
             target_arg,
@@ -111,7 +112,8 @@ def execute_learned_route(
             raw_user_input,
         )
     except UIAutomationAmbiguousTarget as error:
-        return parser._queue_learned_uia_target_choice(
+        return parser.confirmations.queue_learned_uia_target(
+            parser,
             error,
             app_name=app_name,
             macro_name=matched_macro,

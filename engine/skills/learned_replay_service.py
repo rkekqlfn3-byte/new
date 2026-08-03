@@ -12,16 +12,12 @@ from engine.skills.skill_executor import (
 class LearnedReplayService:
     """Coordinate learned-skill policy, confirmation resume, and retries."""
 
-    def __init__(self, owner):
-        self.owner = owner
-
-    def __getattr__(self, name):
-        return getattr(self.owner, name)
-
-    def resume_local_dynamic(self, payload, confirmation_id, log_callback=None):
+    def resume_local_dynamic(
+        self, runtime, payload, confirmation_id, log_callback=None
+    ):
         app_name = payload.get("app_name")
         macro_name = payload.get("macro_name")
-        learned = self._get_learned_macro(app_name, macro_name)
+        learned = runtime._get_learned_macro(app_name, macro_name)
         if not learned or not learned.get("code"):
             return failure_result(
                 "확인 후 저장된 매크로를 다시 찾지 못했습니다. 실행하지 않았습니다.",
@@ -31,7 +27,7 @@ class LearnedReplayService:
             )
         argument = payload.get("argument", "")
         try:
-            result = self.skill_executor.execute(
+            result = runtime.skill_executor.execute(
                 app_name,
                 macro_name,
                 skill=learned,
@@ -65,7 +61,7 @@ class LearnedReplayService:
                 },
             )
         except SkillPreflightBlocked as error:
-            return self._dynamic_preflight_failure(
+            return runtime._dynamic_preflight_failure(
                 error.preflight, action="learned_macro", target=macro_name
             )
         except (SkillConfirmationRequired, SkillContextChanged):
@@ -84,7 +80,7 @@ class LearnedReplayService:
                 f"확인한 저장 매크로를 실행하지 못했습니다: {error}",
                 action="learned_macro",
                 target=macro_name,
-                error_type=self._failure_type_for_error(error),
+                error_type=runtime._failure_type_for_error(error),
                 failed_step=getattr(error, "failed_step", None),
                 retryable=getattr(error, "retryable", False),
                 status=getattr(error, "status", "failed"),
@@ -115,6 +111,7 @@ class LearnedReplayService:
 
     def local_policy_gate(
         self,
+        runtime,
         *,
         app_name,
         macro_name,
@@ -124,11 +121,11 @@ class LearnedReplayService:
         session_id,
         original_command,
     ):
-        assessment = self.skill_run_policy.assess(skill, original_command)
+        assessment = runtime.skill_run_policy.assess(skill, original_command)
         if assessment.directive == DIRECTIVE_PREVIEW:
             return self.preview_result(app_name, macro_name, skill, assessment)
         if assessment.route == "python":
-            decision = self.skill_executor.preflight(
+            decision = runtime.skill_executor.preflight(
                 app_name,
                 macro_name,
                 skill=skill,
@@ -137,13 +134,14 @@ class LearnedReplayService:
                 target=skill.get("default_target", ""),
             )
             if decision.status == BLOCKED:
-                return self._dynamic_preflight_failure(
+                return runtime._dynamic_preflight_failure(
                     decision.result,
                     action="learned_macro",
                     target=macro_name,
                 )
             if decision.status == CONFIRMATION_REQUIRED:
-                return self._queue_local_learned_dynamic_confirmation(
+                return runtime.confirmations.queue_local_learned_dynamic(
+                    runtime,
                     app_name,
                     macro_name,
                     argument,
@@ -154,7 +152,8 @@ class LearnedReplayService:
                 )
         if not assessment.requires_confirmation:
             return None
-        return self._queue_skill_run_policy_confirmation(
+        return runtime.confirmations.queue_skill_run_policy(
+            runtime,
             app_name=app_name,
             macro_name=macro_name,
             skill=skill,
@@ -170,8 +169,8 @@ class LearnedReplayService:
             },
         )
 
-    def retry_step(self, app_name, macro_name, step_number):
-        app_macros = getattr(self.dict_mgr, "learned_macros", {}).get(app_name, {})
+    def retry_step(self, runtime, app_name, macro_name, step_number):
+        app_macros = getattr(runtime.dict_mgr, "learned_macros", {}).get(app_name, {})
         learned = app_macros.get(macro_name) if isinstance(app_macros, dict) else None
         if not isinstance(learned, dict) or not learned.get("plan"):
             raise ValueError("단계 재시도가 가능한 학습 행동을 찾지 못했습니다.")
@@ -179,12 +178,12 @@ class LearnedReplayService:
             step_number = int(step_number)
         except (TypeError, ValueError):
             raise ValueError("재시도 단계 번호가 올바르지 않습니다.")
-        self.execution_controller.begin(
+        runtime.execution_controller.begin(
             f"retry:{app_name}/{macro_name}", {"start_step": step_number}
         )
         try:
-            slots = self._build_slot_values(learned.get("learning", {}))
-            result = self.skill_executor.execute(
+            slots = runtime._build_slot_values(learned.get("learning", {}))
+            result = runtime.skill_executor.execute(
                 app_name,
                 macro_name,
                 skill=learned,
@@ -194,13 +193,13 @@ class LearnedReplayService:
                 retry_attempts=1,
                 record_candidate=False,
             )
-            self.execution_controller.finish(True, extra={"result": result})
+            runtime.execution_controller.finish(True, extra={"result": result})
             return result
         except ExecutionCancelled as error:
-            self.execution_controller.finish(False, "cancelled", error=str(error))
+            runtime.execution_controller.finish(False, "cancelled", error=str(error))
             raise
         except Exception as error:
-            self.execution_controller.finish(
+            runtime.execution_controller.finish(
                 False,
                 "failed",
                 error=str(error),

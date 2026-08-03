@@ -12,7 +12,11 @@ def resolve(owner, context):
     requests = payload.get("requests", {})
     prepared_actions = payload.get("prepared_actions", {})
     continuation = payload.get("continuation")
-    continuation_error = self._validate_app_command_continuation(continuation)
+    continuation_error = None
+    if isinstance(continuation, dict) and continuation.get("kind") == "learned_native":
+        _, continuation_error = self.skill_executor.validate_native_continuation(
+            continuation
+        )
     if continuation_error is not None:
         return continuation_error
     request = requests.get(option_id, {})
@@ -30,13 +34,13 @@ def resolve(owner, context):
             request.get("operation"),
             request.get("params", {}),
         )
-        if self.confirmation_response_handler.context_changed(
+        if self.confirmations.responses.context_changed(
             previous, current
         ):
             decision = self.decision_engine.evaluate(
                 current, force_confirmation=True
             )
-            return self._queue_prepared_action_confirmation(
+            return self.confirmations.queue_prepared_action(
                 current,
                 request,
                 decision,
@@ -51,9 +55,11 @@ def resolve(owner, context):
             confirmation_id=consumed["confirmation_id"],
             preference_selection=preference_selection,
         )
-        return self._complete_app_command_continuation(result, continuation)
+        if isinstance(continuation, dict) and continuation.get("kind") == "learned_native":
+            return self.skill_executor.complete_native_confirmation(continuation, result)
+        return result
     except AppActionContextChanged:
-        return self._queue_changed_app_context(
+        return self.app_command_router.queue_changed_context(
             request,
             previous,
             session_id,
@@ -61,13 +67,16 @@ def resolve(owner, context):
             execution_id=execution_id,
             preference_selection=preference_selection,
             continuation=continuation,
+            runtime=self,
         )
     except AppActionError as error:
-        result = self._app_action_failure(
+        result = self.app_command_router.failure(
             error,
             target=(
                 f"{previous.workbook_name}/{previous.sheet}/{previous.target}"
                 if isinstance(previous, PreparedAction) else None
             ),
         )
-        return self._complete_app_command_continuation(result, continuation)
+        if isinstance(continuation, dict) and continuation.get("kind") == "learned_native":
+            return self.skill_executor.complete_native_confirmation(continuation, result)
+        return result

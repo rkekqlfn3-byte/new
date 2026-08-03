@@ -2,12 +2,12 @@ from engine.security import BLOCKED, CONFIRMATION_REQUIRED
 
 
 class BatchPreflight:
-    def __init__(self, owner, learning_descriptor):
-        self.owner = owner
+    def __init__(self, learning_descriptor):
         self.learning_descriptor = learning_descriptor
 
     def run(
         self,
+        parser,
         response,
         actions,
         validation_issues,
@@ -19,7 +19,6 @@ class BatchPreflight:
         image_data=None,
         use_api=False,
     ):
-        parser = self.owner
         approved = set(approved_fingerprints or [])
         approved_skills = {
             str(value).casefold() for value in (approved_skill_runs or [])
@@ -65,7 +64,8 @@ class BatchPreflight:
                     # one-shot confirmation for this Python skill.
                     continue
             if assessment.requires_confirmation:
-                return parser._queue_skill_run_policy_confirmation(
+                return parser.confirmations.queue_skill_run_policy(
+                    parser,
                     app_name=app_name,
                     macro_name=macro_name,
                     skill=learned,
@@ -86,7 +86,7 @@ class BatchPreflight:
                 )
         confirmation_items = []
         for act in actions:
-            descriptor = self.learning_descriptor.describe(act)
+            descriptor = self.learning_descriptor.describe(parser, act)
             if not descriptor:
                 continue
             if descriptor["action"] == "dynamic_code":
@@ -132,7 +132,8 @@ class BatchPreflight:
                 })
         if not confirmation_items:
             return None
-        return parser._queue_dynamic_code_confirmation(
+        return parser.confirmations.queue_dynamic_code(
+            parser,
             confirmation_items,
             {
                 "mode": "ai_batch",

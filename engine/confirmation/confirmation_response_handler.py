@@ -60,16 +60,9 @@ class ConfirmationResponseHandler:
             return "rewrite"
         return None
 
-    def __init__(self, owner):
-        self.owner = owner
-
-    @property
-    def manager(self):
-        return self.owner.pending_confirmation_manager
-
-    @property
-    def execution_controller(self):
-        return self.owner.execution_controller
+    def __init__(self, pending_manager, execution_controller):
+        self.manager = pending_manager
+        self.execution_controller = execution_controller
 
     def get_pending(self, session_id=None):
         confirmation = self.manager.active_record(
@@ -99,6 +92,7 @@ class ConfirmationResponseHandler:
         option_id=None,
         user_text=None,
         remember_preference=False,
+        cancel_pending_edit=None,
     ):
         """Resolve text/button input and consume its record before any action."""
         session_id = normalize_session_id(session_id)
@@ -265,11 +259,7 @@ class ConfirmationResponseHandler:
                 and prepared_metadata.get("replacement_candidate")
             )
             if payload.get("kind") == "prepared_edit_action":
-                cancel_edit = getattr(
-                    getattr(self.owner, "edit_mode_controller", None),
-                    "cancel_pending_edit",
-                    None,
-                )
+                cancel_edit = cancel_pending_edit
                 if callable(cancel_edit):
                     preference_feedback = cancel_edit(
                         payload,

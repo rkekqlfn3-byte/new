@@ -2,11 +2,7 @@ from engine.learning_schema import normalize_learning_metadata
 
 
 class LearningDescriptor:
-    def __init__(self, owner):
-        self.owner = owner
-
-    def describe(self, act):
-        parser = self.owner
+    def describe(self, parser, act):
         action = act.get("action")
         app_name = str(act.get("app_name") or "시스템").strip()
         macro_name = str(act.get("macro_name") or "dynamic_code").strip()

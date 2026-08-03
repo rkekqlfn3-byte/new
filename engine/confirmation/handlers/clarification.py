@@ -16,7 +16,7 @@ def resolve(owner, context):
     try:
         current = owner.app_command_router.context_identity(target)
     except Exception as error:
-        return owner._app_action_failure(error)
+        return owner.app_command_router.failure(error)
     if not expected or current != expected:
         return failure_result(
             "정보를 묻는 동안 활성 문서나 시트가 바뀌어 이전 요청을 실행하지 않았습니다. 현재 문서에서 다시 요청해주세요.",

@@ -14,16 +14,15 @@ from engine.skills.run_policy import ensure_run_policy_fields
 class SkillLearningService:
     """Own the pending-learning queue and its persistence transaction."""
 
-    def __init__(self, owner):
-        self.owner = owner
+    def __init__(self, dict_mgr, template_matcher, candidate_recording_service):
+        self.dict_mgr = dict_mgr
+        self.template_matcher = template_matcher
+        self.candidate_recording_service = candidate_recording_service
+        self.pending_macros = []
 
     @property
     def pending(self):
-        return self.owner.pending_macros
-
-    @property
-    def dict_mgr(self):
-        return self.owner.dict_mgr
+        return self.pending_macros
 
     def stage_candidate(self, candidate):
         if not isinstance(candidate, dict):
@@ -166,7 +165,7 @@ class SkillLearningService:
             staged.setdefault(macro.get("app"), {})[macro.get("name")] = {
                 "learning": macro.get("learning", {})
             }
-        self.owner.pending_macros = prepared
+        self.pending_macros = prepared
 
     def approve(self, edits=None):
         with self.dict_mgr.locked():
@@ -205,7 +204,7 @@ class SkillLearningService:
             candidate_signature = ""
             if str(macro.get("code", "")).strip():
                 candidate_signature = (
-                    self.owner.candidate_recording_service.signature_for(
+                    self.candidate_recording_service.signature_for(
                         app_name, learning
                     )
                 )
@@ -287,16 +286,16 @@ class SkillLearningService:
             saved_count += 1
 
         self.dict_mgr.save()
-        self.owner.template_matcher.invalidate()
+        self.template_matcher.invalidate()
         for observation in native_candidate_observations:
-            self.owner.candidate_recording_service.record_confirmed_learning(
+            self.candidate_recording_service.record_confirmed_learning(
                 observation["app"],
                 observation["learning"],
                 observation["description"],
                 execution_id=observation["execution_id"],
                 verified=bool(observation.get("verified")),
             )
-        self.owner.pending_macros = []
+        self.pending_macros = []
         return (
             f"학습 완료! {saved_count}개의 행동을 저장했습니다. "
             "다음부터 같은 문장이나 템플릿은 로컬에서 찾고 실행 전 확인합니다."
@@ -304,7 +303,7 @@ class SkillLearningService:
 
     def reject(self, reason="discard"):
         count = len(self.pending)
-        self.owner.pending_macros = []
+        self.pending_macros = []
         if reason == "run_once":
             return f"이번 한 번만 실행하고 학습 후보 {count}개는 저장하지 않았습니다."
         return f"학습 후보 {count}개를 폐기했습니다."

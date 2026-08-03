@@ -26,7 +26,8 @@ def resolve(owner, context):
     except ActionConfirmationRequired as error:
         payload["plan"] = authorized_plan
         payload["execution_id"] = execution_id
-        return self._queue_action_plan_confirmation(
+        return self.confirmations.queue_action_plan(
+            self,
             error, payload, session_id, consumed.get("original_command", "")
         )
     except ExecutionCancelled:

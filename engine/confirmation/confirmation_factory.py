@@ -14,17 +14,21 @@ from engine.parsing.office_command_parser import (
 from engine.skills.run_policy import skill_policy_fingerprint
 
 
+def _current_execution_id(execution_controller):
+    current = execution_controller.current
+    return current.get("execution_id", "") if isinstance(current, dict) else ""
+
+
 class ConfirmationFactory:
     """Build confirmation records while the parser keeps compatibility façades."""
 
-    def __init__(self, owner):
-        self.owner = owner
-
-    def __getattr__(self, name):
-        return getattr(self.owner, name)
+    def __init__(self, pending_manager, response_handler):
+        self.manager = pending_manager
+        self.response_handler = response_handler
 
     def queue_missing_information(
         self,
+        runtime,
         request,
         session_id,
         original_command,
@@ -34,16 +38,16 @@ class ConfirmationFactory:
         reason = str(params.get("reason") or "unsafe_default")
         message = str(params.get("message") or "필요한 정보를 조금 더 알려주세요.")
         try:
-            context_identity = self.app_command_router.context_identity(
+            context_identity = runtime.app_command_router.context_identity(
                 request.get("target")
             )
         except AppActionError as error:
-            return self._app_action_failure(error)
+            return runtime.app_command_router.failure(error)
         if log_callback:
             log_callback(f"[Clarification] 추가 정보 필요: {reason}")
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
+            execution_id=_current_execution_id(runtime.execution_controller) or "",
             original_command=original_command,
             reason=reason,
             request_kind="clarification",
@@ -73,14 +77,14 @@ class ConfirmationFactory:
                 "context_identity": context_identity,
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_command_macro(
-        self, macro_name, macro_data, original_command, session_id
+        self, runtime, macro_name, macro_data, original_command, session_id
     ):
         command = str(macro_data.get("data", "")).strip()
         try:
-            self.builtins.validate_command(command)
+            runtime.builtins.validate_command(command)
         except (TypeError, ValueError) as error:
             return failure_result(
                 str(error),
@@ -89,9 +93,9 @@ class ConfirmationFactory:
                 error_type="validation_error",
                 status="blocked",
             )
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id(),
+            execution_id=_current_execution_id(runtime.execution_controller),
             original_command=original_command,
             reason="external_program",
             message=(
@@ -123,10 +127,11 @@ class ConfirmationFactory:
                 "command": command,
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_app_method(
         self,
+        runtime,
         request,
         session_id,
         original_command,
@@ -140,13 +145,14 @@ class ConfirmationFactory:
             try:
                 candidate = copy.deepcopy(request)
                 candidate["operation"] = operation
-                prepared = self.app_command_router.prepare(
+                prepared = runtime.app_command_router.prepare(
                     candidate.get("target"), operation, candidate.get("params", {})
                 )
                 prepared_actions[option_id] = prepared.to_dict()
                 requests[option_id] = candidate
             except AppActionAmbiguousTarget as error:
                 return self.queue_app_target(
+                    runtime,
                     request,
                     error,
                     session_id,
@@ -157,12 +163,14 @@ class ConfirmationFactory:
                 preparation_errors.append(error)
 
         if not prepared_actions:
-            return self._app_action_failure(preparation_errors[0])
+            return runtime.app_command_router.failure(preparation_errors[0])
 
         representative = PreparedAction.from_dict(
             next(iter(prepared_actions.values()))
         )
-        preference = self.preference_manager.decision(EXCEL_FORMAT_PREFERENCE_KEY)
+        preference = runtime.preference_manager.decision(
+            EXCEL_FORMAT_PREFERENCE_KEY
+        )
         preferred_option = (
             preference.get("preferred_method")
             if preference.get("mode") == "recommend" else None
@@ -217,9 +225,9 @@ class ConfirmationFactory:
             if preference.get("reason") == "auto_apply_disabled_after_failures"
             else ""
         )
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
+            execution_id=_current_execution_id(runtime.execution_controller) or "",
             original_command=original_command,
             reason="multiple_possible_intents",
             request_kind="clarification",
@@ -243,10 +251,11 @@ class ConfirmationFactory:
                 "continuation": copy.deepcopy(continuation),
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_hwp_scope(
         self,
+        runtime,
         request,
         session_id,
         original_command,
@@ -274,7 +283,7 @@ class ConfirmationFactory:
             candidate["operation"] = "find_replace"
             candidate["params"]["scope"] = scope
             try:
-                prepared = self.app_command_router.prepare(
+                prepared = runtime.app_command_router.prepare(
                     "hwp", "find_replace", candidate["params"]
                 )
             except AppActionError as error:
@@ -293,7 +302,7 @@ class ConfirmationFactory:
                 "recommended": scope == "selection",
             })
         if not prepared_actions:
-            return self._app_action_failure(errors[0])
+            return runtime.app_command_router.failure(errors[0])
         if not any(item.get("recommended") for item in options):
             options[0]["recommended"] = True
         representative = PreparedAction.from_dict(
@@ -308,9 +317,9 @@ class ConfirmationFactory:
         })
         if log_callback:
             log_callback("[Clarification] 한글 찾기·바꾸기 범위 선택 필요")
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
+            execution_id=_current_execution_id(runtime.execution_controller) or "",
             original_command=original_command,
             reason="missing_range",
             request_kind="clarification",
@@ -328,10 +337,11 @@ class ConfirmationFactory:
                 "continuation": copy.deepcopy(continuation),
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_app_target(
         self,
+        runtime,
         request,
         ambiguity,
         session_id,
@@ -350,7 +360,7 @@ class ConfirmationFactory:
                 candidate = copy.deepcopy(request)
                 candidate["params"].pop("source_range", None)
                 candidate["params"]["column_name"] = column
-                prepared = self.app_command_router.prepare(
+                prepared = runtime.app_command_router.prepare(
                     candidate.get("target"), operation, candidate.get("params", {})
                 )
                 candidate_requests[option_id] = candidate
@@ -365,7 +375,7 @@ class ConfirmationFactory:
                     ],
                 })
         except AppActionError as error:
-            return self._app_action_failure(error)
+            return runtime.app_command_router.failure(error)
         options.append({
             "id": "cancel",
             "label": "취소",
@@ -373,9 +383,9 @@ class ConfirmationFactory:
             "cancel": True,
             "aliases": ["아니", "아니요", "그만", "하지마"],
         })
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
+            execution_id=_current_execution_id(runtime.execution_controller) or "",
             original_command=original_command,
             reason="ambiguous_reference",
             request_kind="clarification",
@@ -390,10 +400,11 @@ class ConfirmationFactory:
                 "continuation": copy.deepcopy(continuation),
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_dynamic_code(
         self,
+        runtime,
         items,
         resume_payload,
         session_id,
@@ -420,9 +431,9 @@ class ConfirmationFactory:
             message += "\n대상: " + ", ".join(labels[:4])
         if reasons:
             message += "\n- " + "\n- ".join(reasons[:5])
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id(),
+            execution_id=_current_execution_id(runtime.execution_controller),
             original_command=original_command,
             reason="dynamic_code_risk",
             message=message,
@@ -450,10 +461,11 @@ class ConfirmationFactory:
                 "risk_analyses": analyses,
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_local_learned_dynamic(
         self,
+        runtime,
         app_name,
         macro_name,
         argument,
@@ -463,6 +475,7 @@ class ConfirmationFactory:
         original_command,
     ):
         return self.queue_dynamic_code(
+            runtime,
             [{
                 "label": f"저장된 매크로 {app_name}/{macro_name}",
                 "fingerprint": fingerprint,
@@ -481,6 +494,7 @@ class ConfirmationFactory:
 
     def queue_skill_run_policy(
         self,
+        runtime,
         *,
         app_name,
         macro_name,
@@ -527,9 +541,9 @@ class ConfirmationFactory:
             )
         else:
             message = f"저장된 학습 행동 [{macro_name}]을 이번에 실행할까요?"
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or "",
+            execution_id=_current_execution_id(runtime.execution_controller) or "",
             original_command=original_command,
             reason=assessment.reason,
             message=message,
@@ -545,9 +559,11 @@ class ConfirmationFactory:
                 **copy.deepcopy(resume_payload),
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
-    def queue_uia_target(self, ambiguity, payload, session_id, original_command):
+    def queue_uia_target(
+        self, runtime, ambiguity, payload, session_id, original_command
+    ):
         selectors = {}
         options = []
         for index, candidate in enumerate(ambiguity.candidates, start=1):
@@ -587,9 +603,9 @@ class ConfirmationFactory:
             "cancel": True,
             "aliases": ["아니", "아니요", "그만", "하지마"],
         })
-        record = self.pending_confirmation_manager.create(
+        record = self.manager.create(
             session_id=normalize_session_id(session_id),
-            execution_id=self._current_execution_id() or payload.get(
+            execution_id=_current_execution_id(runtime.execution_controller) or payload.get(
                 "execution_id", ""
             ),
             original_command=original_command,
@@ -611,10 +627,11 @@ class ConfirmationFactory:
                 ),
             },
         )
-        return self._confirmation_result(record)
+        return self.response_handler.confirmation_result(record)
 
     def queue_learned_uia_target(
         self,
+        runtime,
         ambiguity,
         *,
         app_name,
@@ -647,6 +664,7 @@ class ConfirmationFactory:
                 status="context_changed",
             )
         return self.queue_uia_target(
+            runtime,
             ambiguity,
             {
                 "resume_mode": "learned_skill",

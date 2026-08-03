@@ -86,7 +86,8 @@ def resolve(owner, context):
             error, "failed_step", failed_step
         )
         next_payload["execution_id"] = execution_id
-        return self._queue_uia_target_choice(
+        return self.confirmations.queue_uia_target(
+            self,
             error,
             next_payload,
             session_id,

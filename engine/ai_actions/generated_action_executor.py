@@ -64,7 +64,8 @@ def execute_action_plan(context, action):
                 )
     except ActionConfirmationRequired as error:
         context.log(f"[Confirmation] 파일 덮어쓰기 확인 필요: {error}")
-        return parser._queue_action_plan_confirmation(
+        return parser.confirmations.queue_action_plan(
+            parser,
             error,
             {"plan": plan, "slots": slots, "learning_candidate": candidate},
             context.session_id,
@@ -72,7 +73,8 @@ def execute_action_plan(context, action):
         )
     except UIAutomationAmbiguousTarget as error:
         context.log(f"[Confirmation] UI 요소 후보 선택 필요: {error}")
-        return parser._queue_uia_target_choice(
+        return parser.confirmations.queue_uia_target(
+            parser,
             error,
             {
                 "plan": plan,

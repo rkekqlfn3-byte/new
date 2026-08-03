@@ -7,12 +7,10 @@ from engine.security.launch_policy import UnsafeLaunchTarget, validate_launch_ta
 
 
 class ResultValidator:
-    def __init__(self, owner, preflight):
-        self.owner = owner
+    def __init__(self, preflight):
         self.preflight = preflight
 
-    def validate(self, result):
-        parser = self.owner
+    def validate(self, parser, result):
         default_response = "으응? 무슨 말인지 잘 못 알아들었어.. 단어나 동의어를 사전에 먼저 등록해줄래? 🥺"
         issues = []
 
@@ -174,7 +172,7 @@ class ResultValidator:
                     continue
                 if enforce_app_candidates:
                     candidate_issue = self.validate_plan_app_candidates(
-                        act.get("plan"), learning, allowed_apps
+                        parser, act.get("plan"), learning, allowed_apps
                     )
                     if candidate_issue:
                         issues.append(f"{prefix}: {candidate_issue}")
@@ -184,8 +182,9 @@ class ResultValidator:
 
         return response, valid_actions, issues
 
-    def validate_plan_app_candidates(self, plan, learning, allowed_apps):
-        parser = self.owner
+    def validate_plan_app_candidates(
+        self, parser, plan, learning, allowed_apps
+    ):
         slot_values = {
             str(item.get("name", "")): str(item.get("value", ""))
             for item in learning.get("slots", [])

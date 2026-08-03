@@ -22,23 +22,17 @@ from engine.execution_result import failure_result, normalize_error_type, succes
 class AppCommandRouter:
     """Common router for native application commands and prepared actions."""
 
-    def __init__(self, owner):
-        self.owner = owner
-
-    @property
-    def registry(self):
-        # Tests and integrations may replace CommandParser's registry after
-        # construction. Resolve it lazily so the router always uses the active
-        # adapter set.
-        return self.owner.app_action_registry
-
-    @property
-    def decision_engine(self):
-        return self.owner.decision_engine
-
-    @property
-    def preference_manager(self):
-        return self.owner.preference_manager
+    def __init__(
+        self,
+        registry,
+        decision_engine,
+        preference_manager,
+        confirmations,
+    ):
+        self.registry = registry
+        self.decision_engine = decision_engine
+        self.preference_manager = preference_manager
+        self.confirmations = confirmations
 
     def prepare(self, request_or_target, operation=None, params=None):
         """Select the adapter and prepare a COM-free action snapshot."""
@@ -233,6 +227,8 @@ class AppCommandRouter:
         original_command,
         log_callback=None,
         continuation=None,
+        *,
+        runtime,
     ):
         """Prepare, decide, execute, and normalize one native app request."""
         prepared = None
@@ -252,7 +248,7 @@ class AppCommandRouter:
                         f"[Confirmation] {self.app_label(prepared)} "
                         f"{prepared.sheet}!{prepared.target} 변경 확인 필요"
                     )
-                return self.owner._queue_prepared_action_confirmation(
+                return self.confirmations.queue_prepared_action(
                     prepared,
                     request,
                     decision,
@@ -284,7 +280,8 @@ class AppCommandRouter:
                 }
             return result
         except AppActionAmbiguousTarget as error:
-            return self.owner._queue_app_target_choice(
+            return self.confirmations.queue_app_target(
+                runtime,
                 request,
                 error,
                 session_id,
@@ -292,12 +289,13 @@ class AppCommandRouter:
                 continuation=continuation,
             )
         except AppActionContextChanged:
-            return self.owner._queue_changed_app_context(
+            return self.queue_changed_context(
                 request,
                 prepared,
                 session_id,
                 original_command,
                 continuation=continuation,
+                runtime=runtime,
             )
         except AppActionError as error:
             auto_preference = request.get("_auto_preference")
@@ -314,7 +312,8 @@ class AppCommandRouter:
                     )
                     base_request.pop("_auto_preference", None)
                     base_request["operation"] = "choose_format_method"
-                    return self.owner._queue_app_method_choice(
+                    return self.confirmations.queue_app_method(
+                        runtime,
                         base_request,
                         session_id,
                         original_command,
@@ -332,6 +331,8 @@ class AppCommandRouter:
         execution_id="",
         preference_selection=None,
         continuation=None,
+        *,
+        runtime,
     ):
         """Re-prepare a changed document and require a fresh confirmation."""
         try:
@@ -339,7 +340,7 @@ class AppCommandRouter:
             decision = self.decision_engine.evaluate(
                 current, force_confirmation=True
             )
-            return self.owner._queue_prepared_action_confirmation(
+            return self.confirmations.queue_prepared_action(
                 current,
                 request,
                 decision,

@@ -79,18 +79,17 @@ class LocalCommandAnalyzer:
     execution coordinator.
     """
 
-    def __init__(self, owner):
-        self.owner = owner
+    def __init__(self, dict_mgr, template_matcher, builtins, handlers):
+        self.dict_mgr = dict_mgr
+        self.template_matcher = template_matcher
+        self.builtins = builtins
+        self.handlers = handlers
         self._app_index_signature = None
         self._exact_app_index = {}
         self._basename_app_index = {}
         self._substring_app_entries = []
         self._fuzzy_app_buckets = {}
         self._fuzzy_app_cache = {}
-
-    @property
-    def dict_mgr(self):
-        return self.owner.dict_mgr
 
     def normalize_text(self, text):
         tokens = re.sub(r"[\n\t,!?]+", " ", text.lower()).split()
@@ -117,7 +116,7 @@ class LocalCommandAnalyzer:
         # A learned template may contain connective words such as "열고" or
         # "하고" as part of one reusable action. It therefore wins over the
         # generic compound-command splitter.
-        full_template_match = self.owner.template_matcher.match(
+        full_template_match = self.template_matcher.match(
             text,
             getattr(self.dict_mgr, "learned_macros", {}),
             self.dict_mgr.noun_dict,
@@ -154,7 +153,7 @@ class LocalCommandAnalyzer:
             template_match = None
             macro = "VOL_SET"
         elif template_match is None:
-            template_match = self.owner.template_matcher.match(
+            template_match = self.template_matcher.match(
                 text,
                 getattr(self.dict_mgr, "learned_macros", {}),
                 self.dict_mgr.noun_dict,
@@ -193,7 +192,7 @@ class LocalCommandAnalyzer:
             executable = False
             reason = "대상 앱을 찾지 못했습니다."
         elif macro == "SEARCH":
-            search_engine, _, search_query = self.owner.builtins.extract_search_request(text)
+            search_engine, _, search_query = self.builtins.extract_search_request(text)
             executable = bool(search_query)
             if not executable:
                 reason = "검색어가 비어 있습니다."
@@ -204,13 +203,13 @@ class LocalCommandAnalyzer:
                 executable = False
                 reason = "매크로 실행 값이 비어 있습니다."
             elif macro_type == "learned":
-                learned = self.owner._get_learned_macro(macro_data.get("app"), macro)
+                learned = self.get_learned_macro(macro_data.get("app"), macro)
                 executable = bool(
                     learned and (learned.get("code") or learned.get("plan"))
                 )
                 if not executable:
                     reason = "학습 매크로 코드를 찾지 못했습니다."
-            elif macro_type == "default" and macro not in self.owner._handlers:
+            elif macro_type == "default" and macro not in self.handlers:
                 executable = False
                 reason = "로컬 실행 함수를 찾지 못했습니다."
 
@@ -229,6 +228,18 @@ class LocalCommandAnalyzer:
             "reason": reason,
             "template_match": template_match,
         }
+
+    def get_learned_macro(self, app_name, macro_name):
+        if not isinstance(app_name, str) or not isinstance(macro_name, str):
+            return None
+        learned_macros = getattr(self.dict_mgr, "learned_macros", {})
+        app_macros = learned_macros.get(app_name)
+        if not isinstance(app_macros, dict):
+            return None
+        macro = app_macros.get(macro_name)
+        if not isinstance(macro, dict) or macro.get("state", "active") != "active":
+            return None
+        return macro
 
     def resolve_registered_app(self, target):
         if not isinstance(target, str) or not target.strip():

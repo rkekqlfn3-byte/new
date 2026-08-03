@@ -6,11 +6,13 @@ from engine.execution_result import failure_result
 class ConfirmationDispatcher:
     """Resume consumed confirmation records through domain-specific handlers."""
 
-    def __init__(self, owner):
-        self.owner = owner
+    def __init__(self, response_handler, handlers=None):
+        self.response_handler = response_handler
+        self.handlers = dict(handlers or HANDLERS)
 
     def resolve(
         self,
+        runtime,
         session_id,
         confirmation_id=None,
         option_id=None,
@@ -18,12 +20,15 @@ class ConfirmationDispatcher:
         log_callback=None,
         remember_preference=False,
     ):
-        resolution = self.owner.confirmation_response_handler.resolve_selection(
+        resolution = self.response_handler.resolve_selection(
             session_id,
             confirmation_id=confirmation_id,
             option_id=option_id,
             user_text=user_text,
             remember_preference=remember_preference,
+            cancel_pending_edit=getattr(
+                runtime.edit_mode_controller, "cancel_pending_edit", None
+            ),
         )
         if resolution.result is not None:
             return resolution.result
@@ -36,10 +41,10 @@ class ConfirmationDispatcher:
             feedback_text=resolution.feedback_text,
             log_callback=log_callback,
         )
-        handler = HANDLERS.get(context.payload.get("kind"))
+        handler = self.handlers.get(context.payload.get("kind"))
         if handler is None:
             return failure_result(
                 "지원하지 않는 확인 후속 작업입니다.",
                 action="confirmation", error_type="validation_error",
             )
-        return handler(self.owner, context)
+        return handler(runtime, context)

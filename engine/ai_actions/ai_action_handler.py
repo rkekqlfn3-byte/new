@@ -9,15 +9,15 @@ from engine.ai_actions.result_validator import ResultValidator
 class AIActionHandler:
     """Keep the public AI action API while delegating each responsibility."""
 
-    def __init__(self, owner):
-        self.owner = owner
-        self.learning_descriptor = LearningDescriptor(owner)
-        self.preflight = BatchPreflight(owner, self.learning_descriptor)
-        self.validator = ResultValidator(owner, self.preflight)
-        self.executor = BatchExecutor(owner)
+    def __init__(self):
+        self.learning_descriptor = LearningDescriptor()
+        self.preflight = BatchPreflight(self.learning_descriptor)
+        self.validator = ResultValidator(self.preflight)
+        self.executor = BatchExecutor()
 
     def handle_result(
         self,
+        parser,
         result,
         user_input,
         *,
@@ -26,8 +26,9 @@ class AIActionHandler:
         image_data=None,
         use_api=False,
     ):
-        response, actions, validation_issues = self.validate_result(result)
+        response, actions, validation_issues = self.validate_result(parser, result)
         return self.execute_batch(
+            parser,
             response,
             actions,
             validation_issues,
@@ -38,11 +39,12 @@ class AIActionHandler:
             use_api=use_api,
         )
 
-    def validate_result(self, result):
-        return self.validator.validate(result)
+    def validate_result(self, parser, result):
+        return self.validator.validate(parser, result)
 
     def execute_batch(
         self,
+        parser,
         response,
         actions,
         validation_issues,
@@ -57,6 +59,7 @@ class AIActionHandler:
         use_api=False,
     ):
         preflight_gate = self.preflight.run(
+            parser,
             response,
             actions,
             validation_issues,
@@ -71,6 +74,7 @@ class AIActionHandler:
         if preflight_gate is not None:
             return preflight_gate
         return self.executor.execute(
+            parser,
             response,
             actions,
             validation_issues,
@@ -83,11 +87,12 @@ class AIActionHandler:
             use_api=use_api,
         )
 
-    def _ai_dynamic_descriptor(self, act):
-        return self.learning_descriptor.describe(act)
+    def _ai_dynamic_descriptor(self, parser, act):
+        return self.learning_descriptor.describe(parser, act)
 
     def _preflight_ai_action_batch(
         self,
+        parser,
         response,
         actions,
         validation_issues,
@@ -100,6 +105,7 @@ class AIActionHandler:
         use_api=False,
     ):
         return self.preflight.run(
+            parser,
             response,
             actions,
             validation_issues,
@@ -114,6 +120,7 @@ class AIActionHandler:
 
     def _execute_ai_action_batch(
         self,
+        parser,
         response,
         actions,
         validation_issues,
@@ -128,6 +135,7 @@ class AIActionHandler:
         use_api=False,
     ):
         return self.execute_batch(
+            parser,
             response,
             actions,
             validation_issues,
@@ -145,15 +153,19 @@ class AIActionHandler:
     def _ensure_input_focus_steps(plan):
         return BatchPreflight.ensure_input_focus_steps(plan)
 
-    def _validate_llm_result(self, result):
-        return self.validator.validate(result)
+    def _validate_llm_result(self, parser, result):
+        return self.validator.validate(parser, result)
 
-    def _validate_plan_app_candidates(self, plan, learning, allowed_apps):
+    def _validate_plan_app_candidates(
+        self, parser, plan, learning, allowed_apps
+    ):
         return self.validator.validate_plan_app_candidates(
-            plan, learning, allowed_apps
+            parser, plan, learning, allowed_apps
         )
 
-    def _validate_generated_code(self, act, require_external_target=False):
+    def _validate_generated_code(
+        self, parser, act, require_external_target=False
+    ):
         return self.validator.validate_generated_code(
             act, require_external_target=require_external_target
         )

@@ -39,9 +39,9 @@ class BuiltinMacros:
     _BLOCKED_SCRIPT_EXTENSIONS = BLOCKED_LAUNCH_EXTENSIONS
     _SHELL_METACHARACTERS = re.compile(r"[&|<>^\r\n]")
 
-    def __init__(self, dict_mgr, parser):
+    def __init__(self, dict_mgr, action_executor):
         self.dict_mgr = dict_mgr
-        self.parser = parser
+        self.action_executor = action_executor
 
     def execute_hotkey(self, macro_data):
         try:
@@ -130,27 +130,6 @@ class BuiltinMacros:
                 error_type="execution_error",
             )
 
-    def execute_compound(self, macro_data, log_callback, image_data, mode):
-        commands = [c.strip() for c in macro_data["data"].split(",")]
-        completed = []
-        for index, cmd in enumerate(commands, start=1):
-            result = self.parser.execute_command_result(
-                cmd, log_callback, image_data, mode
-            )
-            completed.append(result)
-            if not result["success"]:
-                return failure_result(
-                    f"연속 동작 {index}단계에서 중단했습니다: {result['message']}",
-                    action="compound", error_type=result.get("error_type", "execution_error"),
-                    failed_step=index, retryable=result.get("retryable", False),
-                    data={"steps": completed},
-                )
-        return success_result(
-            "연속 동작을 모두 수행했습니다.", action="compound",
-            verified=all(item.get("verified") for item in completed),
-            data={"steps": completed},
-        )
-
     def handle_open(self, user_input, tokens, app_name, app_path, log_callback):
         if app_path:
             try:
@@ -159,7 +138,7 @@ class BuiltinMacros:
                 os.startfile(clean_path)
                 focused = False
                 if not clean_path.casefold().startswith(("http://", "https://")):
-                    self.parser.action_executor.focus_window_when_ready(app_name)
+                    self.action_executor.focus_window_when_ready(app_name)
                     focused = True
                 return success_result(
                     f"'{app_name}'을(를) 실행하고 맨 앞으로 가져왔습니다."
