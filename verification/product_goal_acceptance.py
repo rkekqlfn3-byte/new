@@ -44,6 +44,14 @@ HWP_SECURITY_MODULE_BLOCK_REASONS = frozenset(
         "required_probe_check_missing_or_failed",
     }
 )
+HWP_OWNED_FIXTURE_TIMEOUT_REASONS = frozenset(
+    {
+        "one_or_more_probe_targets_not_passed",
+        "probe_not_successful",
+        "required_probe_target_missing_or_failed",
+        "required_target_check_missing_or_failed",
+    }
+)
 PROBE_SPECS = {
     "utterance_acceptance": {
         "file": "utterance_acceptance_report.json",
@@ -401,7 +409,18 @@ def _recognized_environment_block(
     report: Mapping[str, Any] | None,
     reasons: list[str],
 ) -> dict[str, Any] | None:
-    """Recognize one exact, safe HWP setup block without treating it as pass."""
+    """Recognize exact, safe HWP environment blocks without treating them as pass."""
+    security_module = _hwp_security_module_block(probe_id, report, reasons)
+    if security_module:
+        return security_module
+    return _hwp_owned_fixture_timeout_block(probe_id, report, reasons)
+
+
+def _hwp_security_module_block(
+    probe_id: str,
+    report: Mapping[str, Any] | None,
+    reasons: list[str],
+) -> dict[str, Any] | None:
     if (
         probe_id != "workflow_hwp"
         or not isinstance(report, Mapping)
@@ -437,6 +456,49 @@ def _recognized_environment_block(
         "setup_guide_url": HWP_SECURITY_MODULE_GUIDE_URL,
         "retryable": True,
         "automatic_install_attempted": False,
+    }
+
+
+def _hwp_owned_fixture_timeout_block(
+    probe_id: str,
+    report: Mapping[str, Any] | None,
+    reasons: list[str],
+) -> dict[str, Any] | None:
+    if (
+        probe_id != "native_excel_hwp"
+        or not isinstance(report, Mapping)
+        or set(reasons) != HWP_OWNED_FIXTURE_TIMEOUT_REASONS
+        or report.get("success") is not False
+        or report.get("user_documents_modified") is not False
+        or report.get("paths_or_text_reported") is not False
+    ):
+        return None
+    results = report.get("results")
+    if not isinstance(results, Mapping) or set(results) != {"excel", "hwp"}:
+        return None
+    excel = results.get("excel")
+    hwp = results.get("hwp")
+    if not isinstance(excel, Mapping) or not isinstance(hwp, Mapping):
+        return None
+    if (
+        excel.get("status") != "passed"
+        or excel.get("owned_fixture_only") is not True
+        or excel.get("user_process_protected") is not True
+        or excel.get("preview_approval_verified") is not True
+        or excel.get("write_readback_verified") is not True
+        or excel.get("row_insert_readback_verified") is not True
+        or excel.get("session_returned_ready") is not True
+        or hwp.get("status") != "failed"
+        or hwp.get("stage") != "owned_fixture_timeout"
+        or hwp.get("error_type") != "TimeoutError"
+        or hwp.get("user_process_protected") is not True
+        or hwp.get("owned_process_cleanup_verified") is not True
+    ):
+        return None
+    return {
+        "component": "hwp_automation_responsiveness",
+        "retryable": True,
+        "automatic_fix_attempted": False,
     }
 
 
@@ -576,7 +638,8 @@ def evaluate_acceptance(
     }
 
 
-def refresh_probes(timeout: int) -> None:
+def refresh_probes(timeout: int) -> tuple[str, ...]:
+    failed_modules = []
     for module, extra, supports_timeout in PROBE_COMMANDS:
         command = [sys.executable, "-m", f"verification.{module}"]
         if supports_timeout:
@@ -588,7 +651,8 @@ def refresh_probes(timeout: int) -> None:
             check=False,
         )
         if completed.returncode != 0:
-            raise RuntimeError(f"owned fixture probe failed: {module}")
+            failed_modules.append(module)
+    return tuple(failed_modules)
 
 
 def main(argv=None) -> int:

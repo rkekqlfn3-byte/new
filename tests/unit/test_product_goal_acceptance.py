@@ -5,7 +5,9 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import Mock, patch
 
+from verification import product_goal_acceptance as goal_acceptance
 from verification.product_goal_acceptance import (
     MANUAL_CHECK_IDS,
     PROBE_SPECS,
@@ -78,6 +80,31 @@ def hwp_security_module_block_report(spec, *, generated_at=NOW):
             "setup_guide_url": "https://developer.hancom.com/hwpautomation",
             "registry_location": r"HKCU\Software\HNC\HwpAutomation\Modules",
             "automatic_install_attempted": False,
+        },
+    }
+    return report
+
+
+def hwp_owned_fixture_timeout_report(spec, *, generated_at=NOW):
+    report = probe_report(spec, success=False, generated_at=generated_at)
+    report.pop("result")
+    report["paths_or_text_reported"] = False
+    report["results"] = {
+        "excel": {
+            "status": "passed",
+            "owned_fixture_only": True,
+            "user_process_protected": True,
+            "preview_approval_verified": True,
+            "write_readback_verified": True,
+            "row_insert_readback_verified": True,
+            "session_returned_ready": True,
+        },
+        "hwp": {
+            "status": "failed",
+            "stage": "owned_fixture_timeout",
+            "error_type": "TimeoutError",
+            "user_process_protected": True,
+            "owned_process_cleanup_verified": True,
         },
     }
     return report
@@ -370,6 +397,71 @@ class ProductGoalAcceptanceTests(unittest.TestCase):
             "failed",
             report["owned_fixture_probes"]["workflow_hwp"]["status"],
         )
+
+    def test_safe_hwp_owned_fixture_timeout_is_environment_blocked(self):
+        self._write_all_probes()
+        spec = PROBE_SPECS["native_excel_hwp"]
+        (self.root / spec["file"]).write_text(
+            json.dumps(hwp_owned_fixture_timeout_report(spec)),
+            encoding="utf-8",
+        )
+
+        report = evaluate_acceptance(
+            report_dir=self.root,
+            test_summary={"status": "passed"},
+            now=NOW,
+            expected_source=TEST_SOURCE,
+        )
+
+        self.assertFalse(report["automated_passed"])
+        self.assertTrue(report["environment_blocked"])
+        self.assertEqual("environment_blocked", report["overall_status"])
+        probe = report["owned_fixture_probes"]["native_excel_hwp"]
+        self.assertEqual("environment_blocked", probe["status"])
+        self.assertEqual(
+            "hwp_automation_responsiveness",
+            probe["environment"]["component"],
+        )
+
+    def test_hwp_owned_fixture_timeout_requires_cleanup_evidence(self):
+        self._write_all_probes()
+        spec = PROBE_SPECS["native_excel_hwp"]
+        unsafe = hwp_owned_fixture_timeout_report(spec)
+        unsafe["results"]["hwp"]["owned_process_cleanup_verified"] = False
+        (self.root / spec["file"]).write_text(
+            json.dumps(unsafe),
+            encoding="utf-8",
+        )
+
+        report = evaluate_acceptance(
+            report_dir=self.root,
+            test_summary={"status": "passed"},
+            now=NOW,
+            expected_source=TEST_SOURCE,
+        )
+
+        self.assertFalse(report["environment_blocked"])
+        self.assertEqual("automated_failed", report["overall_status"])
+
+    def test_probe_refresh_collects_all_failures_without_stopping(self):
+        commands = (
+            ("first_probe", (), False),
+            ("second_probe", ("--sample", "value"), True),
+        )
+        completed = (Mock(returncode=1), Mock(returncode=0))
+        with (
+            patch.object(goal_acceptance, "PROBE_COMMANDS", commands),
+            patch.object(
+                goal_acceptance.subprocess,
+                "run",
+                side_effect=completed,
+            ) as run,
+        ):
+            failures = goal_acceptance.refresh_probes(37)
+
+        self.assertEqual(("first_probe",), failures)
+        self.assertEqual(2, run.call_count)
+        self.assertIn("--timeout", run.call_args_list[1].args[0])
 
 
 if __name__ == "__main__":

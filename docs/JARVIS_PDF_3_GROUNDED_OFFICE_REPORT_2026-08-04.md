@@ -85,13 +85,19 @@ CI checkout에는 해당 디렉터리가 없어 strict gate가 동일 이유로 
 PowerPoint 5장 슬라이드의 재열기 인용을 확인했다. 이 검증 과정에서 발견된 Excel 숫자 형식
 정규화와 잠금 해제 순서 문제도 수정한 뒤 같은 probe를 재실행해 통과시켰다.
 
+한글 owned-fixture probe는 사용자 문서를 건드리지 않는 격리 인스턴스에서 40초 안에 응답하지
+않았다. 사용자 프로세스 보호와 테스트 프로세스 정리는 확인됐지만 실제 재열기 성공으로 간주하지
+않고 `hwp_automation_responsiveness` 환경 차단으로 기록한다. Goal gate는 이 경우에도 다른 probe를
+끝까지 수집하며, 한글을 통과로 표시하지 않는다.
+
 ## 5. 완료 조건 대조
 
 | 계획 조건 | 판정 | 근거 |
 |---|---:|---|
 | 모든 답변·결과물에 페이지 기록 | 충족 | 허용 페이지 인용과 결과물 재열기 검사 |
 | 원본 PDF 불변 | 충족 | read-only intake, 실행 전 fingerprint 재검증 |
-| Word·한글·PPT 재열기/read-back | 충족 | Word/PPT OOXML reopen, 한글 Automation reopen |
+| Word·PPT 재열기/read-back | 충족 | 실제 owned fixture를 OOXML로 다시 열어 인용 검사 |
+| 한글 재열기/read-back | 환경 차단 | 구현·자동 테스트 완료, 실제 격리 Automation은 40초 응답 시간 초과 |
 | Excel 표 구조·대표 셀 대조 | 충족 | 행·열·머리글·첫/마지막 대표 셀 검사 |
 | 낮은 신뢰도 표의 자동 생성 금지 | 충족 | 0개·복수 후보 모두 clarification |
 | 승인 전 외부 전송 금지 | 충족 | in-memory one-shot confirmation handler |
