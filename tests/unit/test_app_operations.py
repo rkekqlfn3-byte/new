@@ -13,8 +13,10 @@ import unittest
 from pathlib import Path
 
 from engine.app_actions.base import AppActionBlocked, PreparedAction
+from engine.app_actions.excel_adapter import ExcelAdapter
 from engine.app_actions.hwp_adapter import HwpAdapter
 from engine.app_actions.operations import AppOperation, OperationRegistry
+from engine.app_actions.operations.excel import EXCEL_OPERATIONS
 from engine.app_actions.operations.hwp import HWP_OPERATIONS
 from engine.app_actions.operations.powerpoint import POWERPOINT_OPERATIONS
 from engine.app_actions.operations.powerpoint.base import (
@@ -28,6 +30,7 @@ from engine.app_actions.word_adapter import WordAdapter
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 MIGRATED_ADAPTERS = {
+    "excel": (ExcelAdapter, EXCEL_OPERATIONS, "excel_adapter.py"),
     "hwp": (HwpAdapter, HWP_OPERATIONS, "hwp_adapter.py"),
     "word": (WordAdapter, WORD_OPERATIONS, "word_adapter.py"),
     "powerpoint": (
@@ -149,6 +152,52 @@ class HwpOperationStructureTests(unittest.TestCase):
             },
             set(HWP_OPERATIONS.names),
         )
+
+    def test_registered_excel_operations_are_stable(self):
+        self.assertEqual(
+            {
+                "write_cell",
+                "sum_column_to_cell",
+                "format_range",
+                "filter_range",
+                "find_replace",
+                "sort_range",
+                "insert_rows",
+                "insert_columns",
+                "apply_conditional_format",
+                "format_matching_values",
+            },
+            set(EXCEL_OPERATIONS.names),
+        )
+
+    def test_excel_undo_support_is_derived_from_the_operations(self):
+        # Reversible means the operation brought its own restore path, so a
+        # new one cannot forget to register itself.
+        self.assertEqual(
+            {
+                "write_cell",
+                "sum_column_to_cell",
+                "format_range",
+                "filter_range",
+                "find_replace",
+                "sort_range",
+                "insert_rows",
+                "insert_columns",
+            },
+            set(ExcelAdapter.undo_supported_operations),
+        )
+        for name in sorted(ExcelAdapter.undo_supported_operations):
+            with self.subTest(operation=name):
+                self.assertIsNotNone(
+                    getattr(EXCEL_OPERATIONS.require(name), "undo", None)
+                )
+        for name in set(EXCEL_OPERATIONS.names) - set(
+            ExcelAdapter.undo_supported_operations
+        ):
+            with self.subTest(operation=name):
+                self.assertIsNone(
+                    getattr(EXCEL_OPERATIONS.require(name), "undo", None)
+                )
 
     def test_registered_powerpoint_operations_are_stable(self):
         self.assertEqual(

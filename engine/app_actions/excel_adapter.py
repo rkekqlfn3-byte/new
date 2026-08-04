@@ -34,13 +34,20 @@ from engine.app_actions.office_helpers import (
     replace_excel_text,
     stable_state_fingerprint,
 )
+from engine.app_actions.operations.excel import (
+    EXCEL_OPERATIONS,
+    EXCEL_UNDO_OPERATIONS,
+    condition_true,
+    normalize_color,
+    normalize_operator,
+    normalize_threshold,
+    table_values,
+)
 from engine.app_actions.value_normalizer import (
     excel_column_letters,
     excel_column_number,
     excel_formulas_equal,
     excel_values_equal,
-    normalize_cell_address,
-    normalize_excel_input,
     normalize_range_address,
     normalize_single_column_range,
     serializable_excel_value,
@@ -62,23 +69,6 @@ MAX_FIND_REPLACE_CELLS = 10000
 MAX_SORT_ROWS = 5000
 MAX_TABLE_CELLS = 20000
 
-CONDITION_OPERATORS = {
-    "eq": 3,
-    "ne": 4,
-    "gt": 5,
-    "lt": 6,
-    "ge": 7,
-    "le": 8,
-}
-
-COLOR_VALUES = {
-    "yellow": 65535,
-    "red": 255,
-    "green": 5287936,
-    "blue": 12611584,
-    "orange": 3243501,
-    "gray": 12566463,
-}
 
 ALIGNMENT_VALUES = {
     "left": -4131,
@@ -119,28 +109,15 @@ def _default_process_counter():
 
 
 class ExcelAdapter:
-    supported_operations = frozenset({
-        "write_cell",
-        "sum_column_to_cell",
-        "apply_conditional_format",
-        "format_matching_values",
-        "format_range",
-        "filter_range",
-        "find_replace",
-        "sort_range",
-        "insert_rows",
-        "insert_columns",
-    })
-    undo_supported_operations = frozenset({
-        "write_cell",
-        "sum_column_to_cell",
-        "format_range",
-        "filter_range",
-        "find_replace",
-        "sort_range",
-        "insert_rows",
-        "insert_columns",
-    })
+    """COM lifecycle, workbook/sheet context and the shared result shape.
+
+    Every user-visible action lives in ``engine.app_actions.operations.excel``.
+    The readers, verifiers and restore helpers below stay here because more
+    than one operation uses them.
+    """
+
+    supported_operations = EXCEL_OPERATIONS.names
+    undo_supported_operations = EXCEL_UNDO_OPERATIONS
 
     def __init__(
         self,
@@ -367,41 +344,6 @@ class ExcelAdapter:
             and snapshot.get("current_value") in {None, ""}
         )
 
-    def _prepare_write_in_app(self, application, params):
-        cell_address = normalize_cell_address(params.get("cell"))
-        desired = normalize_excel_input(params.get("value"), params.get("value_type"))
-        _, _, _, snapshot = self._active_context(application, cell_address)
-        is_empty = self._is_empty(snapshot)
-        noop = self._matches_desired(snapshot, desired)
-        return PreparedAction(
-            app="excel",
-            operation="write_cell",
-            document_id=snapshot["document_id"],
-            workbook_name=snapshot["workbook_name"],
-            sheet=snapshot["sheet"],
-            target=snapshot["target"],
-            params={
-                "cell": snapshot["target"],
-                "value": desired["value"],
-                "value_type": desired["kind"],
-            },
-            current_state={
-                "formula": snapshot["current_formula"],
-                "value": snapshot["current_value"],
-                "empty": is_empty,
-            },
-            estimated_changes=0 if noop else 1,
-            destructive=not is_empty and not noop,
-            reversible=True,
-            verification_method=(
-                "read_formula" if desired["kind"] == "formula" else "read_value2"
-            ),
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": snapshot["application_hwnd"]},
-        )
-
     def _resolve_source_range(self, sheet, params):
         explicit = params.get("source_range") or params.get("range")
         if explicit:
@@ -600,116 +542,6 @@ class ExcelAdapter:
             raise AppActionBlocked("정렬은 왼쪽·가운데·오른쪽 중 하나여야 합니다.")
         return alignment, ALIGNMENT_VALUES[alignment]
 
-    def _desired_range_format(self, params):
-        supplied = params.get("desired")
-        desired = {}
-        labels = {}
-        if isinstance(supplied, dict):
-            for key in {
-                "bold", "font_size", "font_color", "fill_color", "alignment"
-            }:
-                if key in supplied:
-                    desired[key] = supplied[key]
-            labels = dict(params.get("format_labels") or {})
-        else:
-            if params.get("bold") is not None:
-                desired["bold"] = bool(params.get("bold"))
-            if params.get("font_size") is not None:
-                try:
-                    size = float(params.get("font_size"))
-                except (TypeError, ValueError) as error:
-                    raise AppActionBlocked("글자 크기는 숫자로 지정해주세요.") from error
-                if not 1 <= size <= 409:
-                    raise AppActionBlocked("글자 크기는 1부터 409 사이여야 합니다.")
-                desired["font_size"] = int(size) if size.is_integer() else size
-            if params.get("alignment") is not None:
-                label, value = self._normalize_alignment(params.get("alignment"))
-                desired["alignment"] = value
-                labels["alignment"] = label
-            for parameter, key in (
-                ("font_color", "font_color"),
-                ("fill_color", "fill_color"),
-            ):
-                if params.get(parameter) is not None:
-                    label, value = self._normalize_color(params.get(parameter))
-                    desired[key] = value
-                    labels[key] = label
-        if not desired:
-            raise AppActionBlocked("적용할 범위 서식을 하나 이상 지정해주세요.")
-        allowed = {"bold", "font_size", "font_color", "fill_color", "alignment"}
-        if set(desired) - allowed:
-            raise AppActionBlocked("지원하지 않는 범위 서식이 포함되어 있습니다.")
-        if "font_size" in desired:
-            try:
-                size = float(desired["font_size"])
-            except (TypeError, ValueError) as error:
-                raise AppActionBlocked("글자 크기는 숫자로 지정해주세요.") from error
-            if not 1 <= size <= 409:
-                raise AppActionBlocked("글자 크기는 1부터 409 사이여야 합니다.")
-            desired["font_size"] = int(size) if size.is_integer() else size
-        if "bold" in desired:
-            desired["bold"] = bool(desired["bold"])
-        for key in {"font_color", "fill_color", "alignment"} & set(desired):
-            try:
-                desired[key] = int(desired[key])
-            except (TypeError, ValueError) as error:
-                raise AppActionBlocked("범위 서식 값이 올바르지 않습니다.") from error
-        return desired, labels
-
-    def _prepare_range_format_in_app(self, application, params):
-        _, sheet, base = self._common_context(application)
-        address = normalize_range_address(params.get("range"))
-        source = sheet.Range(address)
-        count = self._range_count(source)
-        if count > MAX_RANGE_FORMAT_CELLS:
-            raise AppActionBlocked(
-                f"범위 서식은 한 번에 최대 {MAX_RANGE_FORMAT_CELLS:,}개 셀까지 지원합니다."
-            )
-        desired, labels = self._desired_range_format(params)
-        states = []
-        changing = []
-        for cell in self._range_cells(source):
-            if bool(getattr(cell, "MergeCells", False)):
-                raise AppActionBlocked("병합된 셀이 포함된 범위에는 안전하게 서식을 적용하지 않습니다.")
-            state = self._format_state(cell)
-            states.append(state)
-            if not self._format_state_matches(state, desired):
-                changing.append(state)
-        snapshot = {
-            **base,
-            "operation": "format_range",
-            "target": address,
-            "source_digest": self._range_digest(source),
-            "formats": states,
-            "desired": desired,
-        }
-        noop = not changing
-        return PreparedAction(
-            app="excel",
-            operation="format_range",
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=address,
-            params={
-                "range": address,
-                "desired": desired,
-                "format_labels": labels,
-                "original_formats": changing,
-            },
-            current_state={
-                "cell_count": count,
-                "changing_count": len(changing),
-            },
-            estimated_changes=len(changing),
-            destructive=len(changing) > 100,
-            reversible=True,
-            verification_method="read_cell_formats",
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
 
     @staticmethod
     def _range_is_blank(source):
@@ -721,101 +553,6 @@ class ExcelAdapter:
             return item not in {None, ""}
 
         return not has_value(value)
-
-    def _prepare_structure_insert_in_app(self, application, params, axis):
-        _, sheet, base = self._common_context(application)
-        selection = normalize_range_address(params.get("selection_range"))
-        first_column, first_row, _, _ = self._range_bounds(selection)
-        try:
-            count = int(params.get("count", 1))
-        except (TypeError, ValueError) as error:
-            raise AppActionBlocked("추가할 행·열 개수는 숫자여야 합니다.") from error
-        if not 1 <= count <= 10:
-            raise AppActionBlocked("행·열 추가는 한 번에 1개부터 10개까지 지원합니다.")
-
-        used = sheet.UsedRange
-        used_address = self._address(used)
-        used_first_column, used_first_row, used_last_column, used_last_row = (
-            self._range_bounds(used_address)
-        )
-        used_count = self._range_count(used)
-        if used_count > MAX_SOURCE_CELLS:
-            raise AppActionBlocked(
-                f"행·열 추가는 사용 영역이 {MAX_SOURCE_CELLS:,}개 셀 이하인 시트에서만 지원합니다."
-            )
-        index = first_row if axis == "row" else first_column
-        lower = used_first_row if axis == "row" else used_first_column
-        upper = used_last_row if axis == "row" else used_last_column
-        if not lower <= index <= upper:
-            raise AppActionBlocked("데이터가 있는 사용 영역 안의 행 또는 열을 선택해주세요.")
-
-        if axis == "row":
-            shifted_address = (
-                f"{excel_column_letters(used_first_column)}{index}:"
-                f"{excel_column_letters(used_last_column)}{used_last_row}"
-            )
-            target = f"{index}행"
-        else:
-            shifted_address = (
-                f"{excel_column_letters(index)}{used_first_row}:"
-                f"{excel_column_letters(used_last_column)}{used_last_row}"
-            )
-            target = f"{excel_column_letters(index)}열"
-        shifted_digest = self._range_digest(sheet.Range(shifted_address))
-        operation = "insert_rows" if axis == "row" else "insert_columns"
-        snapshot = {
-            **base,
-            "operation": operation,
-            "selection": selection,
-            "axis": axis,
-            "index": index,
-            "count": count,
-            "used_address": used_address,
-            "used_digest": self._range_digest(used),
-            "shifted_address": shifted_address,
-            "shifted_digest": shifted_digest,
-        }
-        affected = (
-            (used_last_row - index + 1)
-            * (used_last_column - used_first_column + 1)
-            if axis == "row"
-            else (used_last_column - index + 1)
-            * (used_last_row - used_first_row + 1)
-        )
-        return PreparedAction(
-            app="excel",
-            operation=operation,
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=target,
-            params={
-                "selection_range": selection,
-                "axis": axis,
-                "index": index,
-                "count": count,
-                "used_first_column": used_first_column,
-                "used_first_row": used_first_row,
-                "used_last_column": used_last_column,
-                "used_last_row": used_last_row,
-                "shifted_digest": shifted_digest,
-            },
-            current_state={
-                "used_address": used_address,
-                "affected_cells": affected,
-            },
-            estimated_changes=affected,
-            destructive=True,
-            reversible=True,
-            verification_method=(
-                "verify_shifted_rows"
-                if axis == "row"
-                else "verify_shifted_columns"
-            ),
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
 
     def _filter_state(self, sheet):
         state = {
@@ -893,297 +630,6 @@ class ExcelAdapter:
                 return True
         return False
 
-    def _prepare_filter_in_app(self, application, params):
-        _, sheet, base = self._common_context(application)
-        previous = self._filter_state(sheet)
-        clear = bool(params.get("clear"))
-        if clear:
-            target = previous.get("range")
-            if not target:
-                target = normalize_range_address(self._address(sheet.UsedRange))
-            snapshot = {
-                **base,
-                "operation": "filter_range",
-                "target": target,
-                "filter_state": previous,
-                "clear": True,
-            }
-            noop = not previous.get("filter_mode")
-            return PreparedAction(
-                app="excel",
-                operation="filter_range",
-                document_id=base["document_id"],
-                workbook_name=base["workbook_name"],
-                sheet=base["sheet"],
-                target=target,
-                params={"clear": True, "previous_filter": previous},
-                current_state={
-                    "filter_active": bool(previous.get("filter_mode")),
-                    "active_filter_count": sum(
-                        1 for item in previous.get("filters", []) if item.get("on")
-                    ),
-                },
-                estimated_changes=0 if noop else 1,
-                destructive=False,
-                reversible=True,
-                verification_method="read_autofilter_state",
-                context_fingerprint=self._state_fingerprint(snapshot),
-                prepared_at=self._created_at(),
-                noop=noop,
-                metadata={"application_hwnd": base["application_hwnd"]},
-            )
-
-        column_name = params.get("column_name")
-        table = self._resolve_table_range(sheet, params, column_name)
-        operator = self._normalize_operator(params.get("operator") or "eq")
-        normalized = normalize_excel_input(params.get("value"))
-        if normalized["kind"] == "formula":
-            raise AppActionBlocked("필터 값에는 수식을 사용할 수 없습니다.")
-        value = normalized["value"]
-        criteria = self._filter_criteria(operator, value)
-        noop = self._matching_filter(
-            previous, table["address"], table["field_index"], criteria
-        )
-        active_count = sum(
-            1 for item in previous.get("filters", []) if item.get("on")
-        )
-        snapshot = {
-            **base,
-            "operation": "filter_range",
-            "target": table["address"],
-            "table_digest": self._range_digest(table["range"]),
-            "filter_state": previous,
-            "field_index": table["field_index"],
-            "criteria": criteria,
-        }
-        return PreparedAction(
-            app="excel",
-            operation="filter_range",
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=table["address"],
-            params={
-                "clear": False,
-                "table_range": table["address"],
-                "column_name": column_name,
-                "field_index": table["field_index"],
-                "operator": operator,
-                "value": value,
-                "criteria": criteria,
-                "previous_filter": previous,
-            },
-            current_state={
-                "row_count": table["last_row"] - 1,
-                "active_filter_count": active_count,
-                "filter_active": bool(previous.get("filter_mode")),
-            },
-            estimated_changes=0 if noop else table["last_row"] - 1,
-            destructive=active_count > 0 and not noop,
-            reversible=True,
-            verification_method="read_autofilter_state",
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
-
-    _replace_text = staticmethod(replace_excel_text)
-
-    def _prepare_find_replace_in_app(self, application, params):
-        _, sheet, base = self._common_context(application)
-        scope = str(params.get("scope") or "range").strip().casefold()
-        if scope not in {"range", "current_sheet"}:
-            raise AppActionBlocked("찾기·바꾸기는 지정 범위 또는 현재 시트에서만 지원합니다.")
-        if scope == "current_sheet":
-            address = normalize_range_address(self._address(sheet.UsedRange))
-        else:
-            address = normalize_range_address(params.get("range"))
-        source = sheet.Range(address)
-        count = self._range_count(source)
-        if count > MAX_FIND_REPLACE_CELLS:
-            raise AppActionBlocked(
-                f"찾기·바꾸기는 한 번에 최대 {MAX_FIND_REPLACE_CELLS:,}개 셀까지 지원합니다."
-            )
-        old = str(params.get("find") if params.get("find") is not None else "")
-        new = str(
-            params.get("replace") if params.get("replace") is not None else ""
-        )
-        if old == "":
-            raise AppActionBlocked("찾을 문자열은 비워둘 수 없습니다.")
-        whole_cell = bool(params.get("whole_cell"))
-        match_case = bool(params.get("match_case"))
-        matches = []
-        for cell in self._range_cells(source):
-            if bool(getattr(cell, "MergeCells", False)):
-                raise AppActionBlocked("병합된 셀이 포함된 범위에서는 찾기·바꾸기를 실행하지 않습니다.")
-            if bool(getattr(cell, "HasFormula", False)):
-                continue
-            value = cell.Value2
-            if not isinstance(value, str):
-                continue
-            replacement = self._replace_text(
-                value, old, new, whole_cell, match_case
-            )
-            if replacement is not None and replacement != value:
-                matches.append({
-                    "address": self._address(cell),
-                    "original": value,
-                    "replacement": replacement,
-                })
-        snapshot = {
-            **base,
-            "operation": "find_replace",
-            "target": address,
-            "scope": scope,
-            "range_digest": self._range_digest(source),
-            "find": old,
-            "replace": new,
-            "whole_cell": whole_cell,
-            "match_case": match_case,
-            "matches": matches,
-        }
-        noop = not matches
-        return PreparedAction(
-            app="excel",
-            operation="find_replace",
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=address,
-            params={
-                "scope": scope,
-                "range": address,
-                "find": old,
-                "replace": new,
-                "whole_cell": whole_cell,
-                "match_case": match_case,
-                "matches": matches,
-            },
-            current_state={"cell_count": count, "matching_count": len(matches)},
-            estimated_changes=len(matches),
-            destructive=bool(matches),
-            reversible=True,
-            verification_method="read_replaced_cell_values",
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
-
-    @staticmethod
-    def _sort_key_kind(values):
-        nonblank = [value for value in values if value not in {None, ""}]
-        if not nonblank:
-            raise AppActionBlocked("정렬 기준 열에 데이터가 없습니다.")
-        if all(
-            isinstance(value, (int, float)) and not isinstance(value, bool)
-            for value in nonblank
-        ):
-            return "number"
-        if all(isinstance(value, str) for value in nonblank):
-            return "text"
-        raise AppActionBlocked("정렬 기준 열에 숫자와 문자가 섞여 있어 자동 정렬하지 않습니다.")
-
-    @staticmethod
-    def _sorted_keys(values, kind, descending):
-        nonblank = [value for value in values if value not in {None, ""}]
-        blanks = [value for value in values if value in {None, ""}]
-        key = (lambda value: float(value)) if kind == "number" else (
-            lambda value: value.casefold()
-        )
-        return sorted(nonblank, key=key, reverse=descending) + blanks
-
-    def _table_values(self, sheet, table):
-        values = []
-        for row in range(2, table["last_row"] + 1):
-            values.append([
-                serializable_excel_value(sheet.Cells(row, column).Value2)
-                for column in range(table["first_column"], table["last_column"] + 1)
-            ])
-        return values
-
-    def _prepare_sort_in_app(self, application, params):
-        _, sheet, base = self._common_context(application)
-        if bool(getattr(sheet, "FilterMode", False)):
-            raise AppActionBlocked("필터가 적용된 표는 필터를 해제한 뒤 정렬해주세요.")
-        column_name = params.get("column_name")
-        table = self._resolve_table_range(sheet, params, column_name)
-        if table["last_row"] - 1 > MAX_SORT_ROWS:
-            raise AppActionBlocked(
-                f"정렬은 한 번에 최대 {MAX_SORT_ROWS:,}개 데이터 행까지 지원합니다."
-            )
-        if bool(getattr(table["range"], "MergeCells", False)):
-            raise AppActionBlocked("병합된 셀이 포함된 표는 자동 정렬하지 않습니다.")
-        direction = str(params.get("direction") or "ascending").strip().casefold()
-        aliases = {
-            "asc": "ascending", "오름차순": "ascending", "낮은순": "ascending",
-            "desc": "descending", "내림차순": "descending", "높은순": "descending",
-        }
-        direction = aliases.get(direction, direction)
-        if direction not in {"ascending", "descending"}:
-            raise AppActionBlocked("정렬 방향은 오름차순 또는 내림차순이어야 합니다.")
-        rows = self._table_values(sheet, table)
-        original_cells = []
-        for row_number in range(2, table["last_row"] + 1):
-            row_snapshot = []
-            for column_number in range(
-                table["first_column"], table["last_column"] + 1
-            ):
-                cell = sheet.Cells(row_number, column_number)
-                has_formula = bool(getattr(cell, "HasFormula", False))
-                row_snapshot.append({
-                    "formula": str(cell.Formula) if has_formula else None,
-                    "value": serializable_excel_value(cell.Value2),
-                })
-            original_cells.append(row_snapshot)
-        key_index = table["column_number"] - table["first_column"]
-        keys = [row[key_index] for row in rows]
-        kind = self._sort_key_kind(keys)
-        expected_keys = self._sorted_keys(
-            keys, kind, direction == "descending"
-        )
-        noop = keys == expected_keys
-        snapshot = {
-            **base,
-            "operation": "sort_range",
-            "target": table["address"],
-            "table_digest": self._range_digest(table["range"]),
-            "column_number": table["column_number"],
-            "direction": direction,
-            "rows": rows,
-        }
-        return PreparedAction(
-            app="excel",
-            operation="sort_range",
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=table["address"],
-            params={
-                "table_range": table["address"],
-                "column_name": column_name,
-                "column_number": table["column_number"],
-                "direction": direction,
-                "key_kind": kind,
-                "expected_keys": expected_keys,
-                "original_rows": rows,
-                "original_cells": original_cells,
-            },
-            current_state={
-                "row_count": len(rows),
-                "column_count": table["last_column"] - table["first_column"] + 1,
-            },
-            estimated_changes=0 if noop else len(rows),
-            destructive=not noop,
-            reversible=True,
-            verification_method="read_sorted_table",
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
-
     @staticmethod
     def _cell_in_range(cell_address, range_address):
         cell_match = re.fullmatch(r"([A-Z]{1,3})(\d+)", cell_address)
@@ -1231,151 +677,17 @@ class ExcelAdapter:
             return sum(values) / len(values)
         return sum(values)
 
-    def _prepare_sum_in_app(self, application, params):
-        _, sheet, base = self._common_context(application)
-        source, source_address, header = self._resolve_source_range(sheet, params)
-        count = self._range_count(source)
-        if count > MAX_SOURCE_CELLS:
-            raise AppActionBlocked(
-                f"한 번에 최대 {MAX_SOURCE_CELLS:,}개 셀까지 집계할 수 있습니다."
-            )
-        target_address = normalize_cell_address(
-            params.get("target_cell") or params.get("cell")
-        )
-        if self._cell_in_range(target_address, source_address):
-            raise AppActionBlocked("집계 결과 셀이 원본 범위 안에 있어 순환 참조가 생길 수 있습니다.")
-        target = sheet.Range(target_address)
-        if bool(getattr(target, "MergeCells", False)):
-            raise AppActionBlocked("병합된 셀에는 집계 결과를 입력하지 않았습니다.")
-        target_state = self._cell_snapshot(target)
-        mode = str(
-            params.get("result_mode") or params.get("write_mode") or "formula"
-        ).strip().casefold()
-        if mode not in {"formula", "value"}:
-            raise AppActionBlocked("집계 결과 방식은 formula 또는 value여야 합니다.")
-        aggregation = str(params.get("aggregation") or "sum").strip().casefold()
-        if aggregation not in {"sum", "average"}:
-            raise AppActionBlocked("지원하는 집계 방식은 합계와 평균입니다.")
-        function_name = "AVERAGE" if aggregation == "average" else "SUM"
-        desired = (
-            {"kind": "formula", "value": f"={function_name}({source_address})"}
-            if mode == "formula"
-            else {
-                "kind": "value",
-                "value": self._fixed_aggregate(application, source, aggregation),
-            }
-        )
-        snapshot = {
-            **base,
-            "operation": "sum_column_to_cell",
-            "target": self._address(target),
-            **target_state,
-            "source_range": source_address,
-            "source_digest": self._range_digest(source),
-            "source_count": count,
-            "result_mode": mode,
-            "aggregation": aggregation,
-        }
-        is_empty = self._is_empty(snapshot)
-        noop = self._matches_desired(snapshot, desired)
-        return PreparedAction(
-            app="excel",
-            operation="sum_column_to_cell",
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=snapshot["target"],
-            params={
-                "source_range": source_address,
-                "column_name": header,
-                "target_cell": snapshot["target"],
-                "result_mode": mode,
-                "aggregation": aggregation,
-                "value": desired["value"],
-                "value_type": desired["kind"],
-            },
-            current_state={
-                "formula": target_state["current_formula"],
-                "value": target_state["current_value"],
-                "empty": is_empty,
-                "source_range": source_address,
-                "source_count": count,
-            },
-            estimated_changes=0 if noop else 1,
-            destructive=not is_empty and not noop,
-            reversible=True,
-            verification_method=(
-                "read_formula" if desired["kind"] == "formula" else "read_value2"
-            ),
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
-
-    @staticmethod
-    def _normalize_threshold(value):
-        normalized = normalize_excel_input(value, "number")
-        if isinstance(normalized["value"], bool):
-            raise AppActionBlocked("서식 기준값은 숫자여야 합니다.")
-        return normalized["value"]
-
-    @staticmethod
-    def _normalize_color(value):
-        color = str(value or "yellow").strip().casefold()
-        aliases = {
-            "노란색": "yellow", "노랑": "yellow",
-            "빨간색": "red", "빨강": "red",
-            "초록색": "green", "녹색": "green", "초록": "green",
-            "파란색": "blue", "파랑": "blue",
-            "주황색": "orange", "주황": "orange",
-            "회색": "gray", "회색깔": "gray",
-        }
-        color = aliases.get(color, color)
-        if color not in COLOR_VALUES:
-            raise AppActionBlocked("지원 색상은 노란색·빨간색·초록색·파란색·주황색·회색입니다.")
-        return color, COLOR_VALUES[color]
-
-    @staticmethod
-    def _normalize_operator(value):
-        operator = str(value or "").strip().casefold()
-        aliases = {
-            ">=": "ge", "이상": "ge",
-            ">": "gt", "초과": "gt",
-            "<=": "le", "이하": "le",
-            "<": "lt", "미만": "lt",
-            "=": "eq", "==": "eq", "같음": "eq", "동일": "eq",
-            "!=": "ne", "<>": "ne", "다름": "ne",
-        }
-        operator = aliases.get(operator, operator)
-        if operator not in CONDITION_OPERATORS:
-            raise AppActionBlocked("지원하지 않는 비교 조건입니다.")
-        return operator
-
-    @staticmethod
-    def _condition_true(value, operator, threshold):
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            return False
-        if operator == "ge":
-            return value >= threshold
-        if operator == "gt":
-            return value > threshold
-        if operator == "le":
-            return value <= threshold
-        if operator == "lt":
-            return value < threshold
-        if operator == "eq":
-            return excel_values_equal(value, threshold)
-        return not excel_values_equal(value, threshold)
-
-    def _range_cells(self, source):
-        cells = source.Cells
-        count = int(getattr(cells, "CountLarge", getattr(cells, "Count", 1)))
-        for index in range(1, count + 1):
-            item_member = getattr(cells, "Item", None)
-            yield item_member(index) if callable(item_member) else cells(index)
+    # The operations reach these through the adapter, so the shared surface
+    # stays in one place even though each lives with its own operation.
+    _normalize_threshold = staticmethod(normalize_threshold)
+    _normalize_color = staticmethod(normalize_color)
+    _normalize_operator = staticmethod(normalize_operator)
+    _condition_true = staticmethod(condition_true)
+    _table_values = staticmethod(table_values)
+    _replace_text = staticmethod(replace_excel_text)
 
     def _condition_descriptors(self, source):
+        """Read the range's existing FormatConditions without raising."""
         conditions = source.FormatConditions
         count = int(getattr(conditions, "Count", 0) or 0)
         descriptors = []
@@ -1404,148 +716,19 @@ class ExcelAdapter:
                 descriptors.append({"unreadable": index})
         return descriptors
 
-    @staticmethod
-    def _formula_number(value):
-        text = str(value or "").strip()
-        if text.startswith("="):
-            text = text[1:].strip()
-        try:
-            return float(text.replace(",", ""))
-        except ValueError:
-            return None
-
-    def _has_same_condition(self, descriptors, operator, threshold, color_value):
-        expected_operator = CONDITION_OPERATORS[operator]
-        for descriptor in descriptors:
-            formula_number = self._formula_number(descriptor.get("formula1"))
-            if (
-                descriptor.get("type") == XL_CELL_VALUE
-                and descriptor.get("operator") == expected_operator
-                and formula_number is not None
-                and math.isclose(float(formula_number), float(threshold))
-                and descriptor.get("color") == color_value
-            ):
-                return True
-        return False
-
-    def _prepare_format_in_app(self, application, params, persistent):
-        _, sheet, base = self._common_context(application)
-        source, source_address, header = self._resolve_source_range(sheet, params)
-        count = self._range_count(source)
-        if count > MAX_SOURCE_CELLS:
-            raise AppActionBlocked(
-                f"4단계에서는 한 번에 최대 {MAX_SOURCE_CELLS:,}개 셀까지 검사할 수 있습니다."
-            )
-        operator = self._normalize_operator(params.get("operator"))
-        threshold = self._normalize_threshold(params.get("threshold"))
-        color, color_value = self._normalize_color(
-            params.get("color") or params.get("fill_color")
-        )
-        descriptors = self._condition_descriptors(source)
-        snapshot = {
-            **base,
-            "operation": (
-                "apply_conditional_format" if persistent else "format_matching_values"
-            ),
-            "target": source_address,
-            "source_range": source_address,
-            "source_digest": self._range_digest(source),
-            "source_count": count,
-            "operator": operator,
-            "threshold": threshold,
-            "color": color,
-            "condition_rules": descriptors,
-        }
-        original_formats = []
-        matches = []
-        if persistent:
-            noop = self._has_same_condition(
-                descriptors, operator, threshold, color_value
-            )
-            estimated_changes = 0 if noop else 1
-        else:
-            for cell in self._range_cells(source):
-                if self._condition_true(cell.Value2, operator, threshold):
-                    matches.append(self._address(cell))
-                    original_formats.append({
-                        "address": self._address(cell),
-                        "color": serializable_excel_value(cell.Interior.Color),
-                        "color_index": serializable_excel_value(cell.Interior.ColorIndex),
-                    })
-            if len(matches) > MAX_DIRECT_FORMAT_CELLS:
-                raise AppActionBlocked(
-                    f"한 번 표시 방식은 최대 {MAX_DIRECT_FORMAT_CELLS:,}개 셀까지 변경할 수 있습니다. 조건부 서식을 사용해주세요."
-                )
-            snapshot["matching_cells"] = matches
-            snapshot["original_formats"] = original_formats
-            noop = not matches
-            estimated_changes = len(matches)
-
-        operation = (
-            "apply_conditional_format" if persistent else "format_matching_values"
-        )
-        return PreparedAction(
-            app="excel",
-            operation=operation,
-            document_id=base["document_id"],
-            workbook_name=base["workbook_name"],
-            sheet=base["sheet"],
-            target=source_address,
-            params={
-                "source_range": source_address,
-                "column_name": header,
-                "operator": operator,
-                "threshold": threshold,
-                "color": color,
-                "color_value": color_value,
-                "matching_cells": matches,
-                "original_formats": original_formats,
-            },
-            current_state={
-                "source_range": source_address,
-                "source_count": count,
-                "matching_count": len(matches),
-                "condition_count": len(descriptors),
-            },
-            estimated_changes=estimated_changes,
-            destructive=False,
-            reversible=True,
-            verification_method=(
-                "read_format_condition" if persistent else "read_cell_fill_colors"
-            ),
-            context_fingerprint=self._state_fingerprint(snapshot),
-            prepared_at=self._created_at(),
-            noop=noop,
-            metadata={"application_hwnd": base["application_hwnd"]},
-        )
+    def _range_cells(self, source):
+        cells = source.Cells
+        count = int(getattr(cells, "CountLarge", getattr(cells, "Count", 1)))
+        for index in range(1, count + 1):
+            item_member = getattr(cells, "Item", None)
+            yield item_member(index) if callable(item_member) else cells(index)
 
     def prepare(self, operation: str, params: dict) -> PreparedAction:
-        if operation not in self.supported_operations:
-            raise AppActionBlocked(f"아직 지원하지 않는 Excel 작업입니다: {operation}")
+        operation_module = EXCEL_OPERATIONS.require(operation)
         if not isinstance(params, dict):
             raise AppActionBlocked("Excel 작업의 params는 객체 형식이어야 합니다.")
         with self._application() as application:
-            if operation == "write_cell":
-                return self._prepare_write_in_app(application, params)
-            if operation == "sum_column_to_cell":
-                return self._prepare_sum_in_app(application, params)
-            if operation == "format_range":
-                return self._prepare_range_format_in_app(application, params)
-            if operation == "filter_range":
-                return self._prepare_filter_in_app(application, params)
-            if operation == "find_replace":
-                return self._prepare_find_replace_in_app(application, params)
-            if operation == "sort_range":
-                return self._prepare_sort_in_app(application, params)
-            if operation in {"insert_rows", "insert_columns"}:
-                return self._prepare_structure_insert_in_app(
-                    application,
-                    params,
-                    "row" if operation == "insert_rows" else "column",
-                )
-            return self._prepare_format_in_app(
-                application, params, persistent=operation == "apply_conditional_format"
-            )
+            return operation_module.prepare(self, application, params)
 
     def context_identity(self) -> str:
         """Return a content-free identity for stale clarification checks."""
@@ -1565,121 +748,9 @@ class ExcelAdapter:
             )
 
     def execute(self, prepared: PreparedAction) -> dict:
-        if prepared.app != "excel" or prepared.operation not in self.supported_operations:
-            raise AppActionBlocked("지원되는 Excel 작업으로 준비된 요청만 실행할 수 있습니다.")
+        operation_module = EXCEL_OPERATIONS.require_prepared(prepared)
         with self._application() as application:
-            if prepared.operation == "write_cell":
-                return self._execute_write(application, prepared)
-            if prepared.operation == "sum_column_to_cell":
-                return self._execute_sum(application, prepared)
-            if prepared.operation == "format_range":
-                return self._execute_range_format(application, prepared)
-            if prepared.operation == "filter_range":
-                return self._execute_filter(application, prepared)
-            if prepared.operation == "find_replace":
-                return self._execute_find_replace(application, prepared)
-            if prepared.operation == "sort_range":
-                return self._execute_sort(application, prepared)
-            if prepared.operation in {"insert_rows", "insert_columns"}:
-                return self._execute_structure_insert(application, prepared)
-            if prepared.operation == "apply_conditional_format":
-                return self._execute_conditional_format(application, prepared)
-            return self._execute_direct_format(application, prepared)
-
-    def _execute_write(self, application, prepared):
-        _, _, cell, snapshot = self._active_context(application, prepared.target)
-        if self._state_fingerprint(snapshot) != prepared.context_fingerprint:
-            raise AppActionContextChanged(
-                "확인 이후 Excel 통합문서·시트 또는 셀 상태가 바뀌어 실행하지 않았습니다."
-            )
-        desired = {
-            "kind": prepared.params["value_type"],
-            "value": prepared.params["value"],
-        }
-        if prepared.noop:
-            return self._result(prepared, snapshot, snapshot, changed=False)
-        return self._write_and_verify(cell, snapshot, desired, prepared)
-
-    def _execute_sum(self, application, prepared):
-        current = self._prepare_sum_in_app(application, prepared.params)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        cell = sheet.Range(current.target)
-        before = {
-            "current_formula": current.current_state.get("formula"),
-            "current_value": current.current_state.get("value"),
-        }
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        desired = {
-            "kind": current.params["value_type"],
-            "value": current.params["value"],
-        }
-        return self._write_and_verify(cell, before, desired, current)
-
-    def _execute_structure_insert(self, application, prepared):
-        current = self._prepare_structure_insert_in_app(
-            application,
-            prepared.params,
-            prepared.params["axis"],
-        )
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        axis = current.params["axis"]
-        index = int(current.params["index"])
-        count = int(current.params["count"])
-        first_column = int(current.params["used_first_column"])
-        first_row = int(current.params["used_first_row"])
-        last_column = int(current.params["used_last_column"])
-        last_row = int(current.params["used_last_row"])
-        inserted = None
-        try:
-            if axis == "row":
-                inserted = sheet.Rows(f"{index}:{index + count - 1}")
-                inserted.Insert()
-                shifted = sheet.Range(
-                    f"{excel_column_letters(first_column)}{index + count}:"
-                    f"{excel_column_letters(last_column)}{last_row + count}"
-                )
-                blank = sheet.Range(
-                    f"{excel_column_letters(first_column)}{index}:"
-                    f"{excel_column_letters(last_column)}{index + count - 1}"
-                )
-            else:
-                first = excel_column_letters(index)
-                last = excel_column_letters(index + count - 1)
-                inserted = sheet.Columns(f"{first}:{last}")
-                inserted.Insert()
-                shifted = sheet.Range(
-                    f"{excel_column_letters(index + count)}{first_row}:"
-                    f"{excel_column_letters(last_column + count)}{last_row}"
-                )
-                blank = sheet.Range(f"{first}{first_row}:{last}{last_row}")
-            if self._range_digest(shifted) != current.params["shifted_digest"]:
-                raise AppActionVerificationError(
-                    "Excel 행·열 추가 후 기존 데이터의 이동 결과가 예상과 다릅니다."
-                )
-            if not self._range_is_blank(blank):
-                raise AppActionVerificationError(
-                    "Excel에 추가된 행·열이 비어 있지 않아 결과를 승인할 수 없습니다."
-                )
-        except Exception as error:
-            if inserted is not None:
-                try:
-                    inserted.Delete()
-                except Exception:
-                    pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "Excel 행·열 추가 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(
-            current,
-            {"used_address": current.current_state["used_address"]},
-            {"inserted": count, "axis": axis},
-            changed=True,
-        )
+            return operation_module.execute(self, application, prepared)
 
     def _write_and_verify(self, cell, before, desired, prepared):
         original_formula = before.get("current_formula")
@@ -1704,76 +775,6 @@ class ExcelAdapter:
                 f"Excel {prepared.target} 입력 또는 검증에 실패했습니다."
             ) from error
         return self._result(prepared, before, after, changed=True)
-
-    def _execute_conditional_format(self, application, prepared):
-        current = self._prepare_format_in_app(application, prepared.params, True)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        source = sheet.Range(current.target)
-        before = {"condition_count": current.current_state["condition_count"]}
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        condition = None
-        try:
-            condition = source.FormatConditions.Add(
-                Type=XL_CELL_VALUE,
-                Operator=CONDITION_OPERATORS[current.params["operator"]],
-                Formula1=str(current.params["threshold"]),
-            )
-            condition.Interior.Color = current.params["color_value"]
-            descriptors = self._condition_descriptors(source)
-            if not self._has_same_condition(
-                descriptors,
-                current.params["operator"],
-                current.params["threshold"],
-                current.params["color_value"],
-            ):
-                raise AppActionVerificationError("추가한 Excel 조건부 서식을 다시 찾지 못했습니다.")
-            after = {"condition_count": len(descriptors)}
-        except Exception as error:
-            try:
-                if condition is not None:
-                    condition.Delete()
-            except Exception:
-                pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError("Excel 조건부 서식 적용 또는 검증에 실패했습니다.") from error
-        return self._result(current, before, after, changed=True)
-
-    def _execute_direct_format(self, application, prepared):
-        current = self._prepare_format_in_app(application, prepared.params, False)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        originals = current.params["original_formats"]
-        before = {"matching_count": len(originals)}
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        changed_cells = []
-        try:
-            for original in originals:
-                cell = sheet.Range(original["address"])
-                cell.Interior.Color = current.params["color_value"]
-                changed_cells.append((cell, original))
-            for cell, _ in changed_cells:
-                if int(cell.Interior.Color) != int(current.params["color_value"]):
-                    raise AppActionVerificationError(
-                        f"Excel {self._address(cell)} 셀의 채우기 색을 확인하지 못했습니다."
-                    )
-            after = {"matching_count": len(changed_cells), "color": current.params["color"]}
-        except Exception as error:
-            for cell, original in reversed(changed_cells):
-                try:
-                    if original.get("color_index") == XL_NONE:
-                        cell.Interior.ColorIndex = XL_NONE
-                    else:
-                        cell.Interior.Color = original.get("color")
-                except Exception:
-                    pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError("Excel 셀 표시 또는 검증에 실패했습니다.") from error
-        return self._result(current, before, after, changed=True)
 
     @staticmethod
     def _apply_desired_format(source, desired):
@@ -1802,45 +803,6 @@ class ExcelAdapter:
         if original.get("alignment") is not None:
             cell.HorizontalAlignment = original.get("alignment")
 
-    def _execute_range_format(self, application, prepared):
-        current = self._prepare_range_format_in_app(application, prepared.params)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        source = sheet.Range(current.target)
-        before = {
-            "cell_count": current.current_state["cell_count"],
-            "changing_count": current.current_state["changing_count"],
-        }
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        try:
-            self._apply_desired_format(source, current.params["desired"])
-            for cell in self._range_cells(source):
-                state = self._format_state(cell)
-                if not self._format_state_matches(
-                    state, current.params["desired"]
-                ):
-                    raise AppActionVerificationError(
-                        f"Excel {state['address']} 셀의 서식 적용 결과가 요청과 다릅니다."
-                    )
-            after = {
-                "cell_count": current.current_state["cell_count"],
-                "changed_count": current.current_state["changing_count"],
-                "desired": current.params["desired"],
-            }
-        except Exception as error:
-            for original in reversed(current.params["original_formats"]):
-                try:
-                    self._restore_format(sheet.Range(original["address"]), original)
-                except Exception:
-                    pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "Excel 범위 서식 적용 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(current, before, after, changed=True)
-
     def _restore_filter_state(self, sheet, previous):
         if bool(getattr(sheet, "FilterMode", False)):
             sheet.ShowAllData()
@@ -1866,160 +828,6 @@ class ExcelAdapter:
             if descriptor.get("criteria2") is not None:
                 arguments["Criteria2"] = descriptor.get("criteria2")
             source.AutoFilter(**arguments)
-
-    def _execute_filter(self, application, prepared):
-        current = self._prepare_filter_in_app(application, prepared.params)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        previous = current.params["previous_filter"]
-        before = {
-            "filter_active": current.current_state["filter_active"],
-            "active_filter_count": current.current_state["active_filter_count"],
-        }
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        try:
-            if current.params["clear"]:
-                sheet.ShowAllData()
-                after_state = self._filter_state(sheet)
-                if after_state.get("filter_mode"):
-                    raise AppActionVerificationError("Excel 필터 해제 결과를 확인하지 못했습니다.")
-            else:
-                source = sheet.Range(current.params["table_range"])
-                source.AutoFilter(
-                    Field=current.params["field_index"],
-                    Criteria1=current.params["criteria"],
-                )
-                after_state = self._filter_state(sheet)
-                if not self._matching_filter(
-                    after_state,
-                    current.params["table_range"],
-                    current.params["field_index"],
-                    current.params["criteria"],
-                ):
-                    raise AppActionVerificationError("Excel 필터 적용 결과를 확인하지 못했습니다.")
-            after = {
-                "filter_active": bool(after_state.get("filter_mode")),
-                "active_filter_count": sum(
-                    1 for item in after_state.get("filters", []) if item.get("on")
-                ),
-            }
-        except Exception as error:
-            try:
-                self._restore_filter_state(sheet, previous)
-            except Exception:
-                pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "Excel 필터 적용 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(current, before, after, changed=True)
-
-    def _execute_find_replace(self, application, prepared):
-        current = self._prepare_find_replace_in_app(application, prepared.params)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        before = {"matching_count": current.current_state["matching_count"]}
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        changed = []
-        try:
-            for match in current.params["matches"]:
-                cell = sheet.Range(match["address"])
-                cell.Value2 = match["replacement"]
-                changed.append((cell, match))
-            for cell, match in changed:
-                if not excel_values_equal(cell.Value2, match["replacement"]):
-                    raise AppActionVerificationError(
-                        f"Excel {match['address']} 셀의 바꾸기 결과가 요청과 다릅니다."
-                    )
-            after = {"replaced_count": len(changed)}
-        except Exception as error:
-            for cell, match in reversed(changed):
-                try:
-                    cell.Value2 = match["original"]
-                except Exception:
-                    pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "Excel 찾기·바꾸기 실행 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(current, before, after, changed=True)
-
-    @staticmethod
-    def _row_multiset(rows):
-        return sorted(
-            json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            for row in rows
-        )
-
-    def _execute_sort(self, application, prepared):
-        current = self._prepare_sort_in_app(application, prepared.params)
-        self._ensure_same_context(current, prepared)
-        _, sheet, _ = self._common_context(application)
-        before = {
-            "row_count": current.current_state["row_count"],
-            "column_count": current.current_state["column_count"],
-        }
-        if current.noop:
-            return self._result(current, before, before, changed=False)
-        first_column, _, last_column, last_row = self._range_bounds(current.target)
-        column = excel_column_letters(current.params["column_number"])
-        # Excel may ignore Header=xlYes when Key1 itself includes the header
-        # cell, which can move the header into the sorted data on real Office
-        # installations.  Exclude the header from both the source and key so
-        # it is structurally impossible for the header row to move.
-        key_range = sheet.Range(f"{column}2:{column}{last_row}")
-        source = sheet.Range(
-            f"{excel_column_letters(first_column)}2:"
-            f"{excel_column_letters(last_column)}{last_row}"
-        )
-        sort_completed = False
-        try:
-            source.Sort(
-                Key1=key_range,
-                Order1=(
-                    XL_DESCENDING
-                    if current.params["direction"] == "descending"
-                    else XL_ASCENDING
-                ),
-                Header=XL_NO,
-                Orientation=XL_SORT_COLUMNS,
-            )
-            sort_completed = True
-            table = self._resolve_table_range(
-                sheet,
-                {"table_range": current.target},
-                current.params["column_name"],
-            )
-            rows = self._table_values(sheet, table)
-            key_index = table["column_number"] - table["first_column"]
-            actual_keys = [row[key_index] for row in rows]
-            if actual_keys != current.params["expected_keys"]:
-                raise AppActionVerificationError("Excel 정렬 순서가 요청과 다릅니다.")
-            if self._row_multiset(rows) != self._row_multiset(
-                current.params["original_rows"]
-            ):
-                raise AppActionVerificationError("정렬 후 표의 행 데이터 구성이 달라졌습니다.")
-            after = {
-                "row_count": len(rows),
-                "direction": current.params["direction"],
-                "verified_whole_rows": True,
-            }
-        except Exception as error:
-            if sort_completed:
-                try:
-                    application.Undo()
-                except Exception:
-                    pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "Excel 표 정렬 실행 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(current, before, after, changed=True)
 
     def _verify_written_cell(self, cell, snapshot, desired, target):
         after = None
@@ -2080,234 +888,19 @@ class ExcelAdapter:
             )
         return sheet
 
-    def _undo_cell_write(self, application, prepared):
-        sheet = self._ensure_undo_context(application, prepared)
-        cell = sheet.Range(prepared.target)
-        current = self._cell_snapshot(cell)
-        desired = {
-            "kind": prepared.params["value_type"],
-            "value": prepared.params["value"],
-        }
-        if not self._matches_desired(current, desired):
-            raise AppActionContextChanged(
-                "직전 편집 뒤 대상 셀 값이 달라져 안전하게 복원하지 않았습니다."
-            )
-        original = {
-            "formula": prepared.current_state.get("formula"),
-            "value": prepared.current_state.get("value"),
-        }
-        self._restore_cell_value(cell, original)
-        restored = self._cell_snapshot(cell)
-        expected = {
-            "kind": "formula" if original["formula"] is not None else "value",
-            "value": (
-                original["formula"]
-                if original["formula"] is not None
-                else original["value"]
-            ),
-        }
-        if not self._matches_desired(restored, expected):
-            raise AppActionVerificationError(
-                "Excel 셀의 원래 값이 복원되었는지 확인하지 못했습니다."
-            )
-        return restored
-
-    def _undo_range_format(self, application, prepared):
-        sheet = self._ensure_undo_context(application, prepared)
-        desired = dict(prepared.params.get("desired") or {})
-        originals = list(prepared.params.get("original_formats") or [])
-        for original in originals:
-            current = self._format_state(sheet.Range(original["address"]))
-            if not self._format_state_matches(current, desired):
-                raise AppActionContextChanged(
-                    "직전 편집 뒤 범위 서식이 달라져 안전하게 복원하지 않았습니다."
-                )
-        for original in originals:
-            self._restore_format(sheet.Range(original["address"]), original)
-        restored = []
-        for original in originals:
-            state = self._format_state(sheet.Range(original["address"]))
-            if not self._format_state_matches(state, original):
-                raise AppActionVerificationError(
-                    f"Excel {original['address']} 셀의 원래 서식을 확인하지 못했습니다."
-                )
-            restored.append(state)
-        return {"restored_count": len(restored)}
-
-    def _undo_find_replace(self, application, prepared):
-        sheet = self._ensure_undo_context(application, prepared)
-        matches = list(prepared.params.get("matches") or [])
-        for match in matches:
-            cell = sheet.Range(match["address"])
-            if not excel_values_equal(cell.Value2, match["replacement"]):
-                raise AppActionContextChanged(
-                    "직전 찾기·바꾸기 뒤 셀 값이 달라져 복원하지 않았습니다."
-                )
-        for match in matches:
-            sheet.Range(match["address"]).Value2 = match["original"]
-        for match in matches:
-            if not excel_values_equal(
-                sheet.Range(match["address"]).Value2,
-                match["original"],
-            ):
-                raise AppActionVerificationError(
-                    f"Excel {match['address']} 셀의 원래 값을 확인하지 못했습니다."
-                )
-        return {"restored_count": len(matches)}
-
-    def _undo_sort(self, application, prepared):
-        sheet = self._ensure_undo_context(application, prepared)
-        table = self._resolve_table_range(
-            sheet,
-            {"table_range": prepared.target},
-            prepared.params.get("column_name"),
-        )
-        current_rows = self._table_values(sheet, table)
-        key_index = table["column_number"] - table["first_column"]
-        if (
-            self._row_multiset(current_rows)
-            != self._row_multiset(prepared.params["original_rows"])
-            or [row[key_index] for row in current_rows]
-            != prepared.params["expected_keys"]
-        ):
-            raise AppActionContextChanged(
-                "직전 정렬 뒤 표 데이터가 달라져 안전하게 복원하지 않았습니다."
-            )
-
-        original_cells = list(prepared.params.get("original_cells") or [])
-        for row_offset, original_row in enumerate(prepared.params["original_rows"]):
-            row_number = row_offset + 2
-            for column_offset, value in enumerate(original_row):
-                column_number = table["first_column"] + column_offset
-                cell = sheet.Cells(row_number, column_number)
-                if original_cells:
-                    self._restore_cell_value(
-                        cell,
-                        original_cells[row_offset][column_offset],
-                    )
-                else:
-                    cell.Value2 = value
-        restored_rows = self._table_values(sheet, table)
-        if restored_rows != prepared.params["original_rows"]:
-            raise AppActionVerificationError(
-                "Excel 표의 정렬 전 행 순서가 복원되었는지 확인하지 못했습니다."
-            )
-        if original_cells:
-            for row_offset, row_snapshot in enumerate(original_cells):
-                for column_offset, snapshot in enumerate(row_snapshot):
-                    cell = sheet.Cells(
-                        row_offset + 2,
-                        table["first_column"] + column_offset,
-                    )
-                    formula = str(cell.Formula) if bool(cell.HasFormula) else None
-                    if not excel_formulas_equal(formula, snapshot.get("formula")):
-                        raise AppActionVerificationError(
-                            "Excel 표의 정렬 전 수식이 복원되었는지 확인하지 못했습니다."
-                        )
-        return {"restored_rows": len(restored_rows)}
-
-    def _undo_structure_insert(self, application, prepared):
-        sheet = self._ensure_undo_context(application, prepared)
-        axis = prepared.params["axis"]
-        index = int(prepared.params["index"])
-        count = int(prepared.params["count"])
-        first_column = int(prepared.params["used_first_column"])
-        first_row = int(prepared.params["used_first_row"])
-        last_column = int(prepared.params["used_last_column"])
-        last_row = int(prepared.params["used_last_row"])
-        if axis == "row":
-            shifted = sheet.Range(
-                f"{excel_column_letters(first_column)}{index + count}:"
-                f"{excel_column_letters(last_column)}{last_row + count}"
-            )
-            blank = sheet.Range(
-                f"{excel_column_letters(first_column)}{index}:"
-                f"{excel_column_letters(last_column)}{index + count - 1}"
-            )
-            inserted = sheet.Rows(f"{index}:{index + count - 1}")
-            original_address = (
-                f"{excel_column_letters(first_column)}{index}:"
-                f"{excel_column_letters(last_column)}{last_row}"
-            )
-        else:
-            first = excel_column_letters(index)
-            last = excel_column_letters(index + count - 1)
-            shifted = sheet.Range(
-                f"{excel_column_letters(index + count)}{first_row}:"
-                f"{excel_column_letters(last_column + count)}{last_row}"
-            )
-            blank = sheet.Range(f"{first}{first_row}:{last}{last_row}")
-            inserted = sheet.Columns(f"{first}:{last}")
-            original_address = (
-                f"{excel_column_letters(index)}{first_row}:"
-                f"{excel_column_letters(last_column)}{last_row}"
-            )
-        if (
-            self._range_digest(shifted) != prepared.params["shifted_digest"]
-            or not self._range_is_blank(blank)
-        ):
-            raise AppActionContextChanged(
-                "삽입된 행·열 또는 이동된 데이터가 달라져 안전하게 복원하지 않았습니다."
-            )
-        inserted.Delete()
-        restored_digest = self._range_digest(sheet.Range(original_address))
-        if restored_digest != prepared.params["shifted_digest"]:
-            raise AppActionVerificationError(
-                "Excel 행·열 삭제 뒤 원래 데이터 위치를 확인하지 못했습니다."
-            )
-        return {"restored_axis": axis, "restored_count": count}
-
-    def _undo_filter(self, application, prepared):
-        sheet = self._ensure_undo_context(application, prepared)
-        current = self._filter_state(sheet)
-        if prepared.params.get("clear"):
-            matches_after = not current.get("filter_mode")
-        else:
-            matches_after = self._matching_filter(
-                current,
-                prepared.params["table_range"],
-                prepared.params["field_index"],
-                prepared.params["criteria"],
-            )
-        if not matches_after:
-            raise AppActionContextChanged(
-                "직전 편집 뒤 필터 상태가 달라져 안전하게 복원하지 않았습니다."
-            )
-        previous = dict(prepared.params.get("previous_filter") or {})
-        self._restore_filter_state(sheet, previous)
-        restored = self._filter_state(sheet)
-        if self._state_fingerprint({"filter": restored}) != self._state_fingerprint(
-            {"filter": previous}
-        ):
-            raise AppActionVerificationError(
-                "Excel의 이전 필터 상태가 복원되었는지 확인하지 못했습니다."
-            )
-        return {"filter_state": restored}
-
     def undo(self, prepared, record=None):
         """Restore one verified Excel edit from its structured snapshot."""
         if not isinstance(prepared, PreparedAction):
             prepared = PreparedAction.from_dict(prepared or {})
         if prepared.app != "excel" or not prepared.reversible:
             raise AppActionBlocked("복원할 수 있는 Excel 편집 작업이 아닙니다.")
-        handlers = {
-            "write_cell": self._undo_cell_write,
-            "sum_column_to_cell": self._undo_cell_write,
-            "format_range": self._undo_range_format,
-            "find_replace": self._undo_find_replace,
-            "sort_range": self._undo_sort,
-            "insert_rows": self._undo_structure_insert,
-            "insert_columns": self._undo_structure_insert,
-            "filter_range": self._undo_filter,
-        }
-        if set(handlers) != set(self.undo_supported_operations):
-            raise AppActionBlocked("Excel Undo 작업 계약이 일치하지 않습니다.")
-        handler = handlers.get(prepared.operation)
+        operation_module = EXCEL_OPERATIONS.get(prepared.operation)
+        handler = getattr(operation_module, "undo", None) if operation_module else None
         if handler is None:
             raise AppActionBlocked("이 Excel 작업은 자동 복원을 지원하지 않습니다.")
         try:
             with self._application() as application:
-                restored = handler(application, prepared)
+                restored = handler(self, application, prepared)
         except AppActionError:
             raise
         except Exception as error:
