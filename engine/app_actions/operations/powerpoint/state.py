@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from engine.app_actions.base import AppActionBlocked
+from engine.vocabulary.alignment import normalize_alignment as _normalize
 
 PPT_ALIGNMENTS = {
     "left": 1,
@@ -32,31 +33,19 @@ def uniform_style_value(value, label):
 
 
 def normalize_alignment(value):
-    numeric = {
-        1: ("left", 1),
-        2: ("center", 2),
-        3: ("right", 3),
-        4: ("justify", 4),
-    }
+    """Return the canonical name and PowerPoint's own constant."""
+    numeric = {index: name for name, index in PPT_ALIGNMENTS.items()}
     try:
         if int(value) in numeric and str(value).strip() == str(int(value)):
-            return numeric[int(value)]
+            name = numeric[int(value)]
+            return name, PPT_ALIGNMENTS[name]
     except (TypeError, ValueError):
         pass
-    text = str(value or "").strip().casefold()
-    aliases = {
-        "왼쪽": "left",
-        "가운데": "center",
-        "중앙": "center",
-        "오른쪽": "right",
-        "양쪽": "justify",
-    }
-    text = aliases.get(text, text)
-    if text not in PPT_ALIGNMENTS:
-        raise AppActionBlocked(
-            "PowerPoint 정렬은 왼쪽·가운데·오른쪽·양쪽을 지원합니다."
-        )
-    return text, PPT_ALIGNMENTS[text]
+    try:
+        name = _normalize(value, PPT_ALIGNMENTS, "PowerPoint")
+    except ValueError as error:
+        raise AppActionBlocked(str(error)) from error
+    return name, PPT_ALIGNMENTS[name]
 
 
 __all__ = ["PPT_ALIGNMENTS", "normalize_alignment", "uniform_style_value"]

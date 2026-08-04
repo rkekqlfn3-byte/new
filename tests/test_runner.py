@@ -31,6 +31,7 @@ TEST_GROUPS = {
         "tests.unit.test_learning_schema",
         "tests.unit.test_logging_privacy",
         "tests.unit.test_app_operations",
+        "tests.unit.test_vocabulary",
         "tests.unit.test_maintenance_tools",
         "tests.unit.test_manual_acceptance_recorder",
         "tests.unit.test_maintenance_performance",

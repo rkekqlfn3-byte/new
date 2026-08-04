@@ -30,7 +30,7 @@ DEFAULT_MODULE_LINE_BUDGETS = {
     "engine/action_executor.py": 1101,
     "engine/edit_mode/stage11.py": 1026,
     "engine/app_actions/excel_vba_adapter.py": 1007,
-    "engine/edit_mode/stage5.py": 1006,
+    "engine/edit_mode/stage5.py": 1007,
     "engine/app_actions/excel_adapter.py": 942,
     "engine/edit_mode/stage10.py": 778,
     "engine/app_actions/powerpoint_adapter.py": 530,
@@ -49,6 +49,31 @@ OPERATION_OWNING_ADAPTERS = (
     "engine/app_actions/word_adapter.py",
 )
 ADAPTER_OPERATION_METHOD_PREFIXES = ("_prepare_", "_execute_")
+
+# Korean wording users actually speak belongs in engine/vocabulary/. These
+# tables had drifted across seven and sixteen sites respectively, so the same
+# sentence got different answers depending on the route it took. A literal
+# alias set copied back out is the start of that happening again.
+VOCABULARY_HOME = "engine/vocabulary"
+
+# Detect the *mapping*, not the words. A module that merely mentions 왼쪽 may be
+# talking about a join direction or a slot template; a module that maps 왼쪽 to
+# ``left`` is defining alignment vocabulary.
+ALIGNMENT_PAIR_RE = re.compile(
+    r'"(?:왼쪽|좌측|가운데|중앙|오른쪽|우측|양쪽|배분)(?:\s*정렬)?"\s*:\s*'
+    r'"(?:left|center|right|justify)"'
+    r'|"(?:left|center|right|justify)"\s*:\s*'
+    r'"(?:왼쪽|좌측|가운데|중앙|오른쪽|우측|양쪽|배분)(?:\s*정렬)?"'
+)
+# ``center`` alone is not enough: window snapping also maps 가운데 to center
+# while mapping 왼쪽 to left_half, which is a different concept entirely.
+ALIGNMENT_PAIR_MIN = 2
+ALIGNMENT_DISTINCT_MIN = 2
+
+# Cancel wording is a flat list, so proximity is the signal: three ways to say
+# no within a few lines is an option's alias list.
+CANCEL_MARKERS = ("아니요", "그만", "하지마")
+CANCEL_MARKER_WINDOW = 4
 FORBIDDEN_BACK_REFERENCES = frozenset({"owner", "parser", "_parser"})
 EXCLUDED_PARTS = frozenset({".git", ".venv", "__pycache__", "node_modules"})
 GENERATED_WORKSPACE_DIRS = frozenset({
@@ -218,6 +243,66 @@ def audit_module_line_budgets(project_root: Path, budgets=None):
                 relative,
                 f"line_count={line_count}, budget={int(budget)}",
             ))
+    return findings
+
+
+def audit_duplicated_vocabulary(project_root: Path, paths=None):
+    """Fail when shared wording is redefined outside engine/vocabulary/."""
+    findings = []
+    candidates = paths
+    if candidates is None:
+        candidates = sorted(
+            str(path.relative_to(project_root)).replace("\\", "/")
+            for path in (project_root / "engine").rglob("*.py")
+        )
+    for relative in candidates:
+        if relative.replace("\\", "/").startswith(VOCABULARY_HOME):
+            continue
+        try:
+            source = (project_root / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        pairs = ALIGNMENT_PAIR_RE.findall(source)
+        canonical = {
+            name
+            for pair in pairs
+            for name in ("left", "center", "right", "justify")
+            if f'"{name}"' in pair
+        }
+        if (
+            len(pairs) >= ALIGNMENT_PAIR_MIN
+            and len(canonical) >= ALIGNMENT_DISTINCT_MIN
+        ):
+            findings.append(AuditFinding(
+                "error",
+                "duplicated_vocabulary_table",
+                relative,
+                f"정렬 어휘 매핑 {len(pairs)}건은 {VOCABULARY_HOME}/ 에서만 정의합니다.",
+            ))
+        lines = source.splitlines()
+        seen = {
+            marker: [
+                index for index, line in enumerate(lines) if f'"{marker}"' in line
+            ]
+            for marker in CANCEL_MARKERS
+        }
+        if all(seen.values()):
+            for anchor in seen[CANCEL_MARKERS[0]]:
+                if all(
+                    any(
+                        abs(index - anchor) <= CANCEL_MARKER_WINDOW
+                        for index in seen[marker]
+                    )
+                    for marker in CANCEL_MARKERS[1:]
+                ):
+                    findings.append(AuditFinding(
+                        "error",
+                        "duplicated_vocabulary_table",
+                        relative,
+                        f"취소 어휘 목록(line {anchor + 1})은 "
+                        f"{VOCABULARY_HOME}/ 에서만 정의합니다.",
+                    ))
+                    break
     return findings
 
 
@@ -471,6 +556,7 @@ def run_audit(project_root: Path, *, max_parser_lines=DEFAULT_MAX_PARSER_LINES, 
     findings.extend(audit_parser_budget(project_root, max_parser_lines))
     findings.extend(audit_module_line_budgets(project_root))
     findings.extend(audit_adapter_operation_methods(project_root))
+    findings.extend(audit_duplicated_vocabulary(project_root))
     findings.extend(audit_long_function_budgets(project_root))
     findings.extend(audit_forbidden_back_references(project_root))
     findings.extend(audit_tracked_artifacts(project_root, tracked))

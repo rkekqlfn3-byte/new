@@ -52,6 +52,7 @@ from engine.app_actions.value_normalizer import (
     normalize_single_column_range,
     serializable_excel_value,
 )
+from engine.vocabulary.alignment import normalize_alignment
 
 XL_WORKSHEET = -4167
 XL_UP = -4162
@@ -524,23 +525,11 @@ class ExcelAdapter:
 
     @staticmethod
     def _normalize_alignment(value):
-        alignment = str(value or "").strip().casefold()
-        aliases = {
-            "왼쪽": "left",
-            "왼쪽 정렬": "left",
-            "좌측": "left",
-            "가운데": "center",
-            "가운데 정렬": "center",
-            "중앙": "center",
-            "중앙 정렬": "center",
-            "오른쪽": "right",
-            "오른쪽 정렬": "right",
-            "우측": "right",
-        }
-        alignment = aliases.get(alignment, alignment)
-        if alignment not in ALIGNMENT_VALUES:
-            raise AppActionBlocked("정렬은 왼쪽·가운데·오른쪽 중 하나여야 합니다.")
-        return alignment, ALIGNMENT_VALUES[alignment]
+        try:
+            name = normalize_alignment(value, ALIGNMENT_VALUES)
+        except ValueError as error:
+            raise AppActionBlocked(str(error)) from error
+        return name, ALIGNMENT_VALUES[name]
 
 
     @staticmethod

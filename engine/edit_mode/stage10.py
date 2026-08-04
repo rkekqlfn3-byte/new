@@ -25,6 +25,7 @@ from engine.edit_mode.stage10_intent_services import (
 )
 from engine.edit_mode.window_layout import DocumentWindowActivator
 from engine.learning import BusinessWorkflowSkillManager
+from engine.vocabulary.alignment import korean_labels
 from engine.workflows import (
     WorkflowExecutor,
 )
@@ -410,8 +411,7 @@ class Stage10NativeEditAdapter(Stage9NativeEditAdapter):
             "formal": "격식체", "concise": "간결하게", "friendly": "친근하게",
             "bold": "굵게", "regular": "강조 없음",
             "larger": "크게", "smaller": "작게",
-            "left": "왼쪽", "center": "가운데", "right": "오른쪽",
-            "justify": "양쪽",
+            **korean_labels(),
         }
         parts = []
         for name, value in values.items():

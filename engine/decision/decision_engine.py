@@ -183,7 +183,6 @@ class DecisionEngine:
                         "한글 문서와 대상 파일을 변경하지 않습니다."
                     ),
                     "cancel": True,
-                    "aliases": ["아니", "아니요", "그만", "하지마"],
                 },
             ],
         )

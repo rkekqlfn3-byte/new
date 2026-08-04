@@ -1097,7 +1097,6 @@ class EditModeController:
             "label": "취소",
             "description": "문서를 변경하지 않고 취소합니다.",
             "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마", "취소해"],
         })
         current = self._execution_controller.current
         execution_id = (
@@ -1369,7 +1368,6 @@ class EditModeController:
                     "label": "취소",
                     "description": "VBA 코드를 수정하거나 실행하지 않습니다.",
                     "cancel": True,
-                    "aliases": ["취소", "그만", "하지마", "아니요"],
                 },
             ],
             payload={

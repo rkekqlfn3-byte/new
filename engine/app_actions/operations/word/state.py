@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from engine.app_actions.base import AppActionBlocked
+from engine.vocabulary.alignment import normalize_alignment as _normalize
 
 WD_ALIGNMENTS = {
     "left": 0,
@@ -13,29 +14,19 @@ WD_ALIGNMENTS = {
 
 
 def normalize_alignment(value):
-    numeric = {
-        0: ("left", 0),
-        1: ("center", 1),
-        2: ("right", 2),
-        3: ("justify", 3),
-    }
+    """Return the canonical name and Word's own constant."""
+    numeric = {index: name for name, index in WD_ALIGNMENTS.items()}
     try:
         if int(value) in numeric and str(value).strip() == str(int(value)):
-            return numeric[int(value)]
+            name = numeric[int(value)]
+            return name, WD_ALIGNMENTS[name]
     except (TypeError, ValueError):
         pass
-    text = str(value or "").strip().casefold()
-    aliases = {
-        "왼쪽": "left",
-        "가운데": "center",
-        "중앙": "center",
-        "오른쪽": "right",
-        "양쪽": "justify",
-    }
-    text = aliases.get(text, text)
-    if text not in WD_ALIGNMENTS:
-        raise AppActionBlocked("Word 정렬은 왼쪽·가운데·오른쪽·양쪽을 지원합니다.")
-    return text, WD_ALIGNMENTS[text]
+    try:
+        name = _normalize(value, WD_ALIGNMENTS, "Word")
+    except ValueError as error:
+        raise AppActionBlocked(str(error)) from error
+    return name, WD_ALIGNMENTS[name]
 
 
 def apply_text_format(target, desired):

@@ -14,6 +14,8 @@ import time
 import uuid
 from datetime import datetime
 
+from engine.vocabulary.confirmation import CANCEL_ALIASES
+
 DEFAULT_CONFIRMATION_TTL_SECONDS = 300
 DEFAULT_SESSION_ID = "default"
 OPTION_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")
@@ -117,6 +119,17 @@ class PendingConfirmationManager:
                 cleaned = normalize_answer(alias)
                 if cleaned:
                     aliases.add(cleaned)
+            if bool(raw.get("cancel", False)):
+                # Every way to say no reaches every cancel option, so an option
+                # author cannot leave one out. Declining is never the dangerous
+                # direction, and the lists here had already drifted apart.
+                aliases.update(
+                    cleaned
+                    for cleaned in (
+                        normalize_answer(alias) for alias in CANCEL_ALIASES
+                    )
+                    if cleaned
+                )
             normalized.append({
                 "id": option_id,
                 "label": label,

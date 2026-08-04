@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from engine.vocabulary.alignment import ALIGNMENT_COMMAND_PATTERN
+
 EXCEL_WRITE_COMMAND_RE = re.compile(
     r"^(?:엑셀|excel)(?:에서)?\s+"
     r"(?P<cell>\$?[a-z]{1,3}\$?[1-9]\d{0,6})\s*(?:셀)?\s*(?:에|으로)\s*"
@@ -188,16 +190,10 @@ def parse_native_excel_range_format_command(user_input):
     )
     if size_match:
         params["font_size"] = size_match.group(1)
-    alignment_words = (
-        (("가운데", "중앙"), "center"),
-        (("왼쪽", "좌측"), "left"),
-        (("오른쪽", "우측"), "right"),
-    )
     if "정렬" in text:
-        for words, value in alignment_words:
-            if any(word in text for word in words):
-                params["alignment"] = value
-                break
+        match = re.search(ALIGNMENT_COMMAND_PATTERN, text)
+        if match:
+            params["alignment"] = match.group(1)
     colors = (
         "노란색", "노랑", "빨간색", "빨강", "초록색", "녹색",
         "초록", "파란색", "파랑", "주황색", "주황", "회색",
@@ -518,18 +514,10 @@ def parse_native_hwp_paragraph_format_command(user_input):
         return None
     if "문단" not in text or "정렬" not in text:
         return None
-    alignment = None
-    for words, value in (
-        (("가운데", "중앙"), "center"),
-        (("왼쪽", "좌측"), "left"),
-        (("오른쪽", "우측"), "right"),
-        (("양쪽", "배분"), "justify"),
-    ):
-        if any(word in text for word in words):
-            alignment = value
-            break
-    if not alignment:
+    match = re.search(ALIGNMENT_COMMAND_PATTERN, text)
+    if not match:
         return None
+    alignment = match.group(1)
     return {
         "action": "app_command",
         "target": "hwp",

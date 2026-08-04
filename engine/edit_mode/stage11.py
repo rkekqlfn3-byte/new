@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from engine.edit_mode.contracts import EditPreparedAction, EditRequest, RiskLevel
 from engine.edit_mode.stage10 import Stage10EditError, Stage10NativeEditAdapter
 from engine.learning import UserPreferenceLearningManager
+from engine.vocabulary.alignment import korean_labels
 
 LEARNING_OPERATIONS = frozenset(
     {
@@ -60,10 +61,7 @@ VALUE_LABELS = {
     "regular": "강조 없음",
     "larger": "크게",
     "smaller": "작게",
-    "left": "왼쪽 정렬",
-    "center": "가운데 정렬",
-    "right": "오른쪽 정렬",
-    "justify": "양쪽 정렬",
+    **korean_labels(" 정렬"),
 }
 
 GENERALIZATION_MARKERS = ("앞으로", "다음부터", "항상", "매번")
@@ -621,10 +619,10 @@ class Stage11NativeEditAdapter(Stage10NativeEditAdapter):
             ("emphasis_style", "regular"): " 굵게 해제",
             ("font_scale", "larger"): " 조금 크게",
             ("font_scale", "smaller"): " 조금 작게",
-            ("paragraph_align", "left"): " 왼쪽 정렬",
-            ("paragraph_align", "center"): " 가운데 정렬",
-            ("paragraph_align", "right"): " 오른쪽 정렬",
-            ("paragraph_align", "justify"): " 양쪽 정렬",
+            **{
+                ("paragraph_align", name): f" {label}"
+                for name, label in korean_labels(" 정렬").items()
+            },
         }
         suffix = suffixes.get((preference, value))
         if not suffix:

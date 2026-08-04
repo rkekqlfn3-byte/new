@@ -13,13 +13,12 @@ from engine.recovery import (
 )
 from engine.security.launch_policy import looks_like_shell_execution_request
 from engine.skills import strip_run_directive
+from engine.vocabulary.confirmation import APPROVAL_ALIASES, CANCEL_ALIASES
 
-_APPROVAL_WORDS = {
-    "예", "네", "y", "yes", "응", "학습", "저장", "맞아", "그래", "ㅇㅇ", "ㅇ",
-}
-_REJECTION_WORDS = {
-    "아니", "아니오", "아니요", "틀렸어", "취소", "버려", "ㄴㄴ", "ㄴ", "하지마",
-}
+# The learning prompt adds two words of its own; everything else comes from
+# the shared table so this route cannot drift from the confirmation options.
+_APPROVAL_WORDS = APPROVAL_ALIASES | {"학습", "저장"}
+_REJECTION_WORDS = set(CANCEL_ALIASES)
 _SELF_DIAGNOSIS_COMMANDS = frozenset({
     "자가 진단", "자가진단", "최근 오류 진단", "최근 오류 진단해줘",
     "최근 실패 진단", "최근 실패 원인", "방금 오류 왜 실패했어",

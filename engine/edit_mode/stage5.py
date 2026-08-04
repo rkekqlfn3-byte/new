@@ -16,6 +16,7 @@ from engine.edit_mode.contracts import (
     EditRequest,
     RiskLevel,
 )
+from engine.vocabulary.alignment import ALIGNMENT_COMMAND_PATTERN
 
 _CELL_OR_RANGE = re.compile(
     r"^([A-Z]{1,3})([1-9]\d*)(?::([A-Z]{1,3})([1-9]\d*))?$",
@@ -309,7 +310,7 @@ class StructuredEditIntentAnalyzer:
         if size_match:
             desired["font_size"] = float(size_match.group(1))
             labels.append(f"글자 크기 {size_match.group(1)}")
-        alignment_match = re.search(r"(왼쪽|가운데|중앙|오른쪽)(?:으로)?\s*정렬", command)
+        alignment_match = re.search(ALIGNMENT_COMMAND_PATTERN, command)
         if alignment_match:
             desired["alignment"] = alignment_match.group(1)
             labels.append(f"{alignment_match.group(1)} 정렬")
@@ -436,7 +437,7 @@ class StructuredEditIntentAnalyzer:
                 after_preview=" · ".join(labels),
             )
 
-        alignment_match = re.search(r"(왼쪽|가운데|중앙|오른쪽|양쪽)(?:으로)?\s*정렬", command)
+        alignment_match = re.search(ALIGNMENT_COMMAND_PATTERN, command)
         if alignment_match:
             alignment = alignment_match.group(1)
             return EditIntent(

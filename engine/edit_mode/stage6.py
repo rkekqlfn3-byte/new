@@ -16,6 +16,7 @@ from engine.edit_mode.stage5 import (
     _quoted_values,
     _shorten_text,
 )
+from engine.vocabulary.alignment import ALIGNMENT_COMMAND_PATTERN
 
 
 class StructuredStage6IntentAnalyzer(StructuredEditIntentAnalyzer):
@@ -133,7 +134,7 @@ class StructuredStage6IntentAnalyzer(StructuredEditIntentAnalyzer):
                 after_preview=" · ".join(labels),
             )
 
-        alignment = re.search(r"(왼쪽|가운데|중앙|오른쪽|양쪽)(?:으로)?\s*정렬", command)
+        alignment = re.search(ALIGNMENT_COMMAND_PATTERN, command)
         if alignment:
             return EditIntent(
                 "set_paragraph_format",
@@ -246,7 +247,7 @@ class StructuredStage6IntentAnalyzer(StructuredEditIntentAnalyzer):
                 after_preview=" · ".join(labels),
             )
 
-        alignment = re.search(r"(왼쪽|가운데|중앙|오른쪽|양쪽)(?:으로)?\s*정렬", command)
+        alignment = re.search(ALIGNMENT_COMMAND_PATTERN, command)
         if alignment:
             return EditIntent(
                 "set_text_alignment",

@@ -66,7 +66,6 @@ class ConfirmationFactory:
                     "label": "취소",
                     "description": "아무 작업도 실행하지 않습니다.",
                     "cancel": True,
-                    "aliases": ["취소", "그만", "하지마", "아니요"],
                 },
             ],
             payload={
@@ -118,7 +117,6 @@ class ConfirmationFactory:
                     "description": "프로그램을 실행하지 않습니다.",
                     "recommended": True,
                     "cancel": True,
-                    "aliases": ["취소해", "그만", "하지마"],
                 },
             ],
             payload={
@@ -218,7 +216,6 @@ class ConfirmationFactory:
             "label": "취소",
             "description": "Excel을 변경하지 않습니다.",
             "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
         })
         disabled_note = (
             " 이전 자동 적용이 연속으로 실패해 다시 선택을 요청합니다."
@@ -313,7 +310,6 @@ class ConfirmationFactory:
             "label": "취소",
             "description": "한글 문서를 변경하지 않습니다.",
             "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
         })
         if log_callback:
             log_callback("[Clarification] 한글 찾기·바꾸기 범위 선택 필요")
@@ -381,7 +377,6 @@ class ConfirmationFactory:
             "label": "취소",
             "description": "Excel을 변경하지 않습니다.",
             "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
         })
         record = self.manager.create(
             session_id=normalize_session_id(session_id),
@@ -451,7 +446,6 @@ class ConfirmationFactory:
                     "label": "취소",
                     "description": "코드를 실행하지 않고 외부 상태를 그대로 유지합니다.",
                     "cancel": True,
-                    "aliases": ["아니", "아니요", "그만", "하지마", "취소"],
                 },
             ],
             payload={
@@ -525,7 +519,6 @@ class ConfirmationFactory:
             "label": "취소",
             "description": "스킬을 실행하지 않고 저장된 정책도 유지합니다.",
             "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
         })
         if assessment.suggest_auto:
             message = (
@@ -601,7 +594,6 @@ class ConfirmationFactory:
             "label": "취소",
             "description": "어떤 UI 요소도 선택하거나 클릭하지 않습니다.",
             "cancel": True,
-            "aliases": ["아니", "아니요", "그만", "하지마"],
         })
         record = self.manager.create(
             session_id=normalize_session_id(session_id),

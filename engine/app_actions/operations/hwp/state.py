@@ -9,6 +9,7 @@ resulting format, ``set_text_format`` and ``set_paragraph_format`` own it, and
 from __future__ import annotations
 
 from engine.app_actions.base import AppActionBlocked
+from engine.vocabulary.alignment import normalize_alignment as _normalize
 
 PARAGRAPH_ALIGNMENTS = {
     "justify": ("ParagraphShapeAlignJustify", 0),
@@ -45,17 +46,10 @@ def paragraph_state(hwp):
 
 
 def normalize_alignment(value):
-    alignment = str(value or "").strip().casefold()
-    aliases = {
-        "양쪽": "justify", "양쪽 정렬": "justify", "배분": "justify",
-        "왼쪽": "left", "왼쪽 정렬": "left", "좌측": "left",
-        "오른쪽": "right", "오른쪽 정렬": "right", "우측": "right",
-        "가운데": "center", "가운데 정렬": "center", "중앙": "center",
-    }
-    alignment = aliases.get(alignment, alignment)
-    if alignment not in PARAGRAPH_ALIGNMENTS:
-        raise AppActionBlocked("문단 정렬은 왼쪽·가운데·오른쪽·양쪽 정렬을 지원합니다.")
-    return alignment
+    try:
+        return _normalize(value, PARAGRAPH_ALIGNMENTS, "문단")
+    except ValueError as error:
+        raise AppActionBlocked(str(error)) from error
 
 
 def normalize_color_name(value):
