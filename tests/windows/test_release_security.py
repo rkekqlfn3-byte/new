@@ -120,6 +120,20 @@ class ReleaseDefaultDataTests(unittest.TestCase):
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn(f"`{APP_VERSION}`", readme)
 
+    def test_public_capability_docs_match_current_pdf_and_native_probes(self):
+        readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        limitations = (PROJECT_ROOT / "KNOWN_LIMITATIONS.md").read_text(
+            encoding="utf-8"
+        )
+        changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+        self.assertIn("MVP(PDF-0~4)·PDF-7 자동 수용 완료", readme)
+        self.assertIn("PDF MVP는", limitations)
+        self.assertNotIn("PDF-4가 완료될 때까지", limitations)
+        self.assertIn("Excel VBA", readme)
+        self.assertIn("source-bound probe", limitations)
+        self.assertIn(f"## {APP_VERSION}", changelog)
+
 
 class SeparatedRuntimePathTests(unittest.TestCase):
     def test_explicit_data_override_is_used_for_source_and_exe(self):

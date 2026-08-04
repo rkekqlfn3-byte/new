@@ -10,10 +10,12 @@ from unittest import mock
 from engine.ai_actions import AIActionHandler
 from engine.app_actions import AppCommandRouter
 from engine.confirmation import ConfirmationRegistry
+from engine.confirmation.handlers import HANDLERS
 from engine.edit_mode.controller import EditModeController
 from engine.local_commands import LocalCommandAnalyzer
 from engine.parser import CommandParser
 from engine.pipeline import CommandPipeline
+from engine.runtime_ports import confirmation_port_kinds, confirmation_runtime_port
 from engine.runtime_services import ParserRuntimeServices
 from engine.skills import (
     CandidateRecordingService,
@@ -151,6 +153,28 @@ class CommandParserCompositionTests(unittest.TestCase):
         self.assertEqual((), retained_parent_reference_paths(runtime, parser))
         self.assertIs(runtime.dict_mgr, parser.dict_mgr)
         self.assertIs(runtime.confirmations, parser.confirmations)
+
+    def test_runtime_service_fields_have_explicit_types(self):
+        annotations = ParserRuntimeServices.__annotations__
+        self.assertNotIn("Any", repr(annotations))
+        self.assertEqual(set(annotations), {
+            field.name for field in fields(ParserRuntimeServices)
+        })
+
+    def test_confirmation_handler_receives_only_its_declared_runtime_port(self):
+        runtime = CommandParser()._runtime_services()
+        port = confirmation_runtime_port(runtime, "prepared_pdf_file_action")
+
+        self.assertEqual(frozenset({"pdf_task_service"}), port.granted_names)
+        self.assertIs(port.pdf_task_service, runtime.pdf_task_service)
+        with self.assertRaises(AttributeError):
+            _ = port.action_executor
+        with self.assertRaises(AttributeError):
+            port.pdf_task_service = object()
+        self.assertEqual((), retained_parent_reference_paths(port, runtime))
+
+    def test_every_confirmation_handler_has_an_explicit_runtime_grant(self):
+        self.assertEqual(frozenset(HANDLERS), confirmation_port_kinds())
 
     def test_parser_dispatches_through_runtime_services_not_itself(self):
         parser = CommandParser()

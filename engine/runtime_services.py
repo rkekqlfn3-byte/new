@@ -12,7 +12,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Callable
 
 from engine.action_executor import (
     ActionPlanError,
@@ -31,6 +31,31 @@ from engine.parsing.office_command_parser import (
     EXCEL_FORMAT_PREFERENCE_KEY,
 )
 
+if TYPE_CHECKING:
+    from engine.action_executor import ActionExecutor
+    from engine.ai_actions import AIActionHandler
+    from engine.app_actions import AppActionRegistry, AppCommandRouter
+    from engine.builtins import BuiltinMacros
+    from engine.confirmation import ConfirmationRegistry
+    from engine.decision import DecisionEngine, PreferenceManager
+    from engine.edit_mode.controller import EditModeController
+    from engine.execution_runtime import ExecutionController
+    from engine.llm_engine import LLMEngine
+    from engine.local_commands import LocalCommandAnalyzer
+    from engine.macro_runner import MacroRunner
+    from engine.managers.dict_manager import DictionaryManager
+    from engine.pdf import PdfIntakeManager, PdfTaskService
+    from engine.pipeline import CommandPipeline
+    from engine.security.dynamic_code_preflight import DynamicCodePreflight
+    from engine.skills import (
+        CandidateRecordingService,
+        LearnedReplayService,
+        SkillExecutor,
+        SkillLearningService,
+        SkillRunPolicyService,
+    )
+    from engine.template_matcher import LearnedTemplateMatcher
+
 
 @dataclass(slots=True)
 class ParserRuntimeServices:
@@ -42,35 +67,35 @@ class ParserRuntimeServices:
     parser continue to work without hidden synchronization.
     """
 
-    dict_mgr: Any
-    llm_engine: Any
-    template_matcher: Any
-    command_pipeline: Any
-    execution_controller: Any
-    confirmations: Any
-    ai_action_handler: Any
-    app_action_registry: Any
-    edit_mode_controller: Any
-    edit_mode_handler: Any
-    pdf_intake_manager: Any
-    pdf_task_service: Any
-    decision_engine: Any
-    preference_manager: Any
-    app_command_router: Any
-    candidate_recording_service: Any
-    skill_learning_service: Any
-    learned_replay_service: Any
-    action_executor: Any
-    macro_runner: Any
-    dynamic_code_preflight: Any
-    builtins: Any
-    skill_executor: Any
-    skill_run_policy: Any
-    local_command_analyzer: Any
-    _handlers: dict[str, Any]
+    dict_mgr: DictionaryManager
+    llm_engine: LLMEngine
+    template_matcher: LearnedTemplateMatcher
+    command_pipeline: CommandPipeline
+    execution_controller: ExecutionController
+    confirmations: ConfirmationRegistry
+    ai_action_handler: AIActionHandler
+    app_action_registry: AppActionRegistry
+    edit_mode_controller: EditModeController
+    edit_mode_handler: EditModeController
+    pdf_intake_manager: PdfIntakeManager
+    pdf_task_service: PdfTaskService
+    decision_engine: DecisionEngine
+    preference_manager: PreferenceManager
+    app_command_router: AppCommandRouter
+    candidate_recording_service: CandidateRecordingService
+    skill_learning_service: SkillLearningService
+    learned_replay_service: LearnedReplayService
+    action_executor: ActionExecutor
+    macro_runner: MacroRunner
+    dynamic_code_preflight: DynamicCodePreflight
+    builtins: BuiltinMacros
+    skill_executor: SkillExecutor
+    skill_run_policy: SkillRunPolicyService
+    local_command_analyzer: LocalCommandAnalyzer
+    _handlers: dict[str, Callable[..., object]]
 
     @classmethod
-    def from_facade(cls, facade: Any) -> "ParserRuntimeServices":
+    def from_facade(cls, facade: object) -> "ParserRuntimeServices":
         """Copy only declared collaborators from the public facade."""
         return cls(**{
             field: getattr(facade, field)

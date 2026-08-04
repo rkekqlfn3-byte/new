@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0-rc.7 — PDF MVP 수용과 유지보수·자격증명 경계 보완
+
+- PDF-3의 페이지 근거 검색·요약·표·Office 산출물과 PDF-4의 원자적 분할·병합·
+  회전·제한 Undo를 PDF-7 120문장 수용 배터리와 제품 Goal probe에 편입했다.
+- Git 경로 감사를 NUL·Unicode 안전 방식으로 바꾸고 수동 체크표를 생성물 전용
+  `outputs/` 밖으로 이동했다. hosted 소스 품질 CI와 보호된 self-hosted Office/HWP
+  실앱 Goal CI를 분리했다.
+- API 키를 Windows 현재 사용자 DPAPI로 보호하고 기존 평문 JSON 및 버전 백업을
+  schema 5로 이관한다. 기본 데이터와 보안 감사는 보호 blob도 포함하지 못하게
+  차단한다.
+- 전체 `engine`의 100줄 이상 함수에 증가 금지 예산·담당 영역·사유·만료일을
+  강제하고, 거대 모듈 예산을 현재 줄 수로 낮췄다. 승인 후속 handler는 작업별
+  읽기 전용 runtime port만 받는다.
+- 2026-08-04 이 PC의 source-bound probe에서 Excel VBA와 HWP workflow가
+  통과했음을 README·제약 문서에 반영했다. 외부 AI 실계정과 화면 읽기·음성·
+  비숙련자 관찰은 계속 최종 수동 수용 범위다.
+
 ## 2026-08-04 — PDF-2 읽기 전용 연결·문맥·라우팅
 
 - Office 편집 세션과 분리된 `PdfIntakeManager`를 추가해 사용자가 native 선택창

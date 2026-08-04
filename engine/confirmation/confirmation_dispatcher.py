@@ -1,6 +1,7 @@
 from engine.confirmation.context import ConfirmationContext
 from engine.confirmation.handlers import HANDLERS
 from engine.execution_result import failure_result
+from engine.runtime_ports import confirmation_runtime_port
 
 
 class ConfirmationDispatcher:
@@ -47,4 +48,5 @@ class ConfirmationDispatcher:
                 "지원하지 않는 확인 후속 작업입니다.",
                 action="confirmation", error_type="validation_error",
             )
-        return handler(runtime, context)
+        port = confirmation_runtime_port(runtime, context.payload.get("kind"))
+        return handler(port, context)

@@ -9,6 +9,7 @@ from engine.api import config_api
 from engine.document_reader import extract_text, resolve_file_path
 from engine.managers.dict_manager import DictionaryManager
 from engine.runtime_paths import seed_user_data
+from engine.security.credential_protection import CredentialProtectionError
 
 
 class DictionaryPersistenceTests(unittest.TestCase):
@@ -116,6 +117,34 @@ class DictionaryPersistenceTests(unittest.TestCase):
                 json.loads(path.read_text(encoding="utf-8"))[
                     "ai_config"
                 ]["api_key_protected"],
+            )
+
+    def test_protection_failure_never_mutates_or_persists_plaintext(self):
+        class FailingProtector:
+            def protect(self, secret):
+                raise CredentialProtectionError("owned failure")
+
+            def unprotect(self, protected):
+                raise CredentialProtectionError("owned failure")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "dictionaries.json"
+            manager = DictionaryManager(
+                dictionary_path=str(path),
+                credential_protector=FailingProtector(),
+            )
+            before_config = manager.get_ai_config()
+            before_file = path.read_text(encoding="utf-8")
+
+            with self.assertRaises(CredentialProtectionError):
+                manager.config_manager.save_ai_config(
+                    "gemini", "must-not-be-persisted", "ai_first"
+                )
+
+            self.assertEqual(before_config, manager.get_ai_config())
+            self.assertEqual(before_file, path.read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "must-not-be-persisted", path.read_text(encoding="utf-8")
             )
 
     def test_new_dictionary_has_no_apps_before_manual_scan(self):

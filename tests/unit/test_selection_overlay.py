@@ -194,7 +194,10 @@ class SelectionOverlayTests(unittest.TestCase):
 
         start = time.perf_counter()
         scheduled = manager.schedule(session, first_context)
-        self.assertLess(time.perf_counter() - start, 0.1)
+        # This is a non-blocking contract, not a scheduler benchmark.  A busy
+        # Windows CI host can take more than 100 ms to start a worker thread;
+        # waiting for SlowLocator would take the full two-second timeout.
+        self.assertLess(time.perf_counter() - start, 0.5)
         self.assertEqual("scheduled", scheduled["status"])
         self.assertTrue(started.wait(1))
         manager.schedule(session, latest_context)

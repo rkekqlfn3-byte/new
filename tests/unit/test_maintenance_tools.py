@@ -3,11 +3,14 @@
 import subprocess
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
+from verification.maintainability_budgets import LongFunctionException
 from verification.maintenance_audit import (
     audit_forbidden_back_references,
     audit_large_workspace_files,
+    audit_long_function_budgets,
     audit_module_line_budgets,
     audit_parser_budget,
     audit_secrets,
@@ -110,6 +113,49 @@ class MaintenanceAuditTests(unittest.TestCase):
         self.assertEqual([], within)
         self.assertEqual("module_line_budget_exceeded", exceeded[0].code)
         self.assertIn("line_count=4", exceeded[0].detail)
+
+    def test_new_long_function_requires_an_explicit_budget(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "engine" / "large.py"
+            path.parent.mkdir()
+            path.write_text(
+                "def too_long():\n" + ("    pass\n" * 100),
+                encoding="utf-8",
+            )
+
+            findings = audit_long_function_budgets(root, exceptions={})
+
+        self.assertEqual("long_function_unbudgeted", findings[0].code)
+
+    def test_long_function_exception_expires_and_cannot_grow(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "engine" / "large.py"
+            path.parent.mkdir()
+            path.write_text(
+                "def too_long():\n" + ("    pass\n" * 100),
+                encoding="utf-8",
+            )
+            exceptions = {
+                "engine/large.py::too_long": LongFunctionException(
+                    max_lines=100,
+                    owner="test",
+                    reason="owned fixture",
+                    expires="2026-01-01",
+                )
+            }
+
+            findings = audit_long_function_budgets(
+                root,
+                exceptions=exceptions,
+                today=date(2026, 8, 4),
+            )
+
+        self.assertEqual(
+            {"long_function_exception_expired", "long_function_budget_exceeded"},
+            {finding.code for finding in findings},
+        )
 
     def test_forbidden_back_reference_is_found_by_ast(self):
         with tempfile.TemporaryDirectory() as temp_dir:

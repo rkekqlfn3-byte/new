@@ -12,24 +12,29 @@ import re
 import subprocess
 from collections import deque
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 
+from verification.maintainability_budgets import (
+    LONG_FUNCTION_EXCEPTIONS,
+    MAX_FUNCTION_LINES,
+)
 from verification.release_security_audit import GENERIC_SECRET_PATTERNS
 
 DEFAULT_MAX_PARSER_LINES = 1000
 DEFAULT_LARGE_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_MODULE_LINE_BUDGETS = {
-    "engine/workflows/business_workflow.py": 3715,
-    "engine/app_actions/excel_adapter.py": 2350,
-    "engine/edit_mode/stage10.py": 1903,
-    "engine/edit_mode/controller.py": 1893,
-    "engine/app_actions/powerpoint_adapter.py": 1289,
-    "engine/edit_mode/native_bridge.py": 1111,
+    "engine/workflows/business_workflow.py": 2477,
+    "engine/app_actions/excel_adapter.py": 2349,
+    "engine/edit_mode/stage10.py": 778,
+    "engine/edit_mode/controller.py": 1628,
+    "engine/app_actions/powerpoint_adapter.py": 1149,
+    "engine/edit_mode/native_bridge.py": 1110,
     "engine/action_executor.py": 1101,
-    "engine/app_actions/hwp_adapter.py": 1063,
-    "engine/edit_mode/stage11.py": 1027,
-    "engine/app_actions/excel_vba_adapter.py": 1008,
-    "engine/edit_mode/stage5.py": 1007,
+    "engine/app_actions/hwp_adapter.py": 968,
+    "engine/edit_mode/stage11.py": 1026,
+    "engine/app_actions/excel_vba_adapter.py": 1007,
+    "engine/edit_mode/stage5.py": 1006,
 }
 FORBIDDEN_BACK_REFERENCES = frozenset({"owner", "parser", "_parser"})
 EXCLUDED_PARTS = frozenset({".git", ".venv", "__pycache__", "node_modules"})
@@ -203,6 +208,93 @@ def audit_module_line_budgets(project_root: Path, budgets=None):
     return findings
 
 
+class _QualifiedFunctionVisitor(ast.NodeVisitor):
+    def __init__(self):
+        self.stack = []
+        self.functions = []
+
+    def visit_ClassDef(self, node):
+        self.stack.append(node.name)
+        self.generic_visit(node)
+        self.stack.pop()
+
+    def _visit_function(self, node):
+        qualname = ".".join([*self.stack, node.name])
+        self.functions.append((qualname, node))
+        self.stack.append(node.name)
+        self.generic_visit(node)
+        self.stack.pop()
+
+    def visit_FunctionDef(self, node):
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        self._visit_function(node)
+
+
+def audit_long_function_budgets(
+    project_root: Path,
+    *,
+    exceptions=None,
+    today=None,
+):
+    """Reject new/growing long functions and expired or stale exceptions."""
+    configured = LONG_FUNCTION_EXCEPTIONS if exceptions is None else exceptions
+    current_date = today or date.today()
+    findings = []
+    seen = set()
+    for path in sorted((project_root / "engine").rglob("*.py")):
+        relative = path.relative_to(project_root).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, SyntaxError) as error:
+            findings.append(AuditFinding(
+                "error", "function_budget_source_unreadable", relative,
+                type(error).__name__,
+            ))
+            continue
+        visitor = _QualifiedFunctionVisitor()
+        visitor.visit(tree)
+        for qualname, node in visitor.functions:
+            length = int(node.end_lineno) - int(node.lineno) + 1
+            if length <= MAX_FUNCTION_LINES:
+                continue
+            key = f"{relative}::{qualname}"
+            seen.add(key)
+            exception = configured.get(key)
+            if exception is None:
+                findings.append(AuditFinding(
+                    "error", "long_function_unbudgeted", relative,
+                    f"{qualname}={length}, limit={MAX_FUNCTION_LINES}",
+                ))
+                continue
+            try:
+                expiry = date.fromisoformat(exception.expires)
+            except (TypeError, ValueError):
+                expiry = date.min
+            if not exception.owner.strip() or not exception.reason.strip():
+                findings.append(AuditFinding(
+                    "error", "long_function_exception_metadata_invalid", relative,
+                    qualname,
+                ))
+            if expiry < current_date:
+                findings.append(AuditFinding(
+                    "error", "long_function_exception_expired", relative,
+                    f"{qualname}, expired={exception.expires}",
+                ))
+            if length > int(exception.max_lines):
+                findings.append(AuditFinding(
+                    "error", "long_function_budget_exceeded", relative,
+                    f"{qualname}={length}, budget={exception.max_lines}",
+                ))
+    for key in sorted(set(configured) - seen):
+        relative, _, qualname = key.partition("::")
+        findings.append(AuditFinding(
+            "error", "stale_long_function_exception", relative, qualname,
+        ))
+    return findings
+
+
 def _composition_files(project_root: Path):
     files = []
     for relative in COMPOSITION_SOURCES:
@@ -329,6 +421,7 @@ def run_audit(project_root: Path, *, max_parser_lines=DEFAULT_MAX_PARSER_LINES, 
         ))
     findings.extend(audit_parser_budget(project_root, max_parser_lines))
     findings.extend(audit_module_line_budgets(project_root))
+    findings.extend(audit_long_function_budgets(project_root))
     findings.extend(audit_forbidden_back_references(project_root))
     findings.extend(audit_tracked_artifacts(project_root, tracked))
     findings.extend(audit_secrets(project_root, (*tracked, *untracked)))

@@ -7,14 +7,14 @@
 
 Windows에서 한국어 명령으로 앱, 웹, Excel, 한글, Word, PowerPoint를 제어하고
 AI 질문·대화를 지원하는 개인용 데스크톱 도우미입니다. 현재 개발 소스 버전은
-`1.1.0-rc.6`입니다.
+`1.1.0-rc.7`입니다.
 
 Prototype 1.0 1~8단계는 파일 연결, 현재 선택 문맥, 네 앱의 미리보기·승인·편집·
 재읽기·복원과 안정성 검증을 다룹니다. Prototype 1.1 9~12단계는 Excel VBA,
 Excel→Word/한글→PowerPoint 워크플로, 명시적 사용자 선호 학습, 개인정보가 제거된
 자가 진단을 추가합니다.
 
-## PDF 개발 상태: PDF-2 완료
+## PDF 개발 상태: MVP(PDF-0~4)·PDF-7 자동 수용 완료
 
 로컬 PDF는 Office 편집 세션과 분리된 읽기 전용 연결로 다룹니다. `PDF 연결`
 버튼이나 파일 드롭으로 사용자가 명시한 파일 하나만 연결하고, 이름·페이지 수·
@@ -23,14 +23,18 @@ Excel→Word/한글→PowerPoint 워크플로, 명시적 사용자 선호 학습
 
 `이 PDF 몇 페이지야?`는 로컬에서 바로 답하며 `3~5페이지`, `여기`, `앞 페이지`,
 `다음 페이지`, `방금 찾은 부분`을 연결 PDF의 직전 구조화 문맥에 결속합니다.
-요약·설명·검색·목차·표 추출·보고서와 분할·병합·회전 의도도 결정적으로
-구분하지만, 내용 답변·Office 산출물은 PDF-3, 파일 변경은 PDF-4의 승인·검증
-경계가 완성될 때까지 실행하지 않습니다. 한글·Word·PowerPoint의 `PDF로 저장`
-명령은 입력 PDF 라우터가 가로채지 않습니다.
+문자 검색·목차·고신뢰 표 추출은 로컬에서 처리하고, 요약·설명·보고서는 공급자·
+페이지·글자 수를 먼저 공개한 뒤 승인된 범위만 외부 AI로 전송합니다. 표를 새
+Excel로 만들거나 근거 페이지가 표시된 Word·한글·PowerPoint 결과물을 만드는
+경로도 승인·재열기 검증을 사용합니다.
 
-본문·검색어·절대 경로는 연결 evidence에 저장하지 않으며 원본 PDF는 수정하지
-않습니다. 자세한 상태는 [PDF-2 완료 보고서](docs/JARVIS_PDF_2_CONNECTION_CONTEXT_REPORT_2026-08-04.md)를
-참조하세요.
+분할(선택 페이지 추출)·병합·회전은 원본이 아닌 새 PDF에 원자적으로 쓰고 다시
+열어 페이지 순서·회전·원본 불변을 확인합니다. 변경되지 않은 최신 JARVIS 출력만
+별도 승인 후 Undo할 수 있습니다. 암호·DRM 우회, OCR, Edge·Acrobat의 현재 페이지
+자동 연결은 지원하지 않습니다. 본문·검색어·절대 경로는 영구 evidence에 저장하지
+않으며 한글·Word·PowerPoint의 `PDF로 저장` 명령은 입력 PDF 라우터가 가로채지
+않습니다. 자세한 결과는
+[PDF-7 수용 보고서](docs/JARVIS_PDF_7_ACCEPTANCE_REPORT_2026-08-04.md)를 참조하세요.
 
 일반 명령의 `방금 거`, `아까처럼`, `지난번 그대로`는 같은 대화 세션의 최근
 3회 구조화 결과 안에서만 대상을 찾습니다. 참조 표현이 없는 새 명령은 이전 앱을
@@ -256,6 +260,7 @@ py -3.12 -m venv .venv
   안정성 검증
 - Excel VBA 프로젝트·모듈·프로시저 읽기, 위험 분석, 백업 기반 코드 수정과
   별도 매크로 실행 승인
+- 연결 PDF의 근거 기반 검색·요약·표·Office 산출물과 새 파일 분할·병합·회전
 
 프로그램 실행 매크로는 매번 확인을 받습니다. 셸·스크립트·시스템 관리
 명령과 셸 연결·리디렉션 문자는 차단합니다.
@@ -269,8 +274,10 @@ py -3.12 -m venv .venv
 매크로 사용 통합문서 `.xlsm/.xlsb`에서는 VBA 프로젝트와 모듈·프로시저
 목록, 코드 읽기·정적 분석, 변경 diff를 제공합니다. 코드 수정은 원본 `.bas`
 백업과 승인이 필수이며, 매크로 실행은 별도 승인, Shell·파일 삭제·네트워크·
-레지스트리 포함 코드는 두 번 확인합니다. 실제 앱 검증은 현재 Excel 보안
-센터의 VBA 프로젝트 접근 설정으로 대기 중입니다.
+레지스트리 포함 코드는 두 번 확인합니다. 2026-08-04 source-bound probe에서 이
+PC의 읽기·백업·수정·복원·별도 실행 경로가 통과했습니다. 실행할 때마다 Excel
+보안 센터의 VBA 프로젝트 접근 설정을 다시 확인하며, 허용되지 않은 PC에서는
+설정을 바꾸거나 우회하지 않고 실행 전에 중단합니다.
 
 ### 한글(HWP)
 
@@ -388,6 +395,9 @@ PyInstaller onedir 빌드, ZIP 생성, 산출물 감사를 수행합니다. 정�
 - [PDF-0 기준선 보고서](docs/JARVIS_PDF_0_BASELINE_REPORT_2026-08-04.md)
 - [PDF-1 구조화 판독 보고서](docs/JARVIS_PDF_1_STRUCTURED_READER_REPORT_2026-08-04.md)
 - [PDF-2 연결·문맥 보고서](docs/JARVIS_PDF_2_CONNECTION_CONTEXT_REPORT_2026-08-04.md)
+- [PDF-3 근거화·Office 보고서](docs/JARVIS_PDF_3_GROUNDED_OFFICE_REPORT_2026-08-04.md)
+- [PDF-4 변환 보고서](docs/JARVIS_PDF_4_TRANSFORMATION_REPORT_2026-08-04.md)
+- [PDF-7 수용 보고서](docs/JARVIS_PDF_7_ACCEPTANCE_REPORT_2026-08-04.md)
 - [변경 기록](CHANGELOG.md)
 - [현재 제한사항](KNOWN_LIMITATIONS.md)
 - [Prototype 1.0 1단계 기술 검증](docs/PROTOTYPE1_STAGE1_TECHNICAL_VALIDATION.md)
