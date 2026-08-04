@@ -4,6 +4,10 @@
 
 감사 대상 source commit: `17333d9801629a985af719a3b621fe5b34de7ff2`
 
+이 보고서의 발견 사항을 수정·재검증한 결과는
+[유지보수·실현 가능성 보완 감사 보고서](JARVIS_MAINTAINABILITY_REALIZATION_REMEDIATION_REPORT_2026-08-04.md)에
+기록했다.
+
 감사 관점:
 
 1. 제품 Goal을 이 Windows PC에서 실제로 구현할 수 있는가
