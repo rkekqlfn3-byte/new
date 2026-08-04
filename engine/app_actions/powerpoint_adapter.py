@@ -4,36 +4,31 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import time
+from contextlib import contextmanager
 
 from engine.app_actions.base import (
     AppActionBlocked,
     AppActionContextChanged,
-    AppActionError,
-    AppActionVerificationError,
     PreparedAction,
 )
 from engine.app_actions.office_edit_helpers import (
     exact_office_document,
     office_document_id,
 )
-from engine.app_actions.office_helpers import (
-    prepared_at_timestamp,
-    stable_state_fingerprint,
-)
 from engine.app_actions.office_undo_services import PowerPointUndoService
+from engine.app_actions.operations.powerpoint import (
+    POWERPOINT_OPERATIONS,
+    PPT_ALIGNMENTS,
+    PowerPointSession,
+)
+from engine.app_actions.operations.powerpoint.base import (
+    MAX_PPT_TEXT_CHARS,
+    MSO_PLACEHOLDER,
+    PPT_SELECTION_SHAPES,
+    PPT_SELECTION_TEXT,
+)
 
-MAX_PPT_TEXT_CHARS = 20_000
-PPT_SELECTION_SHAPES = 2
-PPT_SELECTION_TEXT = 3
-MSO_PLACEHOLDER = 14
-PPT_ALIGNMENTS = {
-    "left": 1,
-    "center": 2,
-    "right": 3,
-    "justify": 4,
-}
 PPT_TRANSIENT_COM_ERRORS = frozenset(
     {
         -2147418111,  # RPC_E_CALL_REJECTED
@@ -50,18 +45,21 @@ PPT_PROXY_REACQUIRE_ERRORS = frozenset(
 PPT_COM_RETRY_ATTEMPTS = 8
 PPT_COM_RETRY_DELAY_SECONDS = 0.05
 
+# Re-exported for callers that imported these from the adapter before the
+# per-operation split.
+__all__ = ["PPT_ALIGNMENTS", "PowerPointAdapter"]
+
 
 class PowerPointAdapter:
-    supported_operations = frozenset(
-        {
-            "replace_shape_text",
-            "set_text_format",
-            "set_text_alignment",
-            "move_shape",
-            "resize_shape",
-            "match_previous_style",
-        }
-    )
+    """COM lifecycle, slide/shape identity, retry policy and the result shape.
+
+    Every user-visible action lives in
+    ``engine.app_actions.operations.powerpoint``.  The geometry and style
+    writers below stay here because ``PowerPointUndoService`` uses them to
+    restore a verified edit.
+    """
+
+    supported_operations = POWERPOINT_OPERATIONS.names
 
     def __init__(
         self,
@@ -384,415 +382,28 @@ class PowerPointAdapter:
             return full.Characters(state["text_start"], state["text_length"])
         return full
 
-    def _prepare_replace(self, application, presentation, params):
-        _, _, state = self._context(application, presentation)
-        if not state["has_text_frame"]:
-            raise AppActionBlocked("선택한 PowerPoint Shape에는 편집할 텍스트가 없습니다.")
-        text = str(params.get("text") if params.get("text") is not None else "")
-        if len(text) > MAX_PPT_TEXT_CHARS or "\x00" in text:
-            raise AppActionBlocked(
-                f"PowerPoint 텍스트는 최대 {MAX_PPT_TEXT_CHARS:,}자까지 지원합니다."
-            )
-        noop = text == state["selected_text"]
-        snapshot = {
-            **self._base_snapshot(state, "replace_shape_text"),
-            "requested_digest": self._digest(text),
-        }
-        return PreparedAction(
-            app="powerpoint",
-            operation="replace_shape_text",
-            document_id=state["document_id"],
-            workbook_name=state["document_name"],
-            sheet=f"슬라이드 {state['slide_index']}",
-            target=self._target(state),
-            params={
-                "document_path": state["document_id"],
-                "text": text,
-                "original_text": state["selected_text"],
-                "selection_type": state["selection_type"],
-                "text_start": state["text_start"],
-                "text_length": state["text_length"],
-            },
-            current_state=self._common_current_state(state),
-            estimated_changes=0 if noop else max(len(text), len(state["selected_text"])),
-            destructive=not noop,
-            reversible=True,
-            verification_method="read_powerpoint_shape_text",
-            context_fingerprint=stable_state_fingerprint(snapshot),
-            prepared_at=prepared_at_timestamp(),
-            noop=noop,
-        )
 
-    @staticmethod
-    def _uniform_style_value(value, label):
-        if value is None:
-            raise AppActionBlocked(f"PowerPoint {label}을 읽지 못했습니다.")
-        try:
-            number = float(value)
-        except (TypeError, ValueError) as error:
-            raise AppActionBlocked(f"PowerPoint {label}을 읽지 못했습니다.") from error
-        if number <= -2 or abs(number) >= 9_999_999:
-            raise AppActionBlocked(
-                f"선택 텍스트의 PowerPoint {label}이 서로 달라 변경하지 않습니다."
-            )
-        return number
-
-    def _desired_text_format(self, params, state):
-        if state["style"] is None:
-            raise AppActionBlocked("선택한 Shape에 텍스트 서식을 적용할 수 없습니다.")
-        prepared_desired = params.get("desired")
-        if isinstance(prepared_desired, dict):
-            desired = {}
-            if prepared_desired.get("bold") is not None:
-                self._uniform_style_value(state["style"]["bold"], "굵기")
-                desired["bold"] = -1 if int(prepared_desired["bold"]) != 0 else 0
-            if prepared_desired.get("font_size") is not None:
-                self._uniform_style_value(state["style"]["font_size"], "글자 크기")
-                size = float(prepared_desired["font_size"])
-                if not 1 <= size <= 4000:
-                    raise AppActionBlocked("PowerPoint 글자 크기가 안전 범위를 벗어납니다.")
-                desired["font_size"] = size
-            if desired:
-                return desired
-        desired = {}
-        if params.get("bold") is not None:
-            self._uniform_style_value(state["style"]["bold"], "굵기")
-            desired["bold"] = -1 if bool(params["bold"]) else 0
-        if params.get("font_size") is not None:
-            self._uniform_style_value(state["style"]["font_size"], "글자 크기")
-            size = float(params["font_size"])
-            if not 1 <= size <= 4000:
-                raise AppActionBlocked("PowerPoint 글자 크기가 안전 범위를 벗어납니다.")
-            desired["font_size"] = size
-        elif params.get("font_size_delta") is not None:
-            current = self._uniform_style_value(
-                state["style"]["font_size"],
-                "글자 크기",
-            )
-            size = current + float(params["font_size_delta"])
-            if not 1 <= size <= 4000:
-                raise AppActionBlocked("변경할 PowerPoint 글자 크기가 안전 범위를 벗어납니다.")
-            desired["font_size"] = size
-        if not desired:
-            raise AppActionBlocked("변경할 PowerPoint 글자 서식을 지정해주세요.")
-        return desired
-
-    def _prepare_text_format(self, application, presentation, params):
-        _, _, state = self._context(application, presentation)
-        desired = self._desired_text_format(params, state)
-        current = {
-            "bold": state["style"]["bold"],
-            "font_size": state["style"]["font_size"],
-        }
-        noop = all(current[key] == value for key, value in desired.items())
-        snapshot = {
-            **self._base_snapshot(state, "set_text_format"),
-            "desired": desired,
-        }
-        return PreparedAction(
-            app="powerpoint",
-            operation="set_text_format",
-            document_id=state["document_id"],
-            workbook_name=state["document_name"],
-            sheet=f"슬라이드 {state['slide_index']}",
-            target=self._target(state),
-            params={
-                "document_path": state["document_id"],
-                "desired": desired,
-                "original": current,
-                "selection_type": state["selection_type"],
-                "text_start": state["text_start"],
-                "text_length": state["text_length"],
-            },
-            current_state=self._common_current_state(state),
-            estimated_changes=0 if noop else max(1, len(state["selected_text"])),
-            destructive=False,
-            reversible=True,
-            verification_method="read_powerpoint_font",
-            context_fingerprint=stable_state_fingerprint(snapshot),
-            prepared_at=prepared_at_timestamp(),
-            noop=noop,
-        )
-
-    @staticmethod
-    def _normalize_alignment(value):
-        numeric = {
-            1: ("left", 1),
-            2: ("center", 2),
-            3: ("right", 3),
-            4: ("justify", 4),
-        }
-        try:
-            if int(value) in numeric and str(value).strip() == str(int(value)):
-                return numeric[int(value)]
-        except (TypeError, ValueError):
-            pass
-        text = str(value or "").strip().casefold()
-        aliases = {
-            "왼쪽": "left",
-            "가운데": "center",
-            "중앙": "center",
-            "오른쪽": "right",
-            "양쪽": "justify",
-        }
-        text = aliases.get(text, text)
-        if text not in PPT_ALIGNMENTS:
-            raise AppActionBlocked(
-                "PowerPoint 정렬은 왼쪽·가운데·오른쪽·양쪽을 지원합니다."
-            )
-        return text, PPT_ALIGNMENTS[text]
-
-    def _prepare_alignment(self, application, presentation, params):
-        _, _, state = self._context(application, presentation)
-        if state["style"] is None:
-            raise AppActionBlocked("선택한 Shape에 문단 정렬을 적용할 수 없습니다.")
-        self._uniform_style_value(state["style"]["alignment"], "문단 정렬")
-        label, alignment = self._normalize_alignment(params.get("alignment"))
-        current = int(state["style"]["alignment"])
-        noop = current == alignment
-        snapshot = {
-            **self._base_snapshot(state, "set_text_alignment"),
-            "desired_alignment": alignment,
-        }
-        return PreparedAction(
-            app="powerpoint",
-            operation="set_text_alignment",
-            document_id=state["document_id"],
-            workbook_name=state["document_name"],
-            sheet=f"슬라이드 {state['slide_index']}",
-            target=self._target(state),
-            params={
-                "document_path": state["document_id"],
-                "alignment": alignment,
-                "alignment_label": label,
-                "original_alignment": current,
-                "selection_type": state["selection_type"],
-                "text_start": state["text_start"],
-                "text_length": state["text_length"],
-            },
-            current_state=self._common_current_state(state),
-            estimated_changes=0 if noop else 1,
-            destructive=False,
-            reversible=True,
-            verification_method="read_powerpoint_paragraph_alignment",
-            context_fingerprint=stable_state_fingerprint(snapshot),
-            prepared_at=prepared_at_timestamp(),
-            noop=noop,
-        )
-
-    def _prepare_move(self, application, presentation, params):
-        _, _, state = self._context(application, presentation)
-        if params.get("left") is not None and params.get("top") is not None:
-            left = float(params["left"])
-            top = float(params["top"])
-            dx = left - state["left"]
-            dy = top - state["top"]
-        else:
-            dx = float(params.get("dx", 0))
-            dy = float(params.get("dy", 0))
-            left = state["left"] + dx
-            top = state["top"] + dy
-        if (dx == 0 and dy == 0) or abs(dx) > 500 or abs(dy) > 500:
-            raise AppActionBlocked("PowerPoint Shape 이동량은 -500~500pt 범위여야 합니다.")
-        slide_width = float(presentation.PageSetup.SlideWidth)
-        slide_height = float(presentation.PageSetup.SlideHeight)
-        if (
-            left < 0
-            or top < 0
-            or left + state["width"] > slide_width
-            or top + state["height"] > slide_height
-        ):
-            raise AppActionBlocked("Shape가 슬라이드 밖으로 나가므로 이동하지 않았습니다.")
-        snapshot = {
-            **self._base_snapshot(state, "move_shape"),
-            "desired_left": left,
-            "desired_top": top,
-        }
-        return PreparedAction(
-            app="powerpoint",
-            operation="move_shape",
-            document_id=state["document_id"],
-            workbook_name=state["document_name"],
-            sheet=f"슬라이드 {state['slide_index']}",
-            target=self._target(state),
-            params={
-                "document_path": state["document_id"],
-                "left": left,
-                "top": top,
-                "original_left": state["left"],
-                "original_top": state["top"],
-            },
-            current_state=self._common_current_state(state),
-            estimated_changes=1,
-            destructive=False,
-            reversible=True,
-            verification_method="read_powerpoint_shape_position",
-            context_fingerprint=stable_state_fingerprint(snapshot),
-            prepared_at=prepared_at_timestamp(),
-        )
-
-    def _prepare_resize(self, application, presentation, params):
-        _, _, state = self._context(application, presentation)
-        if params.get("width") is not None and params.get("height") is not None:
-            width = float(params["width"])
-            height = float(params["height"])
-            width_scale = width / state["width"] if state["width"] else 0
-            height_scale = height / state["height"] if state["height"] else 0
-            if not 0.5 <= width_scale <= 2 or not 0.5 <= height_scale <= 2:
-                raise AppActionBlocked(
-                    "PowerPoint Shape 크기 배율은 0.5~2 사이여야 합니다."
-                )
-        else:
-            scale = float(params.get("scale", 1))
-            if not 0.5 <= scale <= 2 or abs(scale - 1) < 0.0001:
-                raise AppActionBlocked(
-                    "PowerPoint Shape 크기 배율은 0.5~2 사이여야 합니다."
-                )
-            width = state["width"] * scale
-            height = state["height"] * scale
-        slide_width = float(presentation.PageSetup.SlideWidth)
-        slide_height = float(presentation.PageSetup.SlideHeight)
-        if state["left"] + width > slide_width or state["top"] + height > slide_height:
-            raise AppActionBlocked("크기를 바꾸면 Shape가 슬라이드 밖으로 나갑니다.")
-        snapshot = {
-            **self._base_snapshot(state, "resize_shape"),
-            "desired_width": width,
-            "desired_height": height,
-        }
-        return PreparedAction(
-            app="powerpoint",
-            operation="resize_shape",
-            document_id=state["document_id"],
-            workbook_name=state["document_name"],
-            sheet=f"슬라이드 {state['slide_index']}",
-            target=self._target(state),
-            params={
-                "document_path": state["document_id"],
-                "width": width,
-                "height": height,
-                "original_width": state["width"],
-                "original_height": state["height"],
-                "lock_aspect_ratio": state["lock_aspect_ratio"],
-            },
-            current_state=self._common_current_state(state),
-            estimated_changes=1,
-            destructive=False,
-            reversible=True,
-            verification_method="read_powerpoint_shape_size",
-            context_fingerprint=stable_state_fingerprint(snapshot),
-            prepared_at=prepared_at_timestamp(),
-        )
-
-    @staticmethod
-    def _role_name(name):
-        return re.sub(r"[\s_-]*\d+$", "", str(name or "").strip().casefold())
-
-    def _reference_shape(self, presentation, state):
-        if state["slide_index"] <= 1:
-            raise AppActionBlocked("앞 슬라이드가 없어 스타일을 참조할 수 없습니다.")
-        slide = presentation.Slides.Item(state["slide_index"] - 1)
-        matches = []
-        for index in range(1, int(slide.Shapes.Count) + 1):
-            shape = slide.Shapes.Item(index)
-            placeholder = None
-            try:
-                if int(shape.Type) == MSO_PLACEHOLDER:
-                    placeholder = int(shape.PlaceholderFormat.Type)
-            except Exception:
-                pass
-            same_role = (
-                state["placeholder_type"] is not None
-                and placeholder == state["placeholder_type"]
-            ) or (
-                state["placeholder_type"] is None
-                and self._role_name(shape.Name) == self._role_name(state["shape_name"])
-            )
-            if same_role and self._has_text_frame(shape):
-                matches.append(shape)
-        if len(matches) != 1:
-            raise AppActionBlocked(
-                "앞 슬라이드에서 같은 역할의 텍스트 Shape를 하나로 특정하지 못했습니다."
-            )
-        return slide, matches[0]
-
-    def _prepare_match_style(self, application, presentation, params):
-        _, _, state = self._context(application, presentation)
-        if state["style"] is None:
-            raise AppActionBlocked("현재 Shape에 참조 스타일을 적용할 텍스트가 없습니다.")
-        source_slide, source_shape = self._reference_shape(presentation, state)
-        source_range = source_shape.TextFrame.TextRange
-        desired = self._style_state(source_range)
-        original = dict(state["style"])
-        noop = original == desired
-        snapshot = {
-            **self._base_snapshot(state, "match_previous_style"),
-            "source_slide_id": int(source_slide.SlideID),
-            "source_shape_id": int(source_shape.Id),
-            "desired_style": desired,
-        }
-        return PreparedAction(
-            app="powerpoint",
-            operation="match_previous_style",
-            document_id=state["document_id"],
-            workbook_name=state["document_name"],
-            sheet=f"슬라이드 {state['slide_index']}",
-            target=self._target(state),
-            params={
-                "document_path": state["document_id"],
-                "desired": desired,
-                "original": original,
-                "source_slide_id": int(source_slide.SlideID),
-                "source_shape_id": int(source_shape.Id),
-                "selection_type": state["selection_type"],
-                "text_start": state["text_start"],
-                "text_length": state["text_length"],
-            },
-            current_state=self._common_current_state(state),
-            estimated_changes=0 if noop else max(1, len(state["selected_text"])),
-            destructive=False,
-            reversible=True,
-            verification_method="read_powerpoint_style",
-            context_fingerprint=stable_state_fingerprint(snapshot),
-            prepared_at=prepared_at_timestamp(),
-            noop=noop,
-        )
-
-    def _prepare_in_document(self, application, presentation, operation, params):
-        if operation == "replace_shape_text":
-            return self._prepare_replace(application, presentation, params)
-        if operation == "set_text_format":
-            return self._prepare_text_format(application, presentation, params)
-        if operation == "set_text_alignment":
-            return self._prepare_alignment(application, presentation, params)
-        if operation == "move_shape":
-            return self._prepare_move(application, presentation, params)
-        if operation == "resize_shape":
-            return self._prepare_resize(application, presentation, params)
-        return self._prepare_match_style(application, presentation, params)
+    @contextmanager
+    def _presentation_session(self, path):
+        """Open the exact connected presentation once for one operation."""
+        with exact_office_document(
+            "powerpoint",
+            path,
+            application_getter=self._application_getter,
+            require_visible=self._require_visible,
+            com_runtime=self._com_runtime,
+        ) as (application, presentation):
+            yield PowerPointSession(application, presentation)
 
     def prepare(self, operation, params):
-        operation = str(operation or "").strip()
-        if operation not in self.supported_operations:
-            raise AppActionBlocked(
-                f"아직 지원하지 않는 PowerPoint 작업입니다: {operation}"
-            )
+        operation_module = POWERPOINT_OPERATIONS.require(operation)
         if not isinstance(params, dict):
             raise AppActionBlocked("PowerPoint 작업의 params는 객체 형식이어야 합니다.")
         path = self._document_path(params)
+
         def prepare_once():
-            with exact_office_document(
-                "powerpoint",
-                path,
-                application_getter=self._application_getter,
-                require_visible=self._require_visible,
-                com_runtime=self._com_runtime,
-            ) as (application, presentation):
-                return self._prepare_in_document(
-                    application,
-                    presentation,
-                    operation,
-                    params,
-                )
+            with self._presentation_session(path) as session:
+                return operation_module.prepare(self, session, params)
 
         return self._retry_transient_com(
             prepare_once,
@@ -823,58 +434,27 @@ class PowerPointAdapter:
     def execute(self, prepared):
         if isinstance(prepared, dict):
             prepared = PreparedAction.from_dict(prepared)
-        if (
-            prepared.app != "powerpoint"
-            or prepared.operation not in self.supported_operations
-        ):
-            raise AppActionBlocked(
-                "지원되는 PowerPoint PreparedAction만 실행할 수 있습니다."
-            )
+        operation_module = POWERPOINT_OPERATIONS.require_prepared(prepared)
         path = prepared.params.get("document_path")
-        write_state = {"started": False}
+        # The session carries the write flag, and it is read on the exception
+        # path, so it must outlive the attempt that raised. Reset per attempt:
+        # a retry that never reached its write may still be retried.
+        attempt = {"session": None}
 
         def execute_once():
-            write_state["started"] = False
-            with exact_office_document(
-                "powerpoint",
-                path,
-                application_getter=self._application_getter,
-                require_visible=self._require_visible,
-                com_runtime=self._com_runtime,
-            ) as (application, presentation):
-                current = self._prepare_in_document(
-                    application,
-                    presentation,
-                    prepared.operation,
-                    prepared.params,
-                )
-                self._ensure_same_context(current, prepared)
-                if current.noop:
-                    return self._result(current, False, {"noop": True})
-                slide = self._slide_by_id(
-                    presentation,
-                    current.current_state["slide_id"],
-                    current.current_state["slide_number"],
-                )
-                shape_id = current.current_state["shape_id"]
-                shape = self._shape_by_id(slide, shape_id)
-                write_state["started"] = True
-                if prepared.operation == "replace_shape_text":
-                    return self._execute_replace(shape, current)
-                if prepared.operation == "set_text_format":
-                    return self._execute_text_format(shape, current)
-                if prepared.operation == "set_text_alignment":
-                    return self._execute_alignment(shape, current)
-                if prepared.operation == "move_shape":
-                    return self._execute_move(slide, shape_id, current)
-                if prepared.operation == "resize_shape":
-                    return self._execute_resize(slide, shape_id, current)
-                return self._execute_style(shape, current)
+            attempt["session"] = None
+            with self._presentation_session(path) as session:
+                attempt["session"] = session
+                return operation_module.execute(self, session, prepared)
+
+        def write_started():
+            session = attempt["session"]
+            return bool(session is not None and session.write_started)
 
         return self._retry_transient_com(
             execute_once,
             include_proxy_reacquire=True,
-            write_started=lambda: write_state["started"],
+            write_started=write_started,
         )
 
     def _range_for_prepared(self, shape, prepared):
@@ -886,41 +466,6 @@ class PowerPointAdapter:
             )
         return full
 
-    def _execute_replace(self, shape, prepared):
-        target = self._range_for_prepared(shape, prepared)
-        text = prepared.params["text"]
-        original = prepared.params["original_text"]
-        start = int(prepared.params["text_start"])
-        whole_shape = prepared.params["selection_type"] == PPT_SELECTION_SHAPES
-        try:
-            target.Text = text
-            full = shape.TextFrame.TextRange
-            actual = (
-                str(full.Text or "")
-                if whole_shape
-                else str(full.Characters(start, len(text)).Text or "")
-            )
-            if actual != text:
-                raise AppActionVerificationError(
-                    "PowerPoint Shape 텍스트 수정 결과가 요청과 다릅니다."
-                )
-            if not whole_shape:
-                full.Characters(start, len(text)).Select()
-        except Exception as error:
-            try:
-                full = shape.TextFrame.TextRange
-                if whole_shape:
-                    full.Text = original
-                else:
-                    full.Characters(start, len(text)).Text = original
-            except Exception:
-                pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "PowerPoint 텍스트 수정 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(prepared, True, {"text_length": len(text)})
 
     @staticmethod
     def _apply_font(target, values):
@@ -929,53 +474,6 @@ class PowerPointAdapter:
         if values.get("font_size") is not None:
             target.Font.Size = float(values["font_size"])
 
-    def _execute_text_format(self, shape, prepared):
-        target = self._range_for_prepared(shape, prepared)
-        desired = prepared.params["desired"]
-        try:
-            self._apply_font(target, desired)
-            if "bold" in desired and int(target.Font.Bold) != int(desired["bold"]):
-                raise AppActionVerificationError("PowerPoint 굵기 적용 결과가 다릅니다.")
-            if "font_size" in desired and abs(
-                float(target.Font.Size) - float(desired["font_size"])
-            ) > 0.01:
-                raise AppActionVerificationError(
-                    "PowerPoint 글자 크기 적용 결과가 다릅니다."
-                )
-        except Exception as error:
-            try:
-                self._apply_font(target, prepared.params["original"])
-            except Exception:
-                pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "PowerPoint 글자 서식 적용 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(prepared, True, {"format": desired})
-
-    def _execute_alignment(self, shape, prepared):
-        target = self._range_for_prepared(shape, prepared)
-        desired = int(prepared.params["alignment"])
-        try:
-            target.ParagraphFormat.Alignment = desired
-            if int(target.ParagraphFormat.Alignment) != desired:
-                raise AppActionVerificationError(
-                    "PowerPoint 텍스트 정렬 결과가 다릅니다."
-                )
-        except Exception as error:
-            try:
-                target.ParagraphFormat.Alignment = int(
-                    prepared.params["original_alignment"]
-                )
-            except Exception:
-                pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "PowerPoint 텍스트 정렬 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(prepared, True, {"alignment": desired})
 
     @classmethod
     def _set_shape_position(cls, slide, shape_id, left, top):
@@ -1013,102 +511,6 @@ class PowerPointAdapter:
             lock is None or int(state["lock_aspect_ratio"]) == int(lock)
         )
 
-    def _execute_move(self, slide, shape_id, prepared):
-        try:
-            self._set_shape_position(
-                slide,
-                shape_id,
-                prepared.params["left"],
-                prepared.params["top"],
-            )
-            actual = self._geometry_state(slide, shape_id)
-            if not self._position_matches(
-                actual, prepared.params["left"], prepared.params["top"]
-            ):
-                raise AppActionVerificationError("PowerPoint Shape 이동 결과가 다릅니다.")
-            self._shape_by_id(slide, shape_id).Select()
-        except Exception as error:
-            restored = False
-            try:
-                self._set_shape_position(
-                    slide,
-                    shape_id,
-                    prepared.params["original_left"],
-                    prepared.params["original_top"],
-                )
-                restored = self._position_matches(
-                    self._geometry_state(slide, shape_id),
-                    prepared.params["original_left"],
-                    prepared.params["original_top"],
-                )
-            except Exception:
-                restored = False
-            if not restored:
-                raise AppActionVerificationError(
-                    "PowerPoint Shape 이동 실패 뒤 원래 위치 복원을 확인하지 못했습니다."
-                ) from None
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "PowerPoint Shape 이동 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(
-            prepared,
-            True,
-            {"left": actual["left"], "top": actual["top"]},
-        )
-
-    def _execute_resize(self, slide, shape_id, prepared):
-        original_lock = int(prepared.params["lock_aspect_ratio"])
-        try:
-            self._set_shape_size(
-                slide,
-                shape_id,
-                prepared.params["width"],
-                prepared.params["height"],
-                original_lock,
-            )
-            actual = self._geometry_state(slide, shape_id)
-            if not self._size_matches(
-                actual,
-                prepared.params["width"],
-                prepared.params["height"],
-                original_lock,
-            ):
-                raise AppActionVerificationError("PowerPoint Shape 크기 결과가 다릅니다.")
-            self._shape_by_id(slide, shape_id).Select()
-        except Exception as error:
-            restored = False
-            try:
-                self._set_shape_size(
-                    slide,
-                    shape_id,
-                    prepared.params["original_width"],
-                    prepared.params["original_height"],
-                    original_lock,
-                )
-                restored = self._size_matches(
-                    self._geometry_state(slide, shape_id),
-                    prepared.params["original_width"],
-                    prepared.params["original_height"],
-                    original_lock,
-                )
-            except Exception:
-                restored = False
-            if not restored:
-                raise AppActionVerificationError(
-                    "PowerPoint Shape 크기 변경 실패 뒤 원래 크기 복원을 확인하지 못했습니다."
-                ) from None
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "PowerPoint Shape 크기 변경 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(
-            prepared,
-            True,
-            {"width": actual["width"], "height": actual["height"]},
-        )
 
     @staticmethod
     def _apply_style(target, style):
@@ -1120,27 +522,6 @@ class PowerPointAdapter:
             target.Font.Color.RGB = int(style["font_color"])
         target.ParagraphFormat.Alignment = int(style["alignment"])
 
-    def _execute_style(self, shape, prepared):
-        target = self._range_for_prepared(shape, prepared)
-        desired = prepared.params["desired"]
-        try:
-            self._apply_style(target, desired)
-            actual = self._style_state(target)
-            if actual != desired:
-                raise AppActionVerificationError(
-                    "PowerPoint 앞 슬라이드 스타일 적용 결과가 다릅니다."
-                )
-        except Exception as error:
-            try:
-                self._apply_style(target, prepared.params["original"])
-            except Exception:
-                pass
-            if isinstance(error, AppActionError):
-                raise
-            raise AppActionVerificationError(
-                "PowerPoint 참조 스타일 적용 또는 검증에 실패했습니다."
-            ) from error
-        return self._result(prepared, True, {"style": desired})
 
     def undo(self, prepared, record=None):
         """Restore one verified PowerPoint Shape/text snapshot."""
