@@ -19,6 +19,7 @@ class HwpUndoService:
         "insert_text",
         "set_text_format",
         "set_paragraph_format",
+        "set_line_spacing",
         "find_replace",
     })
 
@@ -86,6 +87,14 @@ class HwpUndoService:
                 )
             return
         current_format = self.adapter._paragraph_state(hwp)
+        if prepared.operation == "set_line_spacing":
+            if current_format.get("line_spacing") != int(
+                prepared.params.get("line_spacing", -1)
+            ):
+                raise AppActionContextChanged(
+                    "직전 편집 뒤 줄간격이 달라져 복원하지 않았습니다."
+                )
+            return
         alignment = str(prepared.params.get("alignment") or "")
         expected_alignment = self.paragraph_alignments.get(
             alignment, (None, None)

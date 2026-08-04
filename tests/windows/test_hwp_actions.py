@@ -107,9 +107,17 @@ class FakeHAction:
             parameter_set.TextColor = self.hwp.char_state["TextColor"]
         elif name == "ParagraphShape":
             parameter_set.AlignType = self.hwp.paragraph_alignment
+            parameter_set.LineSpacing = self.hwp.line_spacing
+            parameter_set.LineSpacingType = self.hwp.line_spacing_type
         return True
 
     def Execute(self, name, parameter_set):
+        if name == "ParagraphShape":
+            self.hwp._push_undo()
+            self.hwp.paragraph_alignment = int(parameter_set.AlignType)
+            self.hwp.line_spacing = int(parameter_set.LineSpacing)
+            self.hwp.line_spacing_type = int(parameter_set.LineSpacingType)
+            return True
         if name == "CharShape":
             self.hwp._push_undo()
             self.hwp.char_state = {
@@ -172,11 +180,15 @@ class FakeHwp:
         self.XHwpWindows = FakeWindows()
         self.char_state = {"Bold": 0, "Height": 1000, "TextColor": 0}
         self.paragraph_alignment = 0
+        self.line_spacing = 160
+        self.line_spacing_type = 0
         self.message_mode = 0xF0000
         self.undo_stack = []
         self.HParameterSet = SimpleNamespace(
             HCharShape=FakeShapeSet(Bold=0, Height=1000, TextColor=0),
-            HParaShape=FakeShapeSet(AlignType=0),
+            HParaShape=FakeShapeSet(
+                AlignType=0, LineSpacing=160, LineSpacingType=0
+            ),
             HFindReplace=FakeShapeSet(
                 Direction=2,
                 FindString="",
@@ -196,6 +208,8 @@ class FakeHwp:
             self.selection,
             dict(self.char_state),
             self.paragraph_alignment,
+            self.line_spacing,
+            self.line_spacing_type,
             self.IsModified,
         ))
 
@@ -207,6 +221,8 @@ class FakeHwp:
                 self.selection,
                 self.char_state,
                 self.paragraph_alignment,
+                self.line_spacing,
+                self.line_spacing_type,
                 self.IsModified,
             ) = self.undo_stack.pop()
 
@@ -391,7 +407,7 @@ class HwpAdapterTests(unittest.TestCase):
             self.assertTrue(second.destructive)
 
     def test_pdf_is_blocked_by_default_after_live_hang_detection(self):
-        hwp = FakeHwp("PDF 내용", full_name="C:\\safe\\문서.hwp")
+        hwp = FakeHwp("PDF 내용", full_name=r"C:\\safe\\문서.hwp")
         with self.assertRaises(AppActionBlocked):
             HwpAdapter(object_getter=lambda: hwp).prepare(
                 "save_as", {"path": "C:\\safe\\문서.pdf", "format": "PDF"}
@@ -492,6 +508,85 @@ class HwpParserTests(unittest.TestCase):
         self.assertTrue(target_exists)
         self.assertEqual("confirmation_required", second["status"])
         self.assertEqual("cancelled", cancelled["status"])
+
+
+class HwpLineSpacingTests(unittest.TestCase):
+    """줄간격 is prescribed by Korean office templates and had no support."""
+
+    def _adapter(self, hwp):
+        return HwpAdapter(object_getter=lambda: hwp, require_visible=False)
+
+    def test_spacing_is_applied_and_read_back(self):
+        hwp = FakeHwp("첫 문단입니다.", full_name=r"C:\docs\report.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("set_line_spacing", {"line_spacing": "200"})
+        self.assertFalse(prepared.noop)
+        self.assertEqual(200, prepared.params["line_spacing"])
+        # Preview alone must not change the document.
+        self.assertEqual(160, hwp.line_spacing)
+
+        result = adapter.execute(prepared)
+        self.assertTrue(result["verified"])
+        self.assertEqual(200, hwp.line_spacing)
+        self.assertEqual(200, result["after"]["line_spacing"])
+
+    def test_spoken_forms_reach_the_same_spacing(self):
+        for spoken, expected in (("2배", 200), ("200%", 200), ("넓게", 200)):
+            with self.subTest(spoken=spoken):
+                hwp = FakeHwp("본문", full_name=r"C:\docs\a.hwp")
+                adapter = self._adapter(hwp)
+                prepared = adapter.prepare(
+                    "set_line_spacing", {"line_spacing": spoken}
+                )
+                self.assertEqual(expected, prepared.params["line_spacing"])
+
+    def test_requesting_the_current_spacing_changes_nothing(self):
+        hwp = FakeHwp("본문", full_name=r"C:\docs\a.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("set_line_spacing", {"line_spacing": 160})
+        self.assertTrue(prepared.noop)
+        result = adapter.execute(prepared)
+        self.assertFalse(result["changed"])
+        self.assertEqual(160, hwp.line_spacing)
+
+    def test_out_of_range_and_unreadable_wording_are_blocked(self):
+        hwp = FakeHwp("본문", full_name=r"C:\docs\a.hwp")
+        adapter = self._adapter(hwp)
+        for value in (10, 900, "비스듬히", None):
+            with self.subTest(value=value):
+                with self.assertRaises(AppActionBlocked):
+                    adapter.prepare("set_line_spacing", {"line_spacing": value})
+        self.assertEqual(160, hwp.line_spacing)
+
+    def test_a_document_that_moved_after_approval_is_not_changed(self):
+        hwp = FakeHwp("본문", full_name=r"C:\docs\a.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("set_line_spacing", {"line_spacing": 200})
+        hwp.text = "다른 내용으로 바뀌었습니다."
+        with self.assertRaises(AppActionContextChanged):
+            adapter.execute(prepared)
+        self.assertEqual(160, hwp.line_spacing)
+
+    def test_undo_restores_the_previous_spacing(self):
+        hwp = FakeHwp("본문", full_name=r"C:\docs\a.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("set_line_spacing", {"line_spacing": 200})
+        result = adapter.execute(prepared)
+        self.assertEqual(200, hwp.line_spacing)
+
+        restored = adapter.undo(prepared, {"after_observations": result})
+        self.assertTrue(restored["verified"])
+        self.assertEqual(160, hwp.line_spacing)
+
+    def test_undo_refuses_when_the_spacing_changed_since(self):
+        hwp = FakeHwp("본문", full_name=r"C:\docs\a.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("set_line_spacing", {"line_spacing": 200})
+        result = adapter.execute(prepared)
+        hwp.line_spacing = 300
+        with self.assertRaises(AppActionContextChanged):
+            adapter.undo(prepared, {"after_observations": result})
+        self.assertEqual(300, hwp.line_spacing)
 
 
 if __name__ == "__main__":

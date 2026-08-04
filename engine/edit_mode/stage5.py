@@ -17,6 +17,11 @@ from engine.edit_mode.contracts import (
     RiskLevel,
 )
 from engine.vocabulary.alignment import ALIGNMENT_COMMAND_PATTERN
+from engine.vocabulary.line_spacing import (
+    LINE_SPACING_COMMAND_PATTERN,
+    line_spacing_label,
+    normalize_line_spacing,
+)
 
 _CELL_OR_RANGE = re.compile(
     r"^([A-Z]{1,3})([1-9]\d*)(?::([A-Z]{1,3})([1-9]\d*))?$",
@@ -130,6 +135,33 @@ def _formalize_text(value: str) -> str:
             "원하는 문장을 따옴표로 직접 지정해주세요."
         )
     return text
+
+
+def _paragraph_format_intent(command: str):
+    """Line spacing and alignment, the two paragraph settings said out loud."""
+    if re.search(LINE_SPACING_COMMAND_PATTERN, command):
+        try:
+            percent = normalize_line_spacing(
+                re.sub(LINE_SPACING_COMMAND_PATTERN, "", command)
+            )
+        except ValueError as error:
+            raise Stage5EditError(str(error)) from error
+        label = line_spacing_label(percent)
+        return EditIntent(
+            "set_line_spacing",
+            {"line_spacing": percent},
+            label,
+            after_preview=f"문단 {label}",
+        )
+    alignment = re.search(ALIGNMENT_COMMAND_PATTERN, command)
+    if alignment:
+        return EditIntent(
+            "set_paragraph_format",
+            {"alignment": alignment.group(1)},
+            f"{alignment.group(1)} 정렬",
+            after_preview=f"문단 {alignment.group(1)} 정렬",
+        )
+    return None
 
 
 class StructuredEditIntentAnalyzer:
@@ -437,15 +469,9 @@ class StructuredEditIntentAnalyzer:
                 after_preview=" · ".join(labels),
             )
 
-        alignment_match = re.search(ALIGNMENT_COMMAND_PATTERN, command)
-        if alignment_match:
-            alignment = alignment_match.group(1)
-            return EditIntent(
-                "set_paragraph_format",
-                {"alignment": alignment},
-                f"{alignment} 정렬",
-                after_preview=f"문단 {alignment} 정렬",
-            )
+        paragraph_intent = _paragraph_format_intent(command)
+        if paragraph_intent is not None:
+            return paragraph_intent
 
         if quotes and any(
             word in command for word in ("바꿔", "교체", "입력", "넣어", "표 셀")
@@ -506,6 +532,7 @@ class Stage5NativeEditAdapter:
         "insert_text",
         "set_text_format",
         "set_paragraph_format",
+        "set_line_spacing",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

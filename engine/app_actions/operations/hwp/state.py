@@ -39,10 +39,22 @@ def char_state(hwp):
     }
 
 
+# 0 = percent of line height, which is the only mode Jarvis sets. Fixed-value
+# and minimum-spacing modes are read back but never written.
+LINE_SPACING_PERCENT_TYPE = 0
+
+
 def paragraph_state(hwp):
     shape = hwp.HParameterSet.HParaShape
     hwp.HAction.GetDefault("ParagraphShape", shape.HSet)
-    return {"alignment": int(shape.AlignType)}
+    state = {"alignment": int(shape.AlignType)}
+    spacing = getattr(shape, "LineSpacing", None)
+    if spacing is not None:
+        state["line_spacing"] = int(spacing)
+        state["line_spacing_type"] = int(
+            getattr(shape, "LineSpacingType", LINE_SPACING_PERCENT_TYPE)
+        )
+    return state
 
 
 def normalize_alignment(value):
@@ -73,6 +85,7 @@ def normalize_color_name(value):
 
 __all__ = [
     "COLOR_RGB",
+    "LINE_SPACING_PERCENT_TYPE",
     "PARAGRAPH_ALIGNMENTS",
     "char_state",
     "normalize_alignment",

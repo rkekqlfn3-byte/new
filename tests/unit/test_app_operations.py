@@ -147,6 +147,7 @@ class HwpOperationStructureTests(unittest.TestCase):
                 "insert_text",
                 "set_text_format",
                 "set_paragraph_format",
+                "set_line_spacing",
                 "find_replace",
                 "save_as",
             },

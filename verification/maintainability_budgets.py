@@ -96,9 +96,6 @@ LONG_FUNCTION_EXCEPTIONS = {
     "engine/edit_mode/stage5.py::StructuredEditIntentAnalyzer._analyze_excel": _exception(
         207, "edit-stage5", "Excel edit intent rules need operation analyzers."
     ),
-    "engine/edit_mode/stage5.py::StructuredEditIntentAnalyzer._analyze_hwp": _exception(
-        104, "edit-stage5", "HWP edit intent rules need operation analyzers."
-    ),
     "engine/edit_mode/stage5.py::edit_success_message": _exception(
         248, "edit-stage5", "Success copy needs result-type formatters."
     ),
