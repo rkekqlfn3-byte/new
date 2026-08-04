@@ -121,19 +121,20 @@ class MigratedAdapterStructureTests(unittest.TestCase):
             with self.subTest(app=app):
                 self.assertEqual([], leftovers)
 
-    def test_operation_modules_cover_every_registered_operation(self):
+    def test_every_operation_is_defined_in_the_operations_package(self):
         # The point of the split: adding an action must not edit the adapter.
+        # Operations may share a module when they share preparation (insert
+        # rows/columns, the two conditional formats), so this checks where each
+        # one is defined rather than counting files.
         for app, (_, registry, _) in MIGRATED_ADAPTERS.items():
-            operations_dir = (
-                PROJECT_ROOT / "engine" / "app_actions" / "operations" / app
-            )
-            modules = {
-                path.stem
-                for path in operations_dir.glob("*.py")
-                if path.stem not in {"__init__", "base", "state"}
-            }
-            with self.subTest(app=app):
-                self.assertEqual(len(registry.names), len(modules))
+            expected = f"engine.app_actions.operations.{app}."
+            for name in sorted(registry.names):
+                module = type(registry.require(name)).__module__
+                with self.subTest(app=app, operation=name):
+                    self.assertTrue(
+                        module.startswith(expected),
+                        f"{name} is defined in {module}, not under {expected}",
+                    )
 
 
 class HwpOperationStructureTests(unittest.TestCase):
