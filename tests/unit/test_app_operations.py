@@ -16,8 +16,15 @@ from engine.app_actions.base import AppActionBlocked, PreparedAction
 from engine.app_actions.hwp_adapter import HwpAdapter
 from engine.app_actions.operations import AppOperation, OperationRegistry
 from engine.app_actions.operations.hwp import HWP_OPERATIONS
+from engine.app_actions.operations.word import WORD_OPERATIONS
+from engine.app_actions.word_adapter import WordAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+MIGRATED_ADAPTERS = {
+    "hwp": (HwpAdapter, HWP_OPERATIONS, "hwp_adapter.py"),
+    "word": (WordAdapter, WORD_OPERATIONS, "word_adapter.py"),
+}
 
 
 def prepared(app="hwp", operation="insert_text"):
@@ -74,9 +81,51 @@ class OperationRegistryTests(unittest.TestCase):
         self.assertIsNotNone(HWP_OPERATIONS.require_prepared(prepared()))
 
 
+class MigratedAdapterStructureTests(unittest.TestCase):
+    def test_adapters_report_exactly_the_registered_operations(self):
+        for app, (adapter, registry, _) in MIGRATED_ADAPTERS.items():
+            with self.subTest(app=app):
+                self.assertEqual(registry.names, adapter.supported_operations)
+
+    def test_every_registered_operation_satisfies_the_contract(self):
+        for app, (_, registry, _) in MIGRATED_ADAPTERS.items():
+            for name in sorted(registry.names):
+                with self.subTest(app=app, operation=name):
+                    operation = registry.require(name)
+                    self.assertIsInstance(operation, AppOperation)
+                    self.assertEqual(app, operation.app)
+                    self.assertEqual(name, operation.name)
+
+    def test_adapters_no_longer_carry_per_operation_methods(self):
+        # Per-operation prepare/execute methods on the adapter are what the
+        # split removed. ``undo`` still branches by operation name on purpose:
+        # restoring is the adapter's job, not the operation's.
+        for app, (adapter, _, _) in MIGRATED_ADAPTERS.items():
+            leftovers = sorted(
+                name
+                for name in vars(adapter)
+                if name.startswith(("_prepare_", "_execute_"))
+            )
+            with self.subTest(app=app):
+                self.assertEqual([], leftovers)
+
+    def test_operation_modules_cover_every_registered_operation(self):
+        # The point of the split: adding an action must not edit the adapter.
+        for app, (_, registry, _) in MIGRATED_ADAPTERS.items():
+            operations_dir = (
+                PROJECT_ROOT / "engine" / "app_actions" / "operations" / app
+            )
+            modules = {
+                path.stem
+                for path in operations_dir.glob("*.py")
+                if path.stem not in {"__init__", "base", "state"}
+            }
+            with self.subTest(app=app):
+                self.assertEqual(len(registry.names), len(modules))
+
+
 class HwpOperationStructureTests(unittest.TestCase):
-    def test_adapter_reports_exactly_the_registered_operations(self):
-        self.assertEqual(HWP_OPERATIONS.names, HwpAdapter.supported_operations)
+    def test_registered_hwp_operations_are_stable(self):
         self.assertEqual(
             {
                 "insert_text",
@@ -88,48 +137,15 @@ class HwpOperationStructureTests(unittest.TestCase):
             set(HWP_OPERATIONS.names),
         )
 
-    def test_every_registered_operation_satisfies_the_contract(self):
-        for name in sorted(HWP_OPERATIONS.names):
-            with self.subTest(operation=name):
-                operation = HWP_OPERATIONS.require(name)
-                self.assertIsInstance(operation, AppOperation)
-                self.assertEqual("hwp", operation.app)
-                self.assertEqual(name, operation.name)
-
-    def test_adapter_no_longer_carries_per_operation_methods(self):
-        source = (
-            PROJECT_ROOT / "engine" / "app_actions" / "hwp_adapter.py"
-        ).read_text(encoding="utf-8")
-        for moved in (
-            "_prepare_insert",
-            "_execute_insert",
-            "_prepare_text_format",
-            "_prepare_paragraph_format",
-            "_prepare_find_replace",
-            "_prepare_save_as",
-        ):
-            with self.subTest(method=moved):
-                self.assertNotIn(f"def {moved}", source)
-
-    def test_operations_are_reachable_without_touching_the_adapter_file(self):
-        # The point of the split: adding an action must not edit the adapter.
-        operations_dir = (
-            PROJECT_ROOT / "engine" / "app_actions" / "operations" / "hwp"
-        )
-        modules = {
-            path.stem
-            for path in operations_dir.glob("*.py")
-            if path.stem not in {"__init__", "base", "state"}
-        }
+    def test_registered_word_operations_are_stable(self):
         self.assertEqual(
             {
-                "insert_text",
-                "text_format",
-                "paragraph_format",
-                "find_replace",
-                "save_as",
+                "replace_selection",
+                "set_text_format",
+                "set_paragraph_format",
+                "save_document",
             },
-            modules,
+            set(WORD_OPERATIONS.names),
         )
 
 
