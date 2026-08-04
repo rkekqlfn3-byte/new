@@ -192,6 +192,13 @@ def _hwp_selection_intent(command: str, quotes):
     table = _hwp_table_intent(command)
     if table is not None:
         return table
+    # Paragraph settings are checked before the generic delete, because
+    # `글머리표 없애줘` and `줄간격 없애` name a setting to clear, not text to
+    # remove. Ordered the other way, `없애` swallowed them and the preview
+    # offered to delete the user's selection instead.
+    paragraph = _paragraph_format_intent(command)
+    if paragraph is not None:
+        return paragraph
     if not quotes and any(
         word in command for word in ("삭제", "지워", "지워줘", "없애", "빼줘")
     ):
@@ -201,10 +208,15 @@ def _hwp_selection_intent(command: str, quotes):
             "선택 영역 삭제",
             after_preview="선택 영역 삭제",
         )
-    return _paragraph_format_intent(command)
+    return None
 
 
 def _paragraph_format_intent(command: str):
+    """Page break, list format, line spacing and alignment.
+
+    Ordered most specific first: a request naming a list or a spacing must not
+    be read as a bare alignment or a delete.
+    """
     if any(word in command for word in ("쪽 나눔", "쪽나눔", "페이지 나눔", "새 쪽", "새 페이지")):
         return EditIntent(
             "insert_page_break",
@@ -226,7 +238,6 @@ def _paragraph_format_intent(command: str):
             label,
             after_preview=f"문단 {label}",
         )
-    """Line spacing and alignment, the two paragraph settings said out loud."""
     if re.search(LINE_SPACING_COMMAND_PATTERN, command):
         try:
             percent = normalize_line_spacing(

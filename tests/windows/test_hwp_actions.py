@@ -14,6 +14,7 @@ from engine.app_actions.hwp_adapter import HwpAdapter
 from engine.app_actions.operations.hwp.table_cell import CELL_SEPARATOR
 from engine.app_actions.registry import AppActionRegistry
 from engine.decision import DecisionEngine, PreferenceManager
+from engine.edit_mode import stage5
 from engine.execution_runtime import ExecutionController
 from engine.parser import CommandParser
 
@@ -973,6 +974,38 @@ class HwpTableCellTests(unittest.TestCase):
         with self.assertRaises(AppActionContextChanged):
             adapter.undo(prepared, {"after_observations": result})
         self.assertEqual("누군가 고침", hwp.cells[(1, 1)])
+
+
+class HwpIntentOrderingTests(unittest.TestCase):
+    """`없애` names a setting to clear as often as text to remove."""
+
+    def _intent(self, command, quotes=()):
+        return stage5._hwp_selection_intent(command, list(quotes))
+
+    def test_clearing_a_setting_is_not_read_as_deleting_text(self):
+        for command in ("글머리표 없애줘", "번호 매기기 지워줘", "글머리표 해제"):
+            with self.subTest(command=command):
+                intent = self._intent(command)
+                self.assertEqual("set_list_format", intent.operation)
+                self.assertEqual("none", intent.params["list_format"])
+
+    def test_a_bare_removal_request_still_deletes_the_selection(self):
+        for command in ("선택한 거 지워줘", "이거 삭제해줘", "빼줘"):
+            with self.subTest(command=command):
+                self.assertEqual("delete_text", self._intent(command).operation)
+
+    def test_a_spacing_request_without_a_value_asks_instead_of_deleting(self):
+        with self.assertRaises(stage5.Stage5EditError):
+            self._intent("줄간격 없애")
+
+    def test_more_specific_paragraph_settings_win_over_alignment(self):
+        self.assertEqual("insert_page_break", self._intent("쪽 나눔").operation)
+        self.assertEqual(
+            "set_line_spacing", self._intent("줄간격 넓게").operation
+        )
+        self.assertEqual(
+            "set_paragraph_format", self._intent("좌측 정렬해줘").operation
+        )
 
 
 if __name__ == "__main__":
