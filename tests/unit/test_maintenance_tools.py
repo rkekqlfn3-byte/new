@@ -8,6 +8,7 @@ from pathlib import Path
 
 from verification.maintainability_budgets import LongFunctionException
 from verification.maintenance_audit import (
+    audit_adapter_operation_methods,
     audit_forbidden_back_references,
     audit_large_workspace_files,
     audit_long_function_budgets,
@@ -19,6 +20,8 @@ from verification.maintenance_audit import (
     retained_parent_reference_paths,
 )
 from verification.test_gate_selector import select_test_gates
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestGateSelectorTests(unittest.TestCase):
@@ -237,6 +240,43 @@ class MaintenanceAuditTests(unittest.TestCase):
         large = [item for item in findings if item.code == "large_workspace_file"]
         self.assertEqual(1, len(generated))
         self.assertEqual(["source.bin"], [item.path for item in large])
+
+
+class AdapterOperationGateTests(unittest.TestCase):
+    """The split is only kept if a regression is actually detected."""
+
+    def test_shipped_adapters_carry_no_operation_methods(self):
+        self.assertEqual([], audit_adapter_operation_methods(PROJECT_ROOT))
+
+    def test_an_operation_method_added_back_to_an_adapter_is_reported(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            adapter = root / "engine" / "app_actions"
+            adapter.mkdir(parents=True)
+            (adapter / "hwp_adapter.py").write_text(
+                "class HwpAdapter:\n"
+                "    def prepare(self, operation, params):\n"
+                "        return None\n"
+                "    def _execute_insert(self, hwp, prepared):\n"
+                "        return None\n",
+                encoding="utf-8",
+            )
+            findings = audit_adapter_operation_methods(
+                root, adapters=("engine/app_actions/hwp_adapter.py",)
+            )
+        self.assertEqual(
+            ["adapter_carries_operation_method"],
+            [finding.code for finding in findings],
+        )
+        self.assertIn("_execute_insert", findings[0].detail)
+
+    def test_an_unreadable_adapter_is_an_error_not_a_silent_pass(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            findings = audit_adapter_operation_methods(
+                Path(temp_dir), adapters=("engine/app_actions/missing.py",)
+            )
+        self.assertEqual(["adapter_unreadable"], [f.code for f in findings])
+
 
 
 if __name__ == "__main__":

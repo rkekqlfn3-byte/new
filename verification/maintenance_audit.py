@@ -25,17 +25,30 @@ DEFAULT_MAX_PARSER_LINES = 1000
 DEFAULT_LARGE_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_MODULE_LINE_BUDGETS = {
     "engine/workflows/business_workflow.py": 2477,
-    "engine/app_actions/excel_adapter.py": 2349,
-    "engine/edit_mode/stage10.py": 778,
     "engine/edit_mode/controller.py": 1628,
-    "engine/app_actions/powerpoint_adapter.py": 1149,
     "engine/edit_mode/native_bridge.py": 1110,
     "engine/action_executor.py": 1101,
-    "engine/app_actions/hwp_adapter.py": 968,
     "engine/edit_mode/stage11.py": 1026,
     "engine/app_actions/excel_vba_adapter.py": 1007,
     "engine/edit_mode/stage5.py": 1006,
+    "engine/app_actions/excel_adapter.py": 942,
+    "engine/edit_mode/stage10.py": 778,
+    "engine/app_actions/powerpoint_adapter.py": 530,
+    "engine/app_actions/word_adapter.py": 329,
+    "engine/app_actions/hwp_adapter.py": 303,
 }
+
+# Adapters own the COM lifecycle and the shared context; every user-visible
+# action belongs in engine/app_actions/operations/<app>/.  Budgets alone would
+# not stop an operation from being added back to an adapter, because a new
+# branch can always be paid for by shrinking something else.
+OPERATION_OWNING_ADAPTERS = (
+    "engine/app_actions/excel_adapter.py",
+    "engine/app_actions/hwp_adapter.py",
+    "engine/app_actions/powerpoint_adapter.py",
+    "engine/app_actions/word_adapter.py",
+)
+ADAPTER_OPERATION_METHOD_PREFIXES = ("_prepare_", "_execute_")
 FORBIDDEN_BACK_REFERENCES = frozenset({"owner", "parser", "_parser"})
 EXCLUDED_PARTS = frozenset({".git", ".venv", "__pycache__", "node_modules"})
 GENERATED_WORKSPACE_DIRS = frozenset({
@@ -205,6 +218,42 @@ def audit_module_line_budgets(project_root: Path, budgets=None):
                 relative,
                 f"line_count={line_count}, budget={int(budget)}",
             ))
+    return findings
+
+
+def audit_adapter_operation_methods(project_root: Path, adapters=None):
+    """Keep user-visible actions out of the adapters.
+
+    A per-operation ``_prepare_*`` or ``_execute_*`` on an adapter is the
+    dispatch chain the operation split removed.  Line budgets cannot catch its
+    return, because a new branch can be paid for by shrinking something else.
+    """
+    findings = []
+    for relative in adapters or OPERATION_OWNING_ADAPTERS:
+        path = project_root / relative
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, SyntaxError) as error:
+            findings.append(AuditFinding(
+                "error", "adapter_unreadable", relative, type(error).__name__,
+            ))
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for member in node.body:
+                if not isinstance(
+                    member, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    continue
+                if member.name.startswith(ADAPTER_OPERATION_METHOD_PREFIXES):
+                    findings.append(AuditFinding(
+                        "error",
+                        "adapter_carries_operation_method",
+                        relative,
+                        f"{node.name}.{member.name} 은 "
+                        "engine/app_actions/operations/ 아래로 옮겨야 합니다.",
+                    ))
     return findings
 
 
@@ -421,6 +470,7 @@ def run_audit(project_root: Path, *, max_parser_lines=DEFAULT_MAX_PARSER_LINES, 
         ))
     findings.extend(audit_parser_budget(project_root, max_parser_lines))
     findings.extend(audit_module_line_budgets(project_root))
+    findings.extend(audit_adapter_operation_methods(project_root))
     findings.extend(audit_long_function_budgets(project_root))
     findings.extend(audit_forbidden_back_references(project_root))
     findings.extend(audit_tracked_artifacts(project_root, tracked))
