@@ -7,12 +7,28 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-IDENTITY_VERSION = 1
-_SOURCE_ROOTS = frozenset({"engine", "gui", "tests", "verification"})
-_SOURCE_SUFFIXES = frozenset({
-    ".bat", ".cmd", ".css", ".html", ".ini", ".js", ".json", ".ps1",
-    ".py", ".spec", ".toml", ".yaml", ".yml",
+IDENTITY_VERSION = 2
+_SOURCE_ROOTS = frozenset({
+    "default_data", "engine", "gui", "tests", "verification",
 })
+_SOURCE_SUFFIXES = frozenset({
+    ".bat", ".cmd", ".css", ".html", ".in", ".ini", ".js", ".json", ".ps1",
+    ".py", ".spec", ".toml", ".txt", ".yaml", ".yml",
+})
+
+# ``commit`` must be present so a probe cannot claim identity without one, but
+# it is never compared.  ``tree_hash`` covers every byte of every behaviour
+# bearing file plus ``dirty``/``changed_paths_hash`` for uncommitted work, so
+# it is strictly stronger evidence than a commit SHA.  Comparing the SHA as
+# well made docs-only commits invalidate native probes whose source was
+# provably identical, and those probes cost an interactive Office session to
+# regenerate.
+_PRESENT_KEYS = (
+    "identity_version", "commit", "dirty", "tree_hash", "changed_paths_hash",
+)
+_COMPARED_KEYS = (
+    "identity_version", "dirty", "tree_hash", "changed_paths_hash",
+)
 
 
 def _git(root: Path, *args: str, text: bool = True):
@@ -132,20 +148,16 @@ def source_identity(root: Path = ROOT) -> dict:
 
 def source_identity_errors(report_source, expected_source) -> tuple[str, ...]:
     """Return content-free mismatch reasons for one probe source identity."""
-    required = (
-        "identity_version", "commit", "dirty", "tree_hash",
-        "changed_paths_hash",
-    )
     if not isinstance(expected_source, dict) or any(
-        expected_source.get(key) is None for key in required
+        expected_source.get(key) is None for key in _PRESENT_KEYS
     ):
         return ("current_source_identity_unavailable",)
     if not isinstance(report_source, dict) or any(
-        report_source.get(key) is None for key in required
+        report_source.get(key) is None for key in _PRESENT_KEYS
     ):
         return ("probe_source_identity_missing",)
     reasons = []
-    for key in required:
+    for key in _COMPARED_KEYS:
         if report_source.get(key) != expected_source.get(key):
             reasons.append(f"probe_source_{key}_mismatch")
     return tuple(reasons)

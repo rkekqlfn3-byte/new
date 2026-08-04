@@ -64,6 +64,61 @@ class SourceIdentityTests(unittest.TestCase):
             source_change["changed_paths_hash"],
         )
 
+    def test_docs_only_commit_keeps_probe_evidence_valid(self):
+        # Native probes cost an interactive Office session to regenerate, so a
+        # commit that provably touches no behaviour must not invalidate them.
+        before = source_identity(self.root)
+        (self.root / "docs" / "notes.md").write_text("audit\n", encoding="utf-8")
+        self._git("add", ".")
+        self._git("commit", "-m", "docs: record audit")
+        after = source_identity(self.root)
+
+        self.assertNotEqual(before["commit"], after["commit"])
+        self.assertEqual(before["tree_hash"], after["tree_hash"])
+        self.assertEqual((), source_identity_errors(before, after))
+
+    def test_seed_data_and_dependency_locks_invalidate_probe_evidence(self):
+        # These ship in the EXE and decide runtime behaviour, so dropping the
+        # commit comparison must not let them change unnoticed.
+        for relative, payload in (
+            ("default_data/dictionaries.json", '{"schema_version": 5}\n'),
+            ("requirements-lock.txt", "pypdf==6.14.2\n"),
+        ):
+            with self.subTest(relative=relative):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(payload, encoding="utf-8")
+                self._git("add", ".")
+                self._git("commit", "-m", f"seed {relative}")
+                before = source_identity(self.root)
+
+                path.write_text(payload.replace("5", "6").replace("2", "3"), encoding="utf-8")
+                after = source_identity(self.root)
+
+                self.assertNotEqual(before["tree_hash"], after["tree_hash"])
+                self.assertIn(
+                    "probe_source_tree_hash_mismatch",
+                    source_identity_errors(before, after),
+                )
+
+    def test_identity_version_change_invalidates_older_probe_evidence(self):
+        expected = source_identity(self.root)
+        stale = dict(expected)
+        stale["identity_version"] = expected["identity_version"] - 1
+        self.assertIn(
+            "probe_source_identity_version_mismatch",
+            source_identity_errors(stale, expected),
+        )
+
+    def test_probe_without_a_commit_is_still_rejected(self):
+        expected = source_identity(self.root)
+        without_commit = dict(expected)
+        without_commit["commit"] = None
+        self.assertEqual(
+            ("probe_source_identity_missing",),
+            source_identity_errors(without_commit, expected),
+        )
+
     def test_mismatch_reasons_never_include_paths_or_contents(self):
         expected = source_identity(self.root)
         actual = dict(expected)

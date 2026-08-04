@@ -90,6 +90,39 @@ python -m verification.product_goal_acceptance --automated-only
 선택 내용, 사용자 원문과 수동 시험 메모는 보고서에 복사하지 않는다. 보고서에는
 검사 상태, 실패한 probe ID, 생성 시각, 현재 Git commit과 dirty 여부만 남긴다.
 
+## probe 소스 신원 계약 (identity_version 2)
+
+probe 증거가 현재 소스에 묶여 있는지는 `verification/source_identity.py`가
+판정한다. 비교 대상과 기록 대상은 다르다.
+
+| 키 | 존재 필수 | 동등 비교 | 의미 |
+|---|---|---|---|
+| `identity_version` | O | **O** | 해시 의미가 바뀌면 구 증거를 무효화한다 |
+| `tree_hash` | O | **O** | 동작에 영향을 주는 모든 파일의 내용 해시 |
+| `changed_paths_hash` | O | **O** | 커밋되지 않은 변경 파일 목록의 해시 |
+| `dirty` | O | **O** | 작업 트리 변경 여부 |
+| `commit` | O | X | 기록만 한다. **비교하지 않는다** |
+| `branch` | X | X | 기록만 한다 |
+
+`tree_hash`는 `default_data`, `engine`, `gui`, `tests`, `verification`과 루트의
+소스 확장자 파일 전부를 바이트 단위로 덮으며, 커밋되지 않은 변경까지
+`dirty`·`changed_paths_hash`로 함께 고정한다. 따라서 **commit SHA보다 엄격히
+강한 증거이며, commit을 함께 비교할 이유가 없다.**
+
+commit을 비교하던 시기에는 마크다운 두 개만 바꾼 문서 커밋이 소스가 증명 가능하게
+동일한데도 native probe 13종을 전부 무효화했다. 이 probe들은 Office 4종이 떠 있는
+대화형 Windows 세션에서만 다시 만들 수 있으므로, 문서를 기록하는 행위가 Goal
+증거를 지우는 구조였다. `commit`은 사람이 추적할 수 있도록 계속 기록하되 판정에는
+쓰지 않는다.
+
+동작에 영향을 주지 않는 것(`docs/`, `*.md`, `verification/*_report.json`)은
+해시에 들어가지 않는다. 반대로 EXE에 번들되어 런타임 시드가 되는 `default_data/`와
+의존성을 고정하는 `requirements*` 파일은 해시에 포함한다.
+
+이 계약은 `tests/unit/test_source_identity.py`가 자동 검사한다. `IDENTITY_VERSION`을
+올리면 이전 버전으로 만든 probe는 `probe_source_identity_version_mismatch`로
+안전하게 거부되므로, 해시 범위를 바꿀 때는 반드시 함께 올린다.
+
 소유 문서 probe가 7일보다 오래됐거나 관련 기능을 크게 바꾼 뒤에는 다음처럼
 증거를 새로 만든다.
 
