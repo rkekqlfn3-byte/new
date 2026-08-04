@@ -1,5 +1,24 @@
 # JARVIS 구현·유지보수 감사 보고서
 
+> **후속 조치 완료 (2026-08-04 22:25)** — 이 보고서 작성 직후 수행한 Goal 게이트
+> 실측에서 더 중요한 결함이 드러났고 해결했다. 요약:
+>
+> - `source_identity_errors()`가 `tree_hash`와 함께 commit SHA까지 동등 비교해,
+>   마크다운 2개만 바꾼 문서 커밋이 native probe 13종을 전부 무효화하고 있었다.
+>   소스는 증명 가능하게 동일했다(`tree_hash`·`changed_paths_hash`·`dirty` 일치).
+> - 비교 키와 존재 키를 분리하고, 해시 범위에 `default_data/`(EXE 번들 런타임
+>   시드)와 의존성 lock을 추가해 `tree_hash`가 commit을 실제로 지배하게 했다.
+>   `IDENTITY_VERSION`은 2로 올렸다. 커밋 `e16fe92`.
+> - **한글 차단 해소 확인**: `workflow_hwp`·`hwp_workflow_watchdog`가
+>   `generation_verified`로 통과했다. 2026-07-25 계획서가 도장의 유일한 차단
+>   요소로 지목했던 한컴 보안 모듈 문제는 더 이상 존재하지 않는다.
+> - probe 13종 재생성 결과 **`automated_pass_manual_pending`**. 자동 8축 전부
+>   통과이며 남은 것은 자동화 불가 수동 3종(화면읽기·음성입력·비숙련자 관찰)뿐이다.
+>
+> 아래 본문의 findings는 게이트 차단 요인이 아니라 **실사용에서 만날 실패의 후보
+> 목록**으로 읽어야 한다. 우선순위는 도장 이후다.
+
+
 - 감사일: 2026-08-04
 - 대상 커밋: `a6f084c` (branch `codex/pdf-capabilities`)
 - 범위: `engine/`, `gui/`, `verification/`, `tests/`, CI 게이트, 문서 체계
