@@ -138,6 +138,7 @@ def start_app():
         import engine.api.config_api  # noqa: F401
         import engine.api.dictionary_api  # noqa: F401
         import engine.api.edit_api  # noqa: F401
+        import engine.api.pdf_api  # noqa: F401
 
         browser_port = _resolve_browser_port()
         _start_gui(browser_port, log_path)

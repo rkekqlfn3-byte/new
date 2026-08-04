@@ -6,6 +6,7 @@ from engine.pipeline.conversation_route import execute_conversation_route
 from engine.pipeline.edit_route import execute_edit_route
 from engine.pipeline.macro_route import try_execute_macro_route
 from engine.pipeline.native_route import try_execute_native_route
+from engine.pipeline.pdf_route import try_execute_pdf_route
 from engine.recovery import (
     PreExecutionRecoveryContract,
     recovery_target_signature,
@@ -273,6 +274,14 @@ class CommandPipeline:
             return learning_review
         if normalized_input in {"확인 카드 테스트", "확인카드 테스트"}:
             return parser.confirmations.queue_demo(normalized_input, session_id)
+
+        pdf_result = try_execute_pdf_route(
+            parser,
+            raw_input,
+            log_callback=log_callback,
+        )
+        if pdf_result is not None:
+            return pdf_result
 
         native_result = try_execute_native_route(
             parser,

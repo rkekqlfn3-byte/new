@@ -87,6 +87,12 @@
                     <span id="edit-target-details" class="edit-target-details">편집 문서를 연결해주세요.</span>
                     <span id="edit-target-preview" class="edit-target-preview"></span>
                 </section>
+                <section id="pdf-context-bar" class="pdf-context-bar hidden-input" aria-live="polite">
+                    <span class="pdf-context-badge">PDF · 읽기 전용</span>
+                    <strong id="pdf-document-name" class="pdf-document-name"></strong>
+                    <span id="pdf-document-details" class="pdf-document-details"></span>
+                    <button id="btn-pdf-disconnect-bar" type="button">연결 해제</button>
+                </section>
                 <section
                     id="user-feedback-region"
                     class="user-feedback-region hidden-input"
@@ -179,6 +185,11 @@
                     
                     <!-- Plus Menu popup -->
                     <div id="plus-menu" class="plus-menu" role="region" aria-label="추가 기능">
+                        <button id="btn-pdf-connect">📄 PDF 연결</button>
+                        <button id="btn-pdf-disconnect" class="hidden-input">PDF 연결 해제</button>
+                        <div id="pdf-file-drop-zone" class="pdf-file-drop-zone" tabindex="0" role="button" aria-label="PDF 파일 선택 또는 끌어놓기">
+                            PDF 파일을 여기에 놓으세요
+                        </div>
                         <button id="btn_open_unified_dict">📖 통합 사전 관리 (명사/동사/매크로)</button>
                         <button id="btn-execution-diagnostics">🩺 최근 실행 진단</button>
                         <button id="btn-native-action-candidates">🧩 네이티브 확장 후보</button>
@@ -395,6 +406,7 @@
     <script defer src="js/dictionaries/action_dictionary.js"></script>
     <script defer src="js/api.js"></script>
     <script defer src="js/edit_mode.js"></script>
+    <script defer src="js/pdf_context.js"></script>
     <script defer src="js/sessions.js"></script>
     <script defer src="js/chat/renderer.js"></script>
     <script defer src="js/chat/confirmation.js"></script>

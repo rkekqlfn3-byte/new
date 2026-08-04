@@ -14,6 +14,24 @@ Prototype 1.0 1~8단계는 파일 연결, 현재 선택 문맥, 네 앱의 미�
 Excel→Word/한글→PowerPoint 워크플로, 명시적 사용자 선호 학습, 개인정보가 제거된
 자가 진단을 추가합니다.
 
+## PDF 개발 상태: PDF-2 완료
+
+로컬 PDF는 Office 편집 세션과 분리된 읽기 전용 연결로 다룹니다. `PDF 연결`
+버튼이나 파일 드롭으로 사용자가 명시한 파일 하나만 연결하고, 이름·페이지 수·
+문서 fingerprint를 유지합니다. 드롭 환경이 정확한 로컬 경로를 제공하지 않으면
+동명 파일을 검색해 추측하지 않고 Windows 파일 선택창을 다시 안내합니다.
+
+`이 PDF 몇 페이지야?`는 로컬에서 바로 답하며 `3~5페이지`, `여기`, `앞 페이지`,
+`다음 페이지`, `방금 찾은 부분`을 연결 PDF의 직전 구조화 문맥에 결속합니다.
+요약·설명·검색·목차·표 추출·보고서와 분할·병합·회전 의도도 결정적으로
+구분하지만, 내용 답변·Office 산출물은 PDF-3, 파일 변경은 PDF-4의 승인·검증
+경계가 완성될 때까지 실행하지 않습니다. 한글·Word·PowerPoint의 `PDF로 저장`
+명령은 입력 PDF 라우터가 가로채지 않습니다.
+
+본문·검색어·절대 경로는 연결 evidence에 저장하지 않으며 원본 PDF는 수정하지
+않습니다. 자세한 상태는 [PDF-2 완료 보고서](docs/JARVIS_PDF_2_CONNECTION_CONTEXT_REPORT_2026-08-04.md)를
+참조하세요.
+
 일반 명령의 `방금 거`, `아까처럼`, `지난번 그대로`는 같은 대화 세션의 최근
 3회 구조화 결과 안에서만 대상을 찾습니다. 참조 표현이 없는 새 명령은 이전 앱을
 상속하지 않습니다. 재사용되는 구조화 스킬도 실행 전에 등록 앱과 실제 계획의 앱
@@ -366,6 +384,10 @@ PyInstaller onedir 빌드, ZIP 생성, 산출물 감사를 수행합니다. 정�
 ## 문서
 
 - [Goal 달성 마스터 계획서](docs/JARVIS_GOAL_COMPLETION_MASTER_PLAN_2026-07-23.md)
+- [PDF 기능 구현 계획서](docs/JARVIS_PDF_CAPABILITY_IMPLEMENTATION_PLAN_2026-08-04.md)
+- [PDF-0 기준선 보고서](docs/JARVIS_PDF_0_BASELINE_REPORT_2026-08-04.md)
+- [PDF-1 구조화 판독 보고서](docs/JARVIS_PDF_1_STRUCTURED_READER_REPORT_2026-08-04.md)
+- [PDF-2 연결·문맥 보고서](docs/JARVIS_PDF_2_CONNECTION_CONTEXT_REPORT_2026-08-04.md)
 - [변경 기록](CHANGELOG.md)
 - [현재 제한사항](KNOWN_LIMITATIONS.md)
 - [Prototype 1.0 1단계 기술 검증](docs/PROTOTYPE1_STAGE1_TECHNICAL_VALIDATION.md)

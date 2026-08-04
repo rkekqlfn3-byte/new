@@ -106,6 +106,74 @@
     color: #b33d3d;
 }
 
+.pdf-context-bar {
+    min-height: 44px;
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(90deg, rgba(255, 250, 231, 0.98), rgba(255, 247, 219, 0.98));
+    border-bottom: 1px solid rgba(194, 132, 24, 0.24);
+    color: #5d491d;
+    box-sizing: border-box;
+}
+
+.pdf-context-badge {
+    flex: 0 0 auto;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(194, 132, 24, 0.14);
+    color: #8b5d08;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.pdf-document-name,
+.pdf-document-details {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdf-document-name {
+    flex: 0 1 auto;
+    font-size: 13px;
+}
+
+.pdf-document-details {
+    flex: 1 1 auto;
+    color: #806d43;
+    font-size: 12px;
+}
+
+.pdf-context-bar button {
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    border: 1px solid rgba(139, 93, 8, 0.25);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    color: #72500e;
+    cursor: pointer;
+}
+
+.pdf-file-drop-zone {
+    padding: 9px 10px;
+    border: 1px dashed rgba(139, 93, 8, 0.38);
+    border-radius: 9px;
+    background: rgba(255, 250, 231, 0.72);
+    color: #72500e;
+    font-size: 12px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.pdf-file-drop-zone.drag-active {
+    border-color: #8b5d08;
+    background: rgba(255, 239, 181, 0.9);
+}
+
 .message {
     display: flex;
     align-items: flex-end;
