@@ -47,6 +47,16 @@ def _probe(lease, steps, checks):
     hwp.XHwpWindows.Item(0).Visible = True
     checks["window_realised"] = bool(hwp.XHwpWindows.Item(0).Visible)
 
+    def fresh_document():
+        """Isolate each group of checks.
+
+        한글's undo stack is global, so chaining groups on one document lets a
+        later undo pop an earlier group's edit. That is a property of this
+        probe's sequencing, not of the operations, and clearing between groups
+        is what keeps each group's verdict about its own operation.
+        """
+        hwp.XHwpDocuments.Item(0).Clear(option=1)
+
     steps.append("adapter")
     # com_runtime=False: this probe owns the surrounding apartment for the
     # whole lifetime of the proxy. Letting the adapter open and close its own
@@ -105,6 +115,46 @@ def _probe(lease, steps, checks):
     restored = adapter.undo(prepared, {"after_observations": result})
     checks["undo_reported_verified"] = bool(restored.get("verified"))
     checks["undo_removed_the_table"] = table_control_count(hwp) == 0
+
+    fresh_document()
+    steps.append("list_format")
+    listing = adapter.prepare("set_list_format", {"list_format": "bullet"})
+    checks["list_preview_changed_nothing"] = (
+        listing.current_state["format"].get("heading_type") == 0
+    )
+    list_result = adapter.execute(listing)
+    checks["list_execute_reported_verified"] = bool(list_result.get("verified"))
+    checks["bullet_applied"] = list_result["after"].get("heading_type") == 3
+    list_restored = adapter.undo(listing, {"after_observations": list_result})
+    checks["list_undo_reported_verified"] = bool(list_restored.get("verified"))
+
+    fresh_document()
+    steps.append("table_for_page_break")
+    adapter.execute(adapter.prepare("insert_table", {"rows": 2, "columns": 2}))
+
+    steps.append("page_break_inside_table")
+    try:
+        adapter.execute(adapter.prepare("insert_page_break", {}))
+        checks["page_break_inside_a_table_is_blocked"] = False
+    except Exception as caught:
+        checks["page_break_inside_a_table_is_blocked"] = (
+            type(caught).__name__ == "AppActionBlocked"
+        )
+
+    steps.append("page_break")
+    hwp.HAction.Run("MoveDocEnd")
+    pages_before = int(hwp.PageCount)
+    page = adapter.prepare("insert_page_break", {})
+    checks["page_preview_created_nothing"] = int(hwp.PageCount) == pages_before
+    page_result = adapter.execute(page)
+    checks["page_execute_reported_verified"] = bool(page_result.get("verified"))
+    checks["page_count_increased"] = (
+        page_result["after"]["page_count"] == pages_before + 1
+    )
+    page_restored = adapter.undo(page, {"after_observations": page_result})
+    checks["page_undo_reported_verified"] = bool(page_restored.get("verified"))
+    checks["page_count_restored"] = int(hwp.PageCount) == pages_before
+
     return checks
 
 

@@ -8,6 +8,8 @@ from engine.app_actions.operations.hwp.find_replace import FindReplaceOperation
 from engine.app_actions.operations.hwp.insert_table import InsertTableOperation
 from engine.app_actions.operations.hwp.insert_text import InsertTextOperation
 from engine.app_actions.operations.hwp.line_spacing import SetLineSpacingOperation
+from engine.app_actions.operations.hwp.list_format import SetListFormatOperation
+from engine.app_actions.operations.hwp.page_break import InsertPageBreakOperation
 from engine.app_actions.operations.hwp.paragraph_format import (
     SetParagraphFormatOperation,
 )
@@ -32,6 +34,8 @@ HWP_OPERATIONS = OperationRegistry(
         SetTextFormatOperation(),
         SetParagraphFormatOperation(),
         SetLineSpacingOperation(),
+        SetListFormatOperation(),
+        InsertPageBreakOperation(),
         FindReplaceOperation(),
         SaveAsOperation(),
     ),

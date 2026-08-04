@@ -43,11 +43,24 @@ def char_state(hwp):
 # and minimum-spacing modes are read back but never written.
 LINE_SPACING_PERCENT_TYPE = 0
 
+# HParaShape.HeadingType, confirmed by setting and reading it back on a real
+# 한글 install. The ParagraphShapeBullet/Number Run actions do nothing, and two
+# other guessed action names opened a modal dialog that blocked automation, so
+# list formatting goes through the parameter set like every other paragraph
+# setting rather than through a named action.
+HEADING_NONE = 0
+HEADING_OUTLINE = 1
+HEADING_NUMBER = 2
+HEADING_BULLET = 3
+
 
 def paragraph_state(hwp):
     shape = hwp.HParameterSet.HParaShape
     hwp.HAction.GetDefault("ParagraphShape", shape.HSet)
     state = {"alignment": int(shape.AlignType)}
+    heading = getattr(shape, "HeadingType", None)
+    if heading is not None:
+        state["heading_type"] = int(heading)
     spacing = getattr(shape, "LineSpacing", None)
     if spacing is not None:
         state["line_spacing"] = int(spacing)
@@ -85,6 +98,10 @@ def normalize_color_name(value):
 
 __all__ = [
     "COLOR_RGB",
+    "HEADING_BULLET",
+    "HEADING_NONE",
+    "HEADING_NUMBER",
+    "HEADING_OUTLINE",
     "LINE_SPACING_PERCENT_TYPE",
     "PARAGRAPH_ALIGNMENTS",
     "char_state",

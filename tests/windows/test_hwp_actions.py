@@ -126,6 +126,7 @@ class FakeHAction:
             parameter_set.AlignType = self.hwp.paragraph_alignment
             parameter_set.LineSpacing = self.hwp.line_spacing
             parameter_set.LineSpacingType = self.hwp.line_spacing_type
+            parameter_set.HeadingType = self.hwp.heading_type
         return True
 
     def Execute(self, name, parameter_set):
@@ -142,6 +143,7 @@ class FakeHAction:
             self.hwp.paragraph_alignment = int(parameter_set.AlignType)
             self.hwp.line_spacing = int(parameter_set.LineSpacing)
             self.hwp.line_spacing_type = int(parameter_set.LineSpacingType)
+            self.hwp.heading_type = int(parameter_set.HeadingType)
             return True
         if name == "CharShape":
             self.hwp._push_undo()
@@ -200,6 +202,15 @@ class FakeHAction:
             self.hwp.selection = None
             self.hwp.IsModified = True
             return True
+        if name == "BreakPage":
+            if self.hwp.cell is not None:
+                # 한글 refuses a page break inside a table and returns False.
+                return False
+            self.hwp._push_undo()
+            self.hwp.pages += 1
+            self.hwp.text += ""
+            self.hwp.IsModified = True
+            return True
         if name == "SelectAll":
             self.hwp.selection = (0, len(self.hwp.text))
             return True
@@ -223,12 +234,14 @@ class FakeHwp:
         self.paragraph_alignment = 0
         self.line_spacing = 160
         self.line_spacing_type = 0
+        self.heading_type = 0
+        self.pages = 1
         self.message_mode = 0xF0000
         self.undo_stack = []
         self.HParameterSet = SimpleNamespace(
             HCharShape=FakeShapeSet(Bold=0, Height=1000, TextColor=0),
             HParaShape=FakeShapeSet(
-                AlignType=0, LineSpacing=160, LineSpacingType=0
+                AlignType=0, LineSpacing=160, LineSpacingType=0, HeadingType=0
             ),
             HTableCreation=FakeShapeSet(
                 Rows=1, Cols=1, WidthType=0, HeightType=0
@@ -292,6 +305,8 @@ class FakeHwp:
             self.paragraph_alignment,
             self.line_spacing,
             self.line_spacing_type,
+            self.heading_type,
+            self.pages,
             list(self.tables),
             dict(self.cells),
             self.IsModified,
@@ -307,6 +322,8 @@ class FakeHwp:
                 self.paragraph_alignment,
                 self.line_spacing,
                 self.line_spacing_type,
+                self.heading_type,
+                self.pages,
                 self.tables,
                 self.cells,
                 self.IsModified,
@@ -334,6 +351,10 @@ class FakeHwp:
             start, end = self.selection
             return self.text[start:end]
         return self.text
+
+    @property
+    def PageCount(self):
+        return self.pages
 
     def SetPos(self, _list, para, pos):
         self.cell = None

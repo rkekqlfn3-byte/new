@@ -11,6 +11,7 @@ from engine.app_actions.base import (
 )
 from engine.app_actions.office_edit_helpers import exact_office_document
 from engine.app_actions.operations.hwp.insert_table import table_control_count
+from engine.app_actions.operations.hwp.page_break import page_count
 from engine.app_actions.operations.hwp.table_cell import (
     first_table_control,
     read_addressed_cell,
@@ -43,6 +44,8 @@ class HwpUndoService:
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
+        "set_list_format",
+        "insert_page_break",
         "find_replace",
     })
 
@@ -123,6 +126,21 @@ class HwpUndoService:
                     "직전에 넣은 표가 그대로 있지 않아 복원하지 않았습니다."
                 )
             return
+        if prepared.operation == "insert_page_break":
+            if page_count(hwp) != int(prepared.params.get("expected_page_count", -1)):
+                raise AppActionContextChanged(
+                    "직전에 나눈 쪽이 그대로 있지 않아 복원하지 않았습니다."
+                )
+            return
+        if prepared.operation == "set_list_format":
+            current_format = self.adapter._paragraph_state(hwp)
+            if current_format.get("heading_type") != int(
+                prepared.params.get("heading_type", -1)
+            ):
+                raise AppActionContextChanged(
+                    "직전 편집 뒤 글머리표가 달라져 복원하지 않았습니다."
+                )
+            return
         if prepared.operation == "set_line_spacing":
             if current_format.get("line_spacing") != int(
                 prepared.params.get("line_spacing", -1)
@@ -164,6 +182,10 @@ class HwpUndoService:
             original = str(prepared.params.get("original_text", ""))
             restored = {"cell_text": _current_cell_text(hwp, prepared)}
             return restored, restored["cell_text"] == original
+        if prepared.operation == "insert_page_break":
+            expected = int(prepared.current_state.get("page_count", -1))
+            restored = {"page_count": page_count(hwp)}
+            return restored, restored["page_count"] == expected
         if prepared.operation == "insert_table":
             expected = int(prepared.current_state.get("table_count", -1))
             restored = {"table_count": table_control_count(hwp)}

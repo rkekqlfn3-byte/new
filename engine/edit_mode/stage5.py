@@ -22,6 +22,11 @@ from engine.vocabulary.line_spacing import (
     line_spacing_label,
     normalize_line_spacing,
 )
+from engine.vocabulary.list_format import (
+    LIST_FORMAT_COMMAND_PATTERN,
+    list_format_label,
+    normalize_list_format,
+)
 
 _CELL_OR_RANGE = re.compile(
     r"^([A-Z]{1,3})([1-9]\d*)(?::([A-Z]{1,3})([1-9]\d*))?$",
@@ -200,6 +205,27 @@ def _hwp_selection_intent(command: str, quotes):
 
 
 def _paragraph_format_intent(command: str):
+    if any(word in command for word in ("쪽 나눔", "쪽나눔", "페이지 나눔", "새 쪽", "새 페이지")):
+        return EditIntent(
+            "insert_page_break",
+            {},
+            "쪽 나눔",
+            after_preview="새 쪽 시작",
+        )
+    listing = re.search(LIST_FORMAT_COMMAND_PATTERN, command)
+    if listing:
+        wanted = "none" if any(w in command for w in ("없애", "해제", "지워")) else listing.group(1)
+        try:
+            canonical = normalize_list_format(wanted)
+        except ValueError as error:
+            raise Stage5EditError(str(error)) from error
+        label = list_format_label(canonical)
+        return EditIntent(
+            "set_list_format",
+            {"list_format": canonical},
+            label,
+            after_preview=f"문단 {label}",
+        )
     """Line spacing and alignment, the two paragraph settings said out loud."""
     if re.search(LINE_SPACING_COMMAND_PATTERN, command):
         try:
@@ -598,6 +624,8 @@ class Stage5NativeEditAdapter:
         "delete_text",
         "insert_table",
         "set_table_cell",
+        "set_list_format",
+        "insert_page_break",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
