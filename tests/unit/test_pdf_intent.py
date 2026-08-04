@@ -27,6 +27,7 @@ class PdfIntentParserTests(unittest.TestCase):
             "2페이지에서 분할해줘": PdfIntentKind.SPLIT,
             "두 PDF를 병합해줘": PdfIntentKind.MERGE,
             "3페이지를 오른쪽으로 회전해줘": PdfIntentKind.ROTATE,
+            "방금 만든 PDF 취소해줘": PdfIntentKind.UNDO,
         }
         for command, expected in cases.items():
             with self.subTest(command=command):
@@ -34,6 +35,19 @@ class PdfIntentParserTests(unittest.TestCase):
                 self.assertIs(expected, intent.kind)
                 self.assertTrue(intent.requires_confirmation)
                 self.assertEqual("PDF-4", intent.implementation_stage)
+
+    def test_rotation_direction_is_structured_before_confirmation(self):
+        cases = {
+            "3페이지를 오른쪽으로 회전해줘": 90,
+            "3페이지를 왼쪽으로 회전해줘": 270,
+            "3페이지를 180도 회전해줘": 180,
+            "3페이지를 회전해줘": None,
+        }
+
+        for command, expected in cases.items():
+            with self.subTest(command=command):
+                intent = parse_pdf_intent(command)
+                self.assertEqual(expected, intent.rotation_degrees)
 
     def test_search_query_is_runtime_only_and_evidence_is_content_free(self):
         intent = parse_pdf_intent('이 PDF에서 "계약 해지" 찾아줘')

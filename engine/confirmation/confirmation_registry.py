@@ -13,6 +13,23 @@ from engine.managers.pending_confirmation_manager import (
 )
 
 
+def _compact_page_ranges(values):
+    pages = sorted({int(value) for value in values})
+    ranges = []
+    if not pages:
+        return "없음"
+    start = previous = pages[0]
+    for page in pages[1:]:
+        if page == previous + 1:
+            previous = page
+            continue
+        ranges.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = page
+    ranges.append(str(start) if start == previous else f"{start}-{previous}")
+    text = ", ".join(ranges)
+    return text if len(text) <= 200 else f"{text[:197]}..."
+
+
 class ConfirmationRegistry:
     """Own creation, storage, response parsing, and resume dispatch.
 
@@ -249,6 +266,83 @@ class ConfirmationRegistry:
                     "id": "cancel",
                     "label": "취소",
                     "description": "파일을 만들지 않고 취소합니다.",
+                    "cancel": True,
+                    "aliases": ["아니", "아니요", "그만", "취소"],
+                },
+            ],
+            payload=copy.deepcopy(prepared),
+        )
+        return self.result(record)
+
+    def queue_pdf_file_action(self, prepared, session_id, original_command):
+        """Pause before a PDF transformation creates or deletes an output."""
+        undo = prepared.get("kind") == "prepared_pdf_file_undo"
+        action = dict(prepared.get("prepared_action") or {})
+        operation = str(action.get("operation") or "")
+        labels = {
+            "extract_pages": "선택 페이지 분할",
+            "merge_documents": "문서 병합",
+            "rotate_pages": "페이지 회전",
+        }
+        output_name = str(prepared.get("output_name") or "PDF 결과물")
+        if undo:
+            message = (
+                f"방금 만든 PDF를 삭제해 작업을 되돌릴까요?\n- 대상: {output_name}\n"
+                "- 승인 전에는 삭제하지 않으며, 파일이 바뀌었으면 중단합니다."
+            )
+        else:
+            names = list(prepared.get("source_names") or ())
+            ordered = ", ".join(
+                f"{index}. {name}" for index, name in enumerate(names, start=1)
+            )
+            pages = action.get("expected_state", {}).get("page_count", 0)
+            selections = list(action.get("page_selection") or ())
+            selected_pages = _compact_page_ranges(
+                page
+                for selection in selections
+                for page in selection.get("page_numbers", ())
+            )
+            detail = ""
+            if operation == "extract_pages":
+                detail = f"\n- 추출할 페이지: {selected_pages}"
+            elif operation == "rotate_pages":
+                degrees = int(
+                    action.get("current_state", {})
+                    .get("rotation_delta", {})
+                    .get("degrees", 0)
+                )
+                detail = f"\n- 회전할 페이지: {selected_pages} (시계 방향 {degrees}도)"
+            message = (
+                f"PDF {labels.get(operation, '파일 작업')}을 실행할까요?\n"
+                f"- 입력 순서: {ordered}\n- 새 파일: {output_name}\n"
+                f"- 결과 페이지 수: {int(pages)}{detail}\n"
+                "- 원본은 변경하지 않고 새 파일을 만든 뒤 다시 열어 검증합니다."
+            )
+        record = self.pending.create(
+            session_id=normalize_session_id(session_id),
+            execution_id=self._execution_id(),
+            original_command=original_command,
+            reason="pdf_file_undo" if undo else "pdf_file_create",
+            message=message,
+            action="pdf_undo" if undo else f"pdf_{operation}",
+            target=prepared.get("connection_id"),
+            options=[
+                {
+                    "id": "continue",
+                    "label": "삭제하고 되돌리기" if undo else "새 PDF 만들기",
+                    "description": (
+                        "변경되지 않은 결과 파일만 삭제합니다."
+                        if undo
+                        else "임시 출력 검증 후 새 PDF 이름으로 확정합니다."
+                    ),
+                    "recommended": not undo,
+                    "danger": undo,
+                    "aliases": ["응", "네", "예", "진행", "계속", "실행", "삭제"],
+                },
+                {
+                    "id": "cancel",
+                    "label": "취소",
+                    "description": "파일을 변경하지 않고 취소합니다.",
                     "cancel": True,
                     "aliases": ["아니", "아니요", "그만", "취소"],
                 },

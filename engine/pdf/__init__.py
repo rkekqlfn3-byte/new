@@ -51,6 +51,11 @@ from engine.pdf.reference import (
 )
 from engine.pdf.search import PdfSearchMatch, PdfSearchResult, search_pdf_text
 from engine.pdf.task_service import PdfTaskError, PdfTaskService
+from engine.pdf.transformation_service import (
+    PdfTransformationCancelled,
+    PdfTransformationError,
+    PdfTransformationService,
+)
 
 __all__ = [
     "PdfHeadingCandidate",
@@ -81,6 +86,9 @@ __all__ = [
     "PdfSearchResult",
     "PdfTaskError",
     "PdfTaskService",
+    "PdfTransformationCancelled",
+    "PdfTransformationError",
+    "PdfTransformationService",
     "PdfReferenceError",
     "PdfTargetReference",
     "MAX_PDF_FILE_BYTES",

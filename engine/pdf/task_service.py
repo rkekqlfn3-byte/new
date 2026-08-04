@@ -15,6 +15,7 @@ from engine.pdf.grounded_answer import PdfGroundedAnswerService, build_transfer_
 from engine.pdf.intent import PdfCommandRequest, PdfIntentKind
 from engine.pdf.office_workflow import PdfOfficeWorkflow
 from engine.pdf.reference import PdfReferenceError
+from engine.pdf.transformation_service import PdfTransformationService
 
 MAX_PDF_DISPLAY_MATCHES = 20
 MAX_PDF_DISPLAY_HEADINGS = 80
@@ -41,11 +42,21 @@ def _page_ranges(page_numbers) -> str:
 class PdfTaskService:
     """Own local PDF analysis and the explicitly approved external-AI boundary."""
 
-    def __init__(self, intake_manager, llm_engine, dict_manager, office_workflow=None):
+    def __init__(
+        self,
+        intake_manager,
+        llm_engine,
+        dict_manager,
+        office_workflow=None,
+        transformation_service=None,
+    ):
         self._intake = intake_manager
         self._llm = llm_engine
         self._dict = dict_manager
         self._office = office_workflow or PdfOfficeWorkflow()
+        self._transformations = transformation_service or PdfTransformationService(
+            intake_manager
+        )
 
     def _read_request(self, request: PdfCommandRequest):
         if not isinstance(request, PdfCommandRequest):
@@ -234,9 +245,17 @@ class PdfTaskService:
             "office": self._office.prepare(connection, ("excel",)),
         }
 
+    def prepare_file_action(self, request: PdfCommandRequest) -> dict[str, Any]:
+        return self._transformations.prepare(request)
+
     def execute_prepared(self, payload: dict[str, Any]):
         if not isinstance(payload, dict):
             raise PdfTaskError("pdf_confirmation_invalid", "PDF 승인 정보가 올바르지 않습니다.")
+        if payload.get("kind") in {
+            "prepared_pdf_file_action",
+            "prepared_pdf_file_undo",
+        }:
+            return self._execute_prepared_file_action(payload)
         try:
             kind = PdfIntentKind(payload.get("intent"))
             page_numbers = tuple(int(page) for page in payload.get("page_numbers", ()))
@@ -256,6 +275,32 @@ class PdfTaskService:
         if kind is PdfIntentKind.TABLE_EXTRACT:
             return self._execute_prepared_table(payload, connection, extraction)
         return self._execute_prepared_external(payload, kind, connection, extraction)
+
+    def _execute_prepared_file_action(self, payload):
+        result = self._transformations.execute(payload)
+        undone = payload.get("kind") == "prepared_pdf_file_undo"
+        output_name = str(result.get("output_name") or "PDF 결과물")
+        if undone:
+            message = f"방금 만든 PDF 결과물을 안전하게 삭제했습니다: {output_name}"
+            action = "pdf_undo"
+        else:
+            operation = str((result.get("file_action") or {}).get("operation") or "transform")
+            labels = {
+                "extract_pages": "분할",
+                "merge_documents": "병합",
+                "rotate_pages": "회전",
+            }
+            message = (
+                f"PDF {labels.get(operation, '파일 작업')} 결과를 만들고 다시 열어 "
+                f"검증했습니다: {output_name}"
+            )
+            action = f"pdf_{operation}"
+        return success_result(
+            message,
+            action=action,
+            verified=True,
+            data={"pdf_file_action": result},
+        )
 
     def _validated_prepared_context(self, payload, page_numbers):
         connection = self._intake.current(revalidate=True)

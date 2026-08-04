@@ -279,6 +279,9 @@ source-bound Goal probe 갱신은 최종 커밋 뒤 수행한다.
 
 ### PDF-4. 분할·병합·회전
 
+구현 상태: **2026-08-04 Python 소스 구현, owned-fixture 재열기 및 Poppler 렌더링 검증 완료.**
+최종 source identity 결속 probe는 PDF-4 커밋 뒤 다시 생성한다.
+
 작업:
 
 - `extract_pages`, `merge_documents`, `rotate_pages` 허용 작업 추가

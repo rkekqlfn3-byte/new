@@ -45,6 +45,7 @@ OFN_NOCHANGEDIR = 0x00000008
 OFN_PATHMUSTEXIST = 0x00000800
 OFN_FILEMUSTEXIST = 0x00001000
 OFN_EXPLORER = 0x00080000
+OFN_ALLOWMULTISELECT = 0x00000200
 
 
 def choose_pdf_document() -> str | None:
@@ -68,3 +69,36 @@ def choose_pdf_document() -> str | None:
     if error_code == 0:
         return None
     raise PdfFilePickerError(f"Windows PDF 선택 창 오류가 발생했습니다: {error_code}")
+
+
+def choose_pdf_documents() -> tuple[str, ...] | None:
+    """Return selected local PDFs in the order supplied by the native dialog."""
+    if os.name != "nt":
+        raise PdfFilePickerError("PDF 선택 창은 Windows에서만 지원합니다.")
+    file_buffer = ctypes.create_unicode_buffer(65536)
+    request = _OpenFileNameW()
+    request.lStructSize = ctypes.sizeof(_OpenFileNameW)
+    request.lpstrFilter = PDF_FILTER
+    request.nFilterIndex = 1
+    request.lpstrFile = ctypes.cast(file_buffer, wintypes.LPWSTR)
+    request.nMaxFile = len(file_buffer)
+    request.lpstrTitle = "현재 PDF 뒤에 합칠 PDF를 순서대로 선택"
+    request.lpstrDefExt = "pdf"
+    request.Flags = (
+        OFN_EXPLORER
+        | OFN_FILEMUSTEXIST
+        | OFN_PATHMUSTEXIST
+        | OFN_NOCHANGEDIR
+        | OFN_ALLOWMULTISELECT
+    )
+    result = ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(request))
+    if not result:
+        error_code = int(ctypes.windll.comdlg32.CommDlgExtendedError())
+        if error_code == 0:
+            return None
+        raise PdfFilePickerError(f"Windows PDF 선택 창 오류가 발생했습니다: {error_code}")
+    parts = [item for item in file_buffer[:].split("\0") if item]
+    if len(parts) == 1:
+        return (os.path.abspath(parts[0]),)
+    parent = parts[0]
+    return tuple(os.path.abspath(os.path.join(parent, name)) for name in parts[1:])

@@ -22,6 +22,7 @@ _INTENT_LABELS = {
     PdfIntentKind.SPLIT: "분할",
     PdfIntentKind.MERGE: "병합",
     PdfIntentKind.ROTATE: "회전",
+    PdfIntentKind.UNDO: "되돌리기",
 }
 
 
@@ -126,6 +127,22 @@ def try_execute_pdf_route(parser, raw_input, *, session_id=None, log_callback=No
                 return _unimplemented(request)
             prepared = service.prepare_external(request, raw_input)
             return confirmations.queue_pdf_external_action(
+                prepared,
+                session_id,
+                raw_input,
+            )
+        if request.intent.kind in {
+            PdfIntentKind.SPLIT,
+            PdfIntentKind.MERGE,
+            PdfIntentKind.ROTATE,
+            PdfIntentKind.UNDO,
+        }:
+            service = getattr(parser, "pdf_task_service", None)
+            confirmations = getattr(parser, "confirmations", None)
+            if service is None or confirmations is None:
+                return _unimplemented(request)
+            prepared = service.prepare_file_action(request)
+            return confirmations.queue_pdf_file_action(
                 prepared,
                 session_id,
                 raw_input,

@@ -21,9 +21,14 @@ class PdfIntentKind(str, Enum):
     SPLIT = "split"
     MERGE = "merge"
     ROTATE = "rotate"
+    UNDO = "undo"
 
 
 _INTENT_PATTERNS = (
+    (
+        PdfIntentKind.UNDO,
+        re.compile(r"(?:방금|아까).{0,20}(?:pdf|파일).{0,20}(?:취소|되돌|삭제)", re.IGNORECASE),
+    ),
     (PdfIntentKind.MERGE, re.compile(r"(?:병합|합쳐|하나로\s*만들)")),
     (PdfIntentKind.SPLIT, re.compile(r"(?:분할|나눠|쪼개)")),
     (PdfIntentKind.ROTATE, re.compile(r"(?:회전|돌려)")),
@@ -64,7 +69,9 @@ _PAGE_REFERENCE_RE = re.compile(
     r"(?:이|현재|연결된?)\s*(?:pdf|문서)|(?:여기|이\s*부분|앞|이전|다음|뒤)\s*(?:페이지|쪽)?",
     re.IGNORECASE,
 )
-_MUTATING_INTENTS = frozenset({PdfIntentKind.SPLIT, PdfIntentKind.MERGE, PdfIntentKind.ROTATE})
+_MUTATING_INTENTS = frozenset(
+    {PdfIntentKind.SPLIT, PdfIntentKind.MERGE, PdfIntentKind.ROTATE, PdfIntentKind.UNDO}
+)
 _CONNECTED_CONTEXT_RE = re.compile(
     r"(?:이거|이\s*문서|현재\s*문서|여기|이\s*부분|"
     r"(?:앞|이전|전|다음|뒤)\s*(?:페이지|쪽)|방금\s*찾|검색\s*결과|"
@@ -86,6 +93,10 @@ _POWERPOINT_OUTPUT_RE = re.compile(
 )
 _GENERAL_REPORT_RE = re.compile(r"(?:보고서|리포트)")
 _EXCEL_OUTPUT_RE = re.compile(r"(?:엑셀|excel|xlsx)", re.IGNORECASE)
+_ROTATE_LEFT_RE = re.compile(r"(?:왼쪽|반시계)")
+_ROTATE_RIGHT_RE = re.compile(r"(?:오른쪽|시계)")
+_ROTATE_180_RE = re.compile(r"(?:180\s*도|반\s*바퀴|뒤집)")
+_ROTATE_DEGREES_RE = re.compile(r"(?<!\d)(90|180|270)\s*도")
 
 
 class PdfIntentError(PdfReferenceError):
@@ -97,6 +108,7 @@ class PdfCommandIntent:
     kind: PdfIntentKind | str
     query: str | None = None
     output_kinds: tuple[str, ...] = ()
+    rotation_degrees: int | None = None
 
     def __post_init__(self):
         try:
@@ -121,9 +133,16 @@ class PdfCommandIntent:
             raise ValueError("PDF intent contains an unsupported output kind.")
         if kind not in {PdfIntentKind.REPORT, PdfIntentKind.TABLE_EXTRACT} and outputs:
             raise ValueError("This PDF intent cannot create Office outputs.")
+        rotation = self.rotation_degrees
+        if rotation is not None:
+            if type(rotation) is not int or rotation not in {90, 180, 270}:
+                raise ValueError("PDF rotation must be 90, 180, or 270 degrees.")
+            if kind is not PdfIntentKind.ROTATE:
+                raise ValueError("Only PDF rotate intent can contain a rotation angle.")
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "query", query)
         object.__setattr__(self, "output_kinds", outputs)
+        object.__setattr__(self, "rotation_degrees", rotation)
 
     @property
     def requires_confirmation(self) -> bool:
@@ -145,6 +164,7 @@ class PdfCommandIntent:
             "query_present": self.query is not None,
             "query_length": len(self.query or ""),
             "output_kinds": list(self.output_kinds),
+            "rotation_degrees": self.rotation_degrees,
         }
 
 
@@ -194,6 +214,7 @@ def parse_pdf_intent(command: str) -> PdfCommandIntent:
         if pattern.search(text):
             query = _search_query(text) if kind is PdfIntentKind.SEARCH else None
             output_kinds = ()
+            rotation_degrees = _rotation_degrees(text) if kind is PdfIntentKind.ROTATE else None
             if kind is PdfIntentKind.REPORT:
                 reports = []
                 if _WORD_OUTPUT_RE.search(text):
@@ -211,11 +232,26 @@ def parse_pdf_intent(command: str) -> PdfCommandIntent:
                 kind=kind,
                 query=query,
                 output_kinds=output_kinds,
+                rotation_degrees=rotation_degrees,
             )
     raise PdfIntentError(
         "pdf_intent_missing",
         "PDF에서 요약·설명·검색 등 어떤 작업을 할지 알려주세요.",
     )
+
+
+def _rotation_degrees(command: str) -> int | None:
+    if _ROTATE_180_RE.search(command):
+        return 180
+    explicit = _ROTATE_DEGREES_RE.search(command)
+    if explicit:
+        degrees = int(explicit.group(1))
+        return (360 - degrees) % 360 if _ROTATE_LEFT_RE.search(command) else degrees
+    if _ROTATE_LEFT_RE.search(command):
+        return 270
+    if _ROTATE_RIGHT_RE.search(command):
+        return 90
+    return None
 
 
 def looks_like_pdf_command(command: str, *, connected: bool) -> bool:

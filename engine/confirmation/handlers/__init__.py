@@ -7,6 +7,7 @@ from engine.confirmation.handlers.dynamic_code import resolve as resolve_dynamic
 from engine.confirmation.handlers.edit_action import resolve as resolve_edit_action
 from engine.confirmation.handlers.hwp_scope import resolve as resolve_hwp_scope
 from engine.confirmation.handlers.pdf_external import resolve as resolve_pdf_external
+from engine.confirmation.handlers.pdf_file_action import resolve as resolve_pdf_file_action
 from engine.confirmation.handlers.prepared_action import resolve as resolve_prepared_action
 from engine.confirmation.handlers.skill_policy import resolve as resolve_skill_policy
 from engine.confirmation.handlers.uia_target import resolve as resolve_uia_target
@@ -25,5 +26,7 @@ HANDLERS = {
     "prepared_edit_action": resolve_edit_action,
     "prepared_pdf_external_action": resolve_pdf_external,
     "prepared_pdf_office_action": resolve_pdf_external,
+    "prepared_pdf_file_action": resolve_pdf_file_action,
+    "prepared_pdf_file_undo": resolve_pdf_file_action,
     "action_plan_overwrite": resolve_action_plan,
 }
