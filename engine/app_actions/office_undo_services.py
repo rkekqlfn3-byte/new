@@ -11,6 +11,25 @@ from engine.app_actions.base import (
 )
 from engine.app_actions.office_edit_helpers import exact_office_document
 from engine.app_actions.operations.hwp.insert_table import table_control_count
+from engine.app_actions.operations.hwp.table_cell import (
+    first_table_control,
+    read_addressed_cell,
+    visiting_cell,
+)
+
+
+def _current_cell_text(hwp, prepared) -> str:
+    """Re-read the addressed cell, so restoring proves it landed correctly."""
+    control = first_table_control(hwp)
+    if control is None:
+        return ""
+    with visiting_cell(
+        hwp,
+        control,
+        int(prepared.params["row"]),
+        int(prepared.params["column"]),
+    ):
+        return read_addressed_cell(hwp)[1]
 
 
 class HwpUndoService:
@@ -20,6 +39,7 @@ class HwpUndoService:
         "insert_text",
         "delete_text",
         "insert_table",
+        "set_table_cell",
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
@@ -90,6 +110,12 @@ class HwpUndoService:
                 )
             return
         current_format = self.adapter._paragraph_state(hwp)
+        if prepared.operation == "set_table_cell":
+            if _current_cell_text(hwp, prepared) != str(prepared.params.get("text")):
+                raise AppActionContextChanged(
+                    "직전에 입력한 표 칸 내용이 달라져 복원하지 않았습니다."
+                )
+            return
         if prepared.operation == "insert_table":
             expected = int(prepared.current_state.get("table_count", -1)) + 1
             if table_control_count(hwp) != expected:
@@ -134,6 +160,10 @@ class HwpUndoService:
             ) from error
 
     def _restored_snapshot(self, hwp, prepared, restored_base):
+        if prepared.operation == "set_table_cell":
+            original = str(prepared.params.get("original_text", ""))
+            restored = {"cell_text": _current_cell_text(hwp, prepared)}
+            return restored, restored["cell_text"] == original
         if prepared.operation == "insert_table":
             expected = int(prepared.current_state.get("table_count", -1))
             restored = {"table_count": table_control_count(hwp)}

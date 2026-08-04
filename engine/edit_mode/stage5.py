@@ -140,6 +140,27 @@ def _formalize_text(value: str) -> str:
 _TABLE_SIZE_RE = re.compile(r"(\d+)\s*(?:행|줄)\D{0,4}?(\d+)\s*(?:열|칸)")
 
 
+_TABLE_CELL_RE = re.compile(r"(\d+)\s*(?:행|줄)\D{0,4}?(\d+)\s*(?:열|칸)")
+
+
+def _hwp_table_cell_intent(command: str, quotes):
+    if "표" not in command or not quotes:
+        return None
+    if not any(word in command for word in ("넣어", "입력", "바꿔", "채워", "써")):
+        return None
+    address = _TABLE_CELL_RE.search(command)
+    if not address:
+        return None
+    row, column = int(address.group(1)), int(address.group(2))
+    label = f"표 {row}행 {column}열 입력"
+    return EditIntent(
+        "set_table_cell",
+        {"row": row, "column": column, "text": quotes[-1]},
+        label,
+        after_preview=label,
+    )
+
+
 def _hwp_table_intent(command: str):
     if "표" not in command or not any(
         word in command for word in ("넣어", "삽입", "만들", "추가", "생성")
@@ -160,6 +181,9 @@ def _hwp_table_intent(command: str):
 
 def _hwp_selection_intent(command: str, quotes):
     """한글 intents that need nothing from context beyond the selection."""
+    cell = _hwp_table_cell_intent(command, quotes)
+    if cell is not None:
+        return cell
     table = _hwp_table_intent(command)
     if table is not None:
         return table
@@ -573,6 +597,7 @@ class Stage5NativeEditAdapter:
         "set_line_spacing",
         "delete_text",
         "insert_table",
+        "set_table_cell",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

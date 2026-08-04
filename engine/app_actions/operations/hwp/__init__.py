@@ -18,6 +18,7 @@ from engine.app_actions.operations.hwp.state import (
     char_state,
     paragraph_state,
 )
+from engine.app_actions.operations.hwp.table_cell import SetTableCellOperation
 from engine.app_actions.operations.hwp.text_format import SetTextFormatOperation
 
 HWP_OPERATIONS = OperationRegistry(
@@ -27,6 +28,7 @@ HWP_OPERATIONS = OperationRegistry(
         InsertTextOperation(),
         DeleteTextOperation(),
         InsertTableOperation(),
+        SetTableCellOperation(),
         SetTextFormatOperation(),
         SetParagraphFormatOperation(),
         SetLineSpacingOperation(),

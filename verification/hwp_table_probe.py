@@ -71,6 +71,36 @@ def _probe(lease, steps, checks):
     checks["one_table_control_added"] = table_control_count(hwp) == 1
     checks["result_counted_the_table"] = result["after"]["table_count"] == 1
 
+    steps.append("cell_prepare")
+    caret_before = tuple(hwp.GetPos())
+    cell = adapter.prepare(
+        "set_table_cell", {"row": 2, "column": 3, "text": "매출"}
+    )
+    checks["cell_preview_wrote_nothing"] = cell.params["original_text"] == ""
+    checks["cell_preview_restored_the_caret"] = (
+        tuple(hwp.GetPos()) == caret_before
+    )
+
+    steps.append("cell_execute")
+    cell_result = adapter.execute(cell)
+    checks["cell_execute_reported_verified"] = bool(cell_result.get("verified"))
+    checks["cell_text_read_back"] = cell_result["after"]["cell_text"] == "매출"
+
+    steps.append("cell_out_of_range")
+    try:
+        adapter.prepare(
+            "set_table_cell", {"row": 99, "column": 1, "text": "넘침"}
+        )
+        checks["address_outside_the_table_is_blocked"] = False
+    except Exception as caught:
+        checks["address_outside_the_table_is_blocked"] = (
+            type(caught).__name__ == "AppActionBlocked"
+        )
+
+    steps.append("cell_undo")
+    cell_restored = adapter.undo(cell, {"after_observations": cell_result})
+    checks["cell_undo_reported_verified"] = bool(cell_restored.get("verified"))
+
     steps.append("undo")
     restored = adapter.undo(prepared, {"after_observations": result})
     checks["undo_reported_verified"] = bool(restored.get("verified"))

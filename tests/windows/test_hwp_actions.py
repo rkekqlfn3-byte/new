@@ -11,6 +11,7 @@ from pypdf import PdfWriter
 from engine.api import command_api
 from engine.app_actions.base import AppActionBlocked, AppActionContextChanged
 from engine.app_actions.hwp_adapter import HwpAdapter
+from engine.app_actions.operations.hwp.table_cell import CELL_SEPARATOR
 from engine.app_actions.registry import AppActionRegistry
 from engine.decision import DecisionEngine, PreferenceManager
 from engine.execution_runtime import ExecutionController
@@ -75,6 +76,10 @@ class FakeAction:
         if self.name == "InsertText":
             self.hwp._push_undo()
             text = parameter_set.items.get("Text", "")
+            if self.hwp.cell is not None:
+                self.hwp.cells[self.hwp.cell] = text
+                self.hwp.IsModified = True
+                return True
             if self.hwp.selection is not None:
                 start, end = self.hwp.selection
                 self.hwp.text = self.hwp.text[:start] + text + self.hwp.text[end:]
@@ -99,9 +104,13 @@ class FakeAction:
 class FakeControl:
     """One anchored 한글 object in the HeadCtrl/Next chain."""
 
-    def __init__(self, ctrl_id):
+    def __init__(self, ctrl_id, index=0):
         self.CtrlID = ctrl_id
         self.Next = None
+        self.index = index
+
+    def GetAnchorPos(self, _mode):
+        return ("anchor", self.index)
 
 
 class FakeHAction:
@@ -163,6 +172,11 @@ class FakeHAction:
         return False
 
     def Run(self, name):
+        if name == "ShapeObjTableSelCell":
+            self.hwp.cell = (1, 1)
+            return True
+        if name in {"TableRightCell", "TableLowerCell"}:
+            return self.hwp._step_cell(name)
         if name == "Undo":
             self.hwp._undo()
             return True
@@ -191,6 +205,7 @@ class FakeHAction:
             return True
         if name == "Cancel":
             self.hwp.selection = None
+            self.hwp.cell = None
             return True
         return False
 
@@ -229,14 +244,38 @@ class FakeHwp:
             ),
         )
         self.tables = []
+        self.cells = {}
+        self.cell = None
         self.HeadCtrl = None
         self.HAction = FakeHAction(self)
+
+    def SetPosBySet(self, position):
+        self.table_index = int(position[1])
+        return True
+
+    def FindCtrl(self):
+        return True
+
+    def _step_cell(self, action):
+        if self.cell is None or not self.tables:
+            return False
+        rows, columns = self.tables[0]
+        row, column = self.cell
+        if action == "TableRightCell":
+            if column >= columns:
+                return False
+            self.cell = (row, column + 1)
+        else:
+            if row >= rows:
+                return False
+            self.cell = (row + 1, column)
+        return True
 
     def _rebuild_controls(self):
         head = None
         previous = None
-        for _ in self.tables:
-            control = FakeControl("tbl")
+        for index, _ in enumerate(self.tables):
+            control = FakeControl("tbl", index)
             if previous is None:
                 head = control
             else:
@@ -254,6 +293,7 @@ class FakeHwp:
             self.line_spacing,
             self.line_spacing_type,
             list(self.tables),
+            dict(self.cells),
             self.IsModified,
         ))
 
@@ -268,6 +308,7 @@ class FakeHwp:
                 self.line_spacing,
                 self.line_spacing_type,
                 self.tables,
+                self.cells,
                 self.IsModified,
             ) = self.undo_stack.pop()
             self._rebuild_controls()
@@ -282,12 +323,30 @@ class FakeHwp:
         return (True, 0, 0, 16 + start, 0, 0, 16 + end)
 
     def GetTextFile(self, _format, option):
+        if option == "saveblock" and self.cell is not None:
+            rows, columns = self.tables[0]
+            slots = [""]
+            for row in range(1, rows + 1):
+                for column in range(1, columns + 1):
+                    slots.append(self.cells.get((row, column), ""))
+            return CELL_SEPARATOR.join(slots)
         if option == "saveblock" and self.selection is not None:
             start, end = self.selection
             return self.text[start:end]
         return self.text
 
+    def SetPos(self, _list, para, pos):
+        self.cell = None
+        self.cursor = max(0, int(pos) - 16)
+        return True
+
     def GetPos(self):
+        if self.cell is not None:
+            # 한글 reports the cell's list index here, first cell = 2,
+            # increasing row-major. Confirmed by hwp_table_probe.
+            rows, columns = self.tables[0]
+            row, column = self.cell
+            return (1 + (row - 1) * columns + column, 0, 0)
         return (0, 0, 16 + self.cursor)
 
     def CreateAction(self, name):
@@ -794,6 +853,105 @@ class HwpInsertTableTests(unittest.TestCase):
         hwp._rebuild_controls()
         with self.assertRaises(AppActionContextChanged):
             adapter.undo(prepared, {"after_observations": result})
+
+
+class HwpTableCellTests(unittest.TestCase):
+    """한글 has no cell accessor, so the address is reached by stepping."""
+
+    def _adapter(self, hwp):
+        return HwpAdapter(object_getter=lambda: hwp, require_visible=False)
+
+    def _with_table(self, rows=3, columns=4):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        adapter.execute(
+            adapter.prepare("insert_table", {"rows": rows, "columns": columns})
+        )
+        return hwp, adapter
+
+    def test_text_lands_in_the_addressed_cell(self):
+        hwp, adapter = self._with_table()
+        prepared = adapter.prepare(
+            "set_table_cell", {"row": 2, "column": 3, "text": "매출"}
+        )
+        self.assertEqual("표 2행 3열", prepared.target)
+        self.assertEqual({}, hwp.cells)
+
+        result = adapter.execute(prepared)
+        self.assertTrue(result["verified"])
+        self.assertEqual({(2, 3): "매출"}, hwp.cells)
+        self.assertEqual("매출", result["after"]["cell_text"])
+
+    def test_each_cell_is_addressed_independently(self):
+        hwp, adapter = self._with_table()
+        for row, column, text in ((1, 1, "가"), (3, 4, "나"), (2, 2, "다")):
+            adapter.execute(
+                adapter.prepare(
+                    "set_table_cell",
+                    {"row": row, "column": column, "text": text},
+                )
+            )
+        self.assertEqual({(1, 1): "가", (3, 4): "나", (2, 2): "다"}, hwp.cells)
+
+    def test_an_address_outside_the_table_is_blocked_before_writing(self):
+        hwp, adapter = self._with_table(rows=2, columns=2)
+        for params in (
+            {"row": 3, "column": 1, "text": "넘침"},
+            {"row": 1, "column": 5, "text": "넘침"},
+        ):
+            with self.subTest(params=params):
+                with self.assertRaises(AppActionBlocked):
+                    adapter.prepare("set_table_cell", params)
+        self.assertEqual({}, hwp.cells)
+
+    def test_writing_without_a_table_is_blocked(self):
+        hwp = FakeHwp("표 없는 문서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        with self.assertRaises(AppActionBlocked):
+            adapter.prepare("set_table_cell", {"row": 1, "column": 1, "text": "x"})
+
+    def test_writing_the_same_text_changes_nothing(self):
+        hwp, adapter = self._with_table()
+        adapter.execute(
+            adapter.prepare(
+                "set_table_cell", {"row": 1, "column": 1, "text": "같음"}
+            )
+        )
+        prepared = adapter.prepare(
+            "set_table_cell", {"row": 1, "column": 1, "text": "같음"}
+        )
+        self.assertTrue(prepared.noop)
+        result = adapter.execute(prepared)
+        self.assertFalse(result["changed"])
+
+    def test_undo_restores_the_previous_cell_text(self):
+        hwp, adapter = self._with_table()
+        adapter.execute(
+            adapter.prepare(
+                "set_table_cell", {"row": 2, "column": 2, "text": "처음"}
+            )
+        )
+        prepared = adapter.prepare(
+            "set_table_cell", {"row": 2, "column": 2, "text": "나중"}
+        )
+        self.assertEqual("처음", prepared.params["original_text"])
+        result = adapter.execute(prepared)
+        self.assertEqual("나중", hwp.cells[(2, 2)])
+
+        restored = adapter.undo(prepared, {"after_observations": result})
+        self.assertTrue(restored["verified"])
+        self.assertEqual("처음", hwp.cells[(2, 2)])
+
+    def test_undo_refuses_when_the_cell_changed_since(self):
+        hwp, adapter = self._with_table()
+        prepared = adapter.prepare(
+            "set_table_cell", {"row": 1, "column": 1, "text": "값"}
+        )
+        result = adapter.execute(prepared)
+        hwp.cells[(1, 1)] = "누군가 고침"
+        with self.assertRaises(AppActionContextChanged):
+            adapter.undo(prepared, {"after_observations": result})
+        self.assertEqual("누군가 고침", hwp.cells[(1, 1)])
 
 
 if __name__ == "__main__":
