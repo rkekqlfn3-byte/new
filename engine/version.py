@@ -17,7 +17,7 @@ from pathlib import Path
 APP_VERSION = "1.1.0-rc.6"
 
 # Persisted user-data schema (see default_data/dictionaries.json schema_version).
-DATA_SCHEMA_VERSION = 4
+DATA_SCHEMA_VERSION = 5
 
 
 def _project_root() -> Path:

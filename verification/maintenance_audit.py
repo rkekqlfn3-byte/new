@@ -142,18 +142,19 @@ def retained_parent_reference_paths(child, parent, *, max_depth=6):
 
 def _git_paths(project_root: Path, args):
     result = subprocess.run(
-        ["git", *args],
+        ["git", "-c", "core.quotepath=false", *args, "-z"],
         cwd=project_root,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         check=False,
     )
     if result.returncode != 0:
-        return ()
+        raise RuntimeError(f"git_path_enumeration_failed:{result.returncode}")
+    try:
+        output = result.stdout.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise RuntimeError("git_path_decoding_failed") from error
     return tuple(
-        sorted({line.replace("\\", "/") for line in result.stdout.splitlines() if line})
+        sorted({path.replace("\\", "/") for path in output.split("\0") if path})
     )
 
 
@@ -315,8 +316,17 @@ def audit_large_workspace_files(project_root: Path, threshold=DEFAULT_LARGE_FILE
 
 def run_audit(project_root: Path, *, max_parser_lines=DEFAULT_MAX_PARSER_LINES, large_file_bytes=DEFAULT_LARGE_FILE_BYTES):
     project_root = project_root.resolve()
-    tracked, untracked = repository_paths(project_root)
     findings = []
+    try:
+        tracked, untracked = repository_paths(project_root)
+    except (OSError, RuntimeError) as error:
+        tracked, untracked = (), ()
+        findings.append(AuditFinding(
+            "error",
+            "repository_paths_unavailable",
+            ".",
+            type(error).__name__,
+        ))
     findings.extend(audit_parser_budget(project_root, max_parser_lines))
     findings.extend(audit_module_line_budgets(project_root))
     findings.extend(audit_forbidden_back_references(project_root))

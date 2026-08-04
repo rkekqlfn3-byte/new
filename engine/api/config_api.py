@@ -9,6 +9,7 @@ import eel
 
 from engine.core import get_dict_manager
 from engine.runtime_paths import user_data_path
+from engine.security.credential_protection import CredentialProtectionError
 from engine.storage.json_store import (
     atomic_write_json,
     get_recovery_events,
@@ -30,7 +31,7 @@ def save_ai_config(provider, api_key, routing_mode="auto"):
         return get_dict_manager().config_manager.save_ai_config(
             provider, api_key, routing_mode
         )
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, CredentialProtectionError):
         logger.exception(
             "AI configuration save failed",
             extra={"route": "config", "error_type": "storage_error"},
@@ -44,7 +45,7 @@ def clear_ai_api_key(confirmed=False):
         return False
     try:
         return get_dict_manager().config_manager.clear_ai_api_key()
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, CredentialProtectionError):
         logger.exception(
             "AI API key deletion failed",
             extra={"route": "config", "error_type": "storage_error"},

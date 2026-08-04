@@ -88,6 +88,16 @@ def audit_default_data(default_dir: Path, label="default_data"):
         ):
             if dictionaries.get(field):
                 findings.append(Finding("default_contains_user_data", f"{label}/dictionaries.json", field))
+        protected = (
+            dictionaries.get("ai_config", {}).get("api_key_protected", "")
+            if isinstance(dictionaries.get("ai_config"), dict) else ""
+        )
+        if str(protected or "").strip():
+            findings.append(Finding(
+                "default_contains_protected_api_key",
+                f"{label}/dictionaries.json",
+                "ai_config.api_key_protected",
+            ))
     elif dictionaries is not None:
         findings.append(Finding("invalid_default_schema", f"{label}/dictionaries.json", "최상위 값이 객체가 아닙니다."))
 

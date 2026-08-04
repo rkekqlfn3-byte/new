@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "has_scanned": false,
   "noun_dictionary": {},
   "macro_dictionary": {},
@@ -8,7 +8,7 @@
   "user_nouns": [],
   "ai_config": {
     "provider": "openai",
-    "api_key": "",
+    "api_key_protected": "",
     "routing_mode": "auto"
   },
   "learned_macros": {}

@@ -93,7 +93,7 @@ maintenance audit와 clean commit 기반 Goal refresh를 한 번 더 수행한�
 
 ## 6. 사용자 수동 시험 파일
 
-`outputs/pdf_manual_test_120_20260804/JARVIS_PDF_120_수동테스트_체크표.xlsx`에
+`docs/manual_tests/JARVIS_PDF_120_수동테스트_체크표.xlsx`에
 자동 배터리와 동일한 120문장, 기대 기능·기대 결과·통과 여부·증상·재현 메모
 열을 정리했다. 자동 시험과 실제 GUI 시험 결과를 문장 ID로 직접 비교할 수 있다.
 

@@ -8,6 +8,7 @@ const aiApiKeyStatus = document.getElementById('ai-api-key-status');
 
 function renderAiApiKeyState(config) {
     const hasApiKey = Boolean(config?.has_api_key);
+    const credentialUnavailable = config?.credential_status === 'unavailable';
     if (aiApiKey) {
         aiApiKey.value = '';
         aiApiKey.placeholder = hasApiKey
@@ -15,9 +16,11 @@ function renderAiApiKeyState(config) {
             : 'API 키 입력';
     }
     if (aiApiKeyStatus) {
-        aiApiKeyStatus.textContent = hasApiKey
-            ? 'API 키가 저장되어 있습니다. 빈칸으로 저장하면 기존 키를 유지합니다.'
-            : '저장된 API 키가 없습니다.';
+        aiApiKeyStatus.textContent = credentialUnavailable
+            ? 'Windows 보안 저장소에서 API 키를 읽지 못했습니다. 키를 다시 입력해주세요.'
+            : hasApiKey
+                ? 'API 키가 Windows 사용자 계정으로 보호되어 있습니다. 빈칸으로 저장하면 기존 키를 유지합니다.'
+                : '저장된 API 키가 없습니다.';
     }
     if (btnClearAiApiKey) btnClearAiApiKey.disabled = !hasApiKey;
 }

@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import re
 import threading
@@ -25,6 +26,10 @@ from engine.managers.browser_scanner import scan_chrome_bookmarks
 from engine.managers.config_manager import ConfigManager
 from engine.managers.macro_manager import MacroManager
 from engine.runtime_paths import user_data_path
+from engine.security.credential_protection import (
+    CredentialProtectionError,
+    default_credential_protector,
+)
 from engine.security.launch_policy import is_safe_launch_target
 from engine.skills.run_policy import (
     SkillRunPolicyService,
@@ -34,7 +39,7 @@ from engine.skills.run_policy import (
 from engine.storage.json_store import atomic_write_json, safe_read_json
 
 DICTIONARY_PATH = user_data_path("dictionaries.json")
-DICTIONARY_SCHEMA_VERSION = 4
+DICTIONARY_SCHEMA_VERSION = 5
 
 
 def _manager_locked(method):
@@ -77,6 +82,21 @@ def migrate_v3_to_v4(data):
     return migrated
 
 
+def migrate_v4_to_v5(data, credential_protector):
+    migrated = dict(data)
+    ai_config = dict(migrated.get("ai_config", {}))
+    legacy_api_key = str(ai_config.pop("api_key", "") or "").strip()
+    if legacy_api_key:
+        ai_config["api_key_protected"] = credential_protector.protect(
+            legacy_api_key
+        )
+    else:
+        ai_config.setdefault("api_key_protected", "")
+    migrated["ai_config"] = ai_config
+    migrated["schema_version"] = 5
+    return migrated
+
+
 DICTIONARY_MIGRATIONS = {
     1: migrate_v1_to_v2,
     2: migrate_v2_to_v3,
@@ -84,26 +104,44 @@ DICTIONARY_MIGRATIONS = {
 }
 
 
-def migrate_dictionary_data(data):
+def migrate_dictionary_data(data, credential_protector=None):
     migrated = dict(data) if isinstance(data, dict) else {}
+    protector = credential_protector or default_credential_protector()
+    original_config = migrated.get("ai_config", {})
+    credential_migrated = bool(
+        isinstance(original_config, dict)
+        and str(original_config.get("api_key", "") or "").strip()
+    )
     try:
         version = int(migrated.get("schema_version", 1))
     except (TypeError, ValueError):
         version = 1
     changed = False
     while version < DICTIONARY_SCHEMA_VERSION:
-        migration = DICTIONARY_MIGRATIONS.get(version)
+        migration = (
+            (lambda value: migrate_v4_to_v5(value, protector))
+            if version == 4 else DICTIONARY_MIGRATIONS.get(version)
+        )
         if migration is None:
             raise ValueError(f"사전 스키마 {version} 변환 함수를 찾지 못했습니다.")
         migrated = migration(migrated)
         version += 1
         changed = True
-    return migrated, changed
+    stored_config = migrated.get("ai_config", {})
+    if isinstance(stored_config, dict) and "api_key" in stored_config:
+        migrated = migrate_v4_to_v5(migrated, protector)
+        changed = True
+    return migrated, changed, credential_migrated
 
 class DictionaryManager:
-    def __init__(self, dictionary_path=None):
+    def __init__(self, dictionary_path=None, credential_protector=None):
         self._lock = threading.RLock()
         self.dictionary_path = dictionary_path or DICTIONARY_PATH
+        self.credential_protector = (
+            credential_protector or default_credential_protector()
+        )
+        self._protected_api_key = ""
+        self.credential_error = ""
         self.noun_dict = {}
         self.noun_revision = 0
         self.macro_dict = {}
@@ -119,7 +157,14 @@ class DictionaryManager:
         
         # Sub-managers
         self.macro_manager = MacroManager(self.macro_dict, self.save, self._lock)
-        self.config_manager = ConfigManager(self.ai_config, self.save, self._lock)
+        self.config_manager = ConfigManager(
+            self.ai_config,
+            self.save,
+            self._lock,
+            credential_protector=self.credential_protector,
+            protected_api_key=self._protected_api_key,
+            credential_error=self.credential_error,
+        )
 
     @contextmanager
     def locked(self):
@@ -219,7 +264,16 @@ class DictionaryManager:
         data = safe_read_json(self.dictionary_path, {}) if file_existed else {}
         if not isinstance(data, dict):
             data = {}
-        data, migrated = migrate_dictionary_data(data)
+        original_data = copy.deepcopy(data)
+        try:
+            data, migrated, credential_migrated = migrate_dictionary_data(
+                data, self.credential_protector
+            )
+        except CredentialProtectionError:
+            data = original_data
+            migrated = False
+            credential_migrated = False
+            self.credential_error = "credential_protection_unavailable"
         storage_changed = not file_existed or migrated
 
         if data:
@@ -240,11 +294,27 @@ class DictionaryManager:
             if routing_mode not in ConfigManager.ROUTING_MODES:
                 routing_mode = "auto"
                 storage_changed = True
-            if set(loaded_ai_config) - {"provider", "api_key", "routing_mode"}:
+            if set(loaded_ai_config) - {
+                "provider", "api_key_protected", "routing_mode"
+            }:
                 storage_changed = True
+            protected_api_key = str(
+                loaded_ai_config.get("api_key_protected", "") or ""
+            )
+            api_key = ""
+            if protected_api_key and not self.credential_error:
+                try:
+                    api_key = self.credential_protector.unprotect(
+                        protected_api_key
+                    )
+                except CredentialProtectionError:
+                    self.credential_error = "credential_read_failed"
+            elif loaded_ai_config.get("api_key"):
+                self.credential_error = "credential_migration_required"
+            self._protected_api_key = protected_api_key
             self.ai_config = {
                 "provider": provider,
-                "api_key": loaded_ai_config.get("api_key", ""),
+                "api_key": api_key,
                 "routing_mode": routing_mode,
             }
             self.learned_macros = data.get("learned_macros", {})
@@ -254,7 +324,11 @@ class DictionaryManager:
             if hasattr(self, "macro_manager"):
                 self.macro_manager.macro_dict = self.macro_dict
             if hasattr(self, "config_manager"):
-                self.config_manager.ai_config = self.ai_config
+                self.config_manager.replace_loaded_config(
+                    self.ai_config,
+                    self._protected_api_key,
+                    self.credential_error,
+                )
                 
         # Inject default search engines if not present
         default_search = {
@@ -302,13 +376,23 @@ class DictionaryManager:
         if self._repair_learned_macro_links():
             storage_changed = True
 
-        if storage_changed:
-            self.save()
+        if storage_changed and not self.credential_error:
+            self.save(backup_existing=not credential_migrated)
+        if not self.credential_error:
+            self._migrate_credential_backups()
 
         self._touch_nouns()
 
     @_manager_locked
-    def save(self):
+    def save(self, *, backup_existing=True):
+        if hasattr(self, "config_manager"):
+            stored_ai_config = self.config_manager.serialized_config()
+        else:
+            stored_ai_config = {
+                "provider": self.ai_config.get("provider", "openai"),
+                "api_key_protected": self._protected_api_key,
+                "routing_mode": self.ai_config.get("routing_mode", "auto"),
+            }
         data = copy.deepcopy({
             "schema_version": DICTIONARY_SCHEMA_VERSION,
             "has_scanned": self.has_scanned,
@@ -317,7 +401,7 @@ class DictionaryManager:
             "search_engines_dict": self.search_engines_dict,
             "favorites": self.favorites,
             "user_nouns": sorted(self.user_nouns),
-            "ai_config": self.ai_config,
+            "ai_config": stored_ai_config,
             "learned_macros": self.learned_macros
         })
         directory = os.path.dirname(os.path.abspath(self.dictionary_path))
@@ -327,7 +411,39 @@ class DictionaryManager:
             max_versions=5,
             backup_dir=os.path.join(directory, "backups"),
             version_interval_seconds=300,
+            backup_existing=backup_existing,
         )
+
+    def _migrate_credential_backups(self):
+        path = os.path.abspath(self.dictionary_path)
+        directory = os.path.dirname(path)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        candidates = [f"{path}.bak"]
+        backup_dir = os.path.join(directory, "backups")
+        if os.path.isdir(backup_dir):
+            candidates.extend(
+                os.path.join(backup_dir, name)
+                for name in os.listdir(backup_dir)
+                if name.startswith(f"{stem}_") and name.endswith(".json")
+            )
+        for candidate in candidates:
+            if not os.path.isfile(candidate):
+                continue
+            try:
+                with open(candidate, "r", encoding="utf-8") as source:
+                    data = json.load(source)
+                migrated, changed, _ = migrate_dictionary_data(
+                    data, self.credential_protector
+                )
+                if changed:
+                    atomic_write_json(
+                        candidate, migrated, backup_existing=False
+                    )
+            except (OSError, UnicodeError, ValueError, CredentialProtectionError):
+                self.credential_error = "credential_backup_migration_failed"
+                if hasattr(self, "config_manager"):
+                    self.config_manager.credential_error = self.credential_error
+                break
 
     @_manager_locked
     def get_learned_macro_records(self):

@@ -165,6 +165,7 @@ def atomic_write_json(
     max_versions=0,
     backup_dir=None,
     version_interval_seconds=0,
+    backup_existing=True,
 ):
     """Write JSON without exposing a partially written destination file."""
     path = Path(path)
@@ -180,13 +181,14 @@ def atomic_write_json(
                 output.write("\n")
                 output.flush()
                 os.fsync(output.fileno())
-            backup_json(
-                path,
-                max_versions=max_versions,
-                backup_dir=backup_dir,
-                retries=retries,
-                version_interval_seconds=version_interval_seconds,
-            )
+            if backup_existing:
+                backup_json(
+                    path,
+                    max_versions=max_versions,
+                    backup_dir=backup_dir,
+                    retries=retries,
+                    version_interval_seconds=version_interval_seconds,
+                )
             _replace_with_retry(temporary, path, retries=retries)
         finally:
             try:

@@ -1,5 +1,6 @@
 """Regression tests for read-only maintenance automation."""
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from verification.maintenance_audit import (
     audit_parser_budget,
     audit_secrets,
     audit_tracked_artifacts,
+    repository_paths,
     retained_parent_reference_paths,
 )
 from verification.test_gate_selector import select_test_gates
@@ -144,6 +146,32 @@ class MaintenanceAuditTests(unittest.TestCase):
         codes = {finding.code for finding in findings}
         self.assertIn("tracked_private_or_generated_directory", codes)
         self.assertIn("tracked_generated_artifact", codes)
+
+    def test_git_path_enumeration_preserves_unicode_and_spaces(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            subprocess.run(
+                ["git", "init", "-q"], cwd=root, check=True,
+                capture_output=True,
+            )
+            relative = "outputs/한글 검사 문서.txt"
+            path = root / relative
+            path.parent.mkdir(parents=True)
+            path.write_text("owned fixture", encoding="utf-8")
+            subprocess.run(
+                ["git", "add", "--", relative], cwd=root, check=True,
+                capture_output=True,
+            )
+
+            tracked, untracked = repository_paths(root)
+            findings = audit_tracked_artifacts(root, tracked)
+
+        self.assertEqual((relative,), tracked)
+        self.assertEqual((), untracked)
+        self.assertIn(
+            "tracked_private_or_generated_directory",
+            {finding.code for finding in findings},
+        )
 
     def test_generated_directory_is_one_warning_and_not_walked_per_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:

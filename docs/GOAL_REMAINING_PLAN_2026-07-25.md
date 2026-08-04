@@ -66,7 +66,7 @@
 
 ### R1. Excel 100문장 수동 시험 (Phase 4·5 잔여)
 
-- 도구: `outputs/manual_test_100_20260723/JARVIS_100문장_수동테스트_체크표.xlsx`,
+- 도구: `docs/manual_tests/JARVIS_100문장_수동테스트_체크표.xlsx`,
   [직접 시험 문장 100개](PROTOTYPE1_MANUAL_TEST_100.md)
 - 실행: `jarvis_start`(Python 소스)로 JARVIS 소유 임시 Excel 문서에 100문장을
   순서대로 입력하고 체크표에 판정만 기록한다.

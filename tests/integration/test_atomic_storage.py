@@ -191,7 +191,7 @@ class DictionarySchemaMigrationTests(unittest.TestCase):
             persisted = safe_read_json(path)
 
             self.assertEqual("my.exe", manager.noun_dict["내앱"])
-            self.assertEqual(4, persisted["schema_version"])
+            self.assertEqual(5, persisted["schema_version"])
             self.assertEqual("my.exe", persisted["noun_dictionary"]["내앱"])
             self.assertTrue(Path(f"{path}.bak").is_file())
 

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master, "feature/**", "codex/**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +15,7 @@ concurrency:
 
 jobs:
   source-quality:
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 45
 
     steps:
@@ -47,13 +48,65 @@ jobs:
       - name: Lint Python sources
         run: python -m ruff check .
 
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem gui -Recurse -Filter *.js -File)
+          foreach ($file in $files) {
+            node --check $file.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Check installed dependency consistency
+        run: python -m pip check
+
       - name: Run complete regression suite
         run: python -m unittest -q
 
       - name: Run strict maintenance audit
         run: python -m verification.maintenance_audit --strict
 
-      - name: Run source-bound product Goal gate
+      - name: Run release secret and artifact audit
+        run: python -m verification.release_security_audit
+
+  native-office-goal:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: source-quality
+    runs-on: [self-hosted, windows, x64, jarvis-office]
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require the protected interactive Office runner
+        shell: pwsh
+        run: |
+          if ($env:JARVIS_OFFICE_RUNNER -ne '1') {
+            throw 'JARVIS_OFFICE_RUNNER=1 is required on the protected runner.'
+          }
+          if (-not [Environment]::UserInteractive) {
+            throw 'Office Goal probes require an interactive user session.'
+          }
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-lock.txt
+            requirements-dev-lock.txt
+
+      - name: Install locked dependencies
+        run: >-
+          python -m pip install
+          -r requirements-lock.txt
+          -r requirements-dev-lock.txt
+
+      - name: Run source-bound product Goal gate on native apps
         run: >-
           python -m verification.product_goal_acceptance
           --refresh-probes

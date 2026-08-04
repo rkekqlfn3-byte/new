@@ -27,6 +27,16 @@ class DictionaryPersistenceTests(unittest.TestCase):
                 "gemini", "test-key", "ai_first"
             ))
 
+            stored = Path(path).read_text(encoding="utf-8")
+            stored_json = json.loads(stored)
+            self.assertNotIn("test-key", stored)
+            self.assertNotIn("api_key", stored_json["ai_config"])
+            self.assertTrue(
+                stored_json["ai_config"]["api_key_protected"].startswith(
+                    "dpapi:v1:"
+                )
+            )
+
             reloaded = DictionaryManager(dictionary_path=path)
             self.assertEqual("test.exe", reloaded.noun_dict["새테스트앱"])
             self.assertEqual("test.exe", reloaded.noun_dict["별명앱"])
@@ -37,6 +47,76 @@ class DictionaryPersistenceTests(unittest.TestCase):
                 set(reloaded.get_ai_config()),
             )
             self.assertEqual("ai_first", reloaded.get_ai_config()["routing_mode"])
+            self.assertEqual("test-key", reloaded.get_ai_config()["api_key"])
+
+    def test_legacy_plaintext_key_and_backups_migrate_to_dpapi(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "dictionaries.json"
+            backup = Path(f"{path}.bak")
+            version_dir = root / "backups"
+            version_dir.mkdir()
+            version = version_dir / "dictionaries_legacy.json"
+            legacy_secret = "owned-legacy-api-key"
+            legacy = {
+                "schema_version": 4,
+                "ai_config": {
+                    "provider": "openai",
+                    "api_key": legacy_secret,
+                    "routing_mode": "auto",
+                },
+            }
+            for candidate in (path, backup, version):
+                candidate.write_text(
+                    json.dumps(legacy, ensure_ascii=False), encoding="utf-8"
+                )
+
+            manager = DictionaryManager(dictionary_path=str(path))
+
+            self.assertEqual(legacy_secret, manager.get_ai_config()["api_key"])
+            for candidate in (path, backup, version):
+                content = candidate.read_text(encoding="utf-8")
+                stored = json.loads(content)
+                self.assertNotIn(legacy_secret, content)
+                self.assertEqual(5, stored["schema_version"])
+                self.assertNotIn("api_key", stored["ai_config"])
+                self.assertTrue(
+                    stored["ai_config"]["api_key_protected"].startswith(
+                        "dpapi:v1:"
+                    )
+                )
+
+    def test_invalid_protected_key_is_not_erased_or_exposed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "dictionaries.json"
+            protected = "dpapi:v1:not-valid-base64"
+            path.write_text(
+                json.dumps({
+                    "schema_version": 5,
+                    "ai_config": {
+                        "provider": "openai",
+                        "api_key_protected": protected,
+                        "routing_mode": "auto",
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            manager = DictionaryManager(dictionary_path=str(path))
+
+            self.assertEqual("", manager.get_ai_config()["api_key"])
+            self.assertEqual(
+                "unavailable",
+                manager.config_manager.get_public_ai_config()[
+                    "credential_status"
+                ],
+            )
+            self.assertEqual(
+                protected,
+                json.loads(path.read_text(encoding="utf-8"))[
+                    "ai_config"
+                ]["api_key_protected"],
+            )
 
     def test_new_dictionary_has_no_apps_before_manual_scan(self):
         with tempfile.TemporaryDirectory() as temp_dir:

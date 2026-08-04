@@ -29,6 +29,7 @@ class ReleaseDefaultDataTests(unittest.TestCase):
                 (target / "dictionaries.json").read_text(encoding="utf-8")
             )
             dictionaries["ai_config"]["api_key"] = "unit-test-secret-value"
+            dictionaries["ai_config"]["api_key_protected"] = "dpapi:v1:test"
             (target / "dictionaries.json").write_text(
                 json.dumps(dictionaries), encoding="utf-8"
             )
@@ -37,6 +38,7 @@ class ReleaseDefaultDataTests(unittest.TestCase):
             )
             codes = {finding.code for finding in audit_default_data(target)}
             self.assertIn("default_contains_api_key", codes)
+            self.assertIn("default_contains_protected_api_key", codes)
             self.assertIn("default_contains_memory", codes)
 
     def test_binary_scanner_redacts_and_detects_known_secret(self):
