@@ -96,6 +96,14 @@ class FakeAction:
         return False
 
 
+class FakeControl:
+    """One anchored 한글 object in the HeadCtrl/Next chain."""
+
+    def __init__(self, ctrl_id):
+        self.CtrlID = ctrl_id
+        self.Next = None
+
+
 class FakeHAction:
     def __init__(self, hwp):
         self.hwp = hwp
@@ -112,6 +120,14 @@ class FakeHAction:
         return True
 
     def Execute(self, name, parameter_set):
+        if name == "TableCreate":
+            self.hwp._push_undo()
+            self.hwp.tables.append(
+                (int(parameter_set.Rows), int(parameter_set.Cols))
+            )
+            self.hwp._rebuild_controls()
+            self.hwp.IsModified = True
+            return True
         if name == "ParagraphShape":
             self.hwp._push_undo()
             self.hwp.paragraph_alignment = int(parameter_set.AlignType)
@@ -199,6 +215,9 @@ class FakeHwp:
             HParaShape=FakeShapeSet(
                 AlignType=0, LineSpacing=160, LineSpacingType=0
             ),
+            HTableCreation=FakeShapeSet(
+                Rows=1, Cols=1, WidthType=0, HeightType=0
+            ),
             HFindReplace=FakeShapeSet(
                 Direction=2,
                 FindString="",
@@ -209,7 +228,21 @@ class FakeHwp:
                 MatchCase=0,
             ),
         )
+        self.tables = []
+        self.HeadCtrl = None
         self.HAction = FakeHAction(self)
+
+    def _rebuild_controls(self):
+        head = None
+        previous = None
+        for _ in self.tables:
+            control = FakeControl("tbl")
+            if previous is None:
+                head = control
+            else:
+                previous.Next = control
+            previous = control
+        self.HeadCtrl = head
 
     def _push_undo(self):
         self.undo_stack.append((
@@ -220,6 +253,7 @@ class FakeHwp:
             self.paragraph_alignment,
             self.line_spacing,
             self.line_spacing_type,
+            list(self.tables),
             self.IsModified,
         ))
 
@@ -233,8 +267,10 @@ class FakeHwp:
                 self.paragraph_alignment,
                 self.line_spacing,
                 self.line_spacing_type,
+                self.tables,
                 self.IsModified,
             ) = self.undo_stack.pop()
+            self._rebuild_controls()
 
     def select(self, start=0, end=None):
         self.selection = (start, len(self.text) if end is None else end)
@@ -672,6 +708,92 @@ class HwpDeleteTextTests(unittest.TestCase):
         with self.assertRaises(AppActionContextChanged):
             adapter.undo(prepared, {"after_observations": result})
         self.assertEqual("누군가 그 사이에 고쳤습니다.", hwp.text)
+
+
+class HwpInsertTableTests(unittest.TestCase):
+    """Structure, not text: verified by counting table controls."""
+
+    def _adapter(self, hwp):
+        return HwpAdapter(object_getter=lambda: hwp, require_visible=False)
+
+    def test_table_is_created_and_counted(self):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("insert_table", {"rows": 3, "columns": 4})
+        self.assertEqual(0, prepared.current_state["table_count"])
+        self.assertEqual("3행 4열 표", prepared.target)
+        # Preview alone creates nothing.
+        self.assertEqual([], hwp.tables)
+
+        result = adapter.execute(prepared)
+        self.assertTrue(result["verified"])
+        self.assertEqual([(3, 4)], hwp.tables)
+        self.assertEqual(1, result["after"]["table_count"])
+
+    def test_a_second_table_counts_from_the_existing_ones(self):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        adapter.execute(adapter.prepare("insert_table", {"rows": 2, "columns": 2}))
+        prepared = adapter.prepare("insert_table", {"rows": 5, "columns": 3})
+        self.assertEqual(1, prepared.current_state["table_count"])
+        result = adapter.execute(prepared)
+        self.assertEqual(2, result["after"]["table_count"])
+        self.assertEqual([(2, 2), (5, 3)], hwp.tables)
+
+    def test_sizes_outside_the_safe_range_are_blocked(self):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        for params in (
+            {"rows": 0, "columns": 3},
+            {"rows": 3, "columns": 0},
+            {"rows": 500, "columns": 3},
+            {"rows": 3, "columns": 99},
+            {"rows": "셋", "columns": 3},
+            {"columns": 3},
+            {"rows": 3},
+        ):
+            with self.subTest(params=params):
+                with self.assertRaises(AppActionBlocked):
+                    adapter.prepare("insert_table", params)
+        self.assertEqual([], hwp.tables)
+
+    def test_a_selection_blocks_insertion_rather_than_replacing_it(self):
+        hwp = FakeHwp("지우면 안 되는 본문", full_name=r"C:\docs.hwp")
+        hwp.selection = (0, 3)
+        adapter = self._adapter(hwp)
+        with self.assertRaises(AppActionBlocked):
+            adapter.prepare("insert_table", {"rows": 2, "columns": 2})
+        self.assertEqual("지우면 안 되는 본문", hwp.text)
+
+    def test_a_document_that_moved_after_approval_is_not_changed(self):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("insert_table", {"rows": 2, "columns": 2})
+        hwp.text = "그 사이에 바뀐 내용"
+        with self.assertRaises(AppActionContextChanged):
+            adapter.execute(prepared)
+        self.assertEqual([], hwp.tables)
+
+    def test_undo_removes_the_table(self):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("insert_table", {"rows": 3, "columns": 4})
+        result = adapter.execute(prepared)
+        self.assertEqual(1, len(hwp.tables))
+
+        restored = adapter.undo(prepared, {"after_observations": result})
+        self.assertTrue(restored["verified"])
+        self.assertEqual([], hwp.tables)
+
+    def test_undo_refuses_when_the_table_is_already_gone(self):
+        hwp = FakeHwp("보고서", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("insert_table", {"rows": 3, "columns": 4})
+        result = adapter.execute(prepared)
+        hwp.tables = []
+        hwp._rebuild_controls()
+        with self.assertRaises(AppActionContextChanged):
+            adapter.undo(prepared, {"after_observations": result})
 
 
 if __name__ == "__main__":

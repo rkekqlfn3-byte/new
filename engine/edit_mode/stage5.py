@@ -137,8 +137,32 @@ def _formalize_text(value: str) -> str:
     return text
 
 
+_TABLE_SIZE_RE = re.compile(r"(\d+)\s*(?:행|줄)\D{0,4}?(\d+)\s*(?:열|칸)")
+
+
+def _hwp_table_intent(command: str):
+    if "표" not in command or not any(
+        word in command for word in ("넣어", "삽입", "만들", "추가", "생성")
+    ):
+        return None
+    size = _TABLE_SIZE_RE.search(command)
+    if not size:
+        raise Stage5EditError("표는 '3행 4열 표 넣어줘'처럼 행과 열을 함께 알려주세요.")
+    rows, columns = int(size.group(1)), int(size.group(2))
+    label = f"{rows}행 {columns}열 표 삽입"
+    return EditIntent(
+        "insert_table",
+        {"rows": rows, "columns": columns},
+        label,
+        after_preview=label,
+    )
+
+
 def _hwp_selection_intent(command: str, quotes):
     """한글 intents that need nothing from context beyond the selection."""
+    table = _hwp_table_intent(command)
+    if table is not None:
+        return table
     if not quotes and any(
         word in command for word in ("삭제", "지워", "지워줘", "없애", "빼줘")
     ):
@@ -548,6 +572,7 @@ class Stage5NativeEditAdapter:
         "set_paragraph_format",
         "set_line_spacing",
         "delete_text",
+        "insert_table",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

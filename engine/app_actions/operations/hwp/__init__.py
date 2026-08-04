@@ -5,6 +5,7 @@ from __future__ import annotations
 from engine.app_actions.operations.contracts import OperationRegistry
 from engine.app_actions.operations.hwp.delete_text import DeleteTextOperation
 from engine.app_actions.operations.hwp.find_replace import FindReplaceOperation
+from engine.app_actions.operations.hwp.insert_table import InsertTableOperation
 from engine.app_actions.operations.hwp.insert_text import InsertTextOperation
 from engine.app_actions.operations.hwp.line_spacing import SetLineSpacingOperation
 from engine.app_actions.operations.hwp.paragraph_format import (
@@ -25,6 +26,7 @@ HWP_OPERATIONS = OperationRegistry(
     (
         InsertTextOperation(),
         DeleteTextOperation(),
+        InsertTableOperation(),
         SetTextFormatOperation(),
         SetParagraphFormatOperation(),
         SetLineSpacingOperation(),

@@ -10,6 +10,7 @@ from engine.app_actions.base import (
     PreparedAction,
 )
 from engine.app_actions.office_edit_helpers import exact_office_document
+from engine.app_actions.operations.hwp.insert_table import table_control_count
 
 
 class HwpUndoService:
@@ -18,6 +19,7 @@ class HwpUndoService:
     SUPPORTED = frozenset({
         "insert_text",
         "delete_text",
+        "insert_table",
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
@@ -88,6 +90,13 @@ class HwpUndoService:
                 )
             return
         current_format = self.adapter._paragraph_state(hwp)
+        if prepared.operation == "insert_table":
+            expected = int(prepared.current_state.get("table_count", -1)) + 1
+            if table_control_count(hwp) != expected:
+                raise AppActionContextChanged(
+                    "직전에 넣은 표가 그대로 있지 않아 복원하지 않았습니다."
+                )
+            return
         if prepared.operation == "set_line_spacing":
             if current_format.get("line_spacing") != int(
                 prepared.params.get("line_spacing", -1)
@@ -125,6 +134,10 @@ class HwpUndoService:
             ) from error
 
     def _restored_snapshot(self, hwp, prepared, restored_base):
+        if prepared.operation == "insert_table":
+            expected = int(prepared.current_state.get("table_count", -1))
+            restored = {"table_count": table_control_count(hwp)}
+            return restored, restored["table_count"] == expected
         if prepared.operation in {"insert_text", "delete_text", "find_replace"}:
             expected = str(prepared.current_state.get("document_digest") or "").upper()
             restored = {"document_digest": restored_base["text_digest"]}
