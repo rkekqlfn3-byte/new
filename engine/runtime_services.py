@@ -53,6 +53,7 @@ class ParserRuntimeServices:
     edit_mode_controller: Any
     edit_mode_handler: Any
     pdf_intake_manager: Any
+    pdf_task_service: Any
     decision_engine: Any
     preference_manager: Any
     app_command_router: Any

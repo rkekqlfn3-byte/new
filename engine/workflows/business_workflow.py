@@ -49,7 +49,7 @@ EXECUTABLE_STEP_NAMES = frozenset({
     "create_hwp_report",
     "create_powerpoint_summary",
 })
-if frozenset(STEP_NAMES) != EXECUTABLE_STEP_NAMES:
+if not EXECUTABLE_STEP_NAMES.issubset(STEP_NAMES):
     raise RuntimeError("워크플로 단계 레지스트리와 실행기 허용 목록이 다릅니다.")
 MAX_WORKSHEETS = 20
 MAX_SOURCE_CELLS_PER_SHEET = 50_000
@@ -875,11 +875,13 @@ class WordReportWriter:
         number_style = str(preferences.get("number_format") or "plain")
         tone = str(preferences.get("report_tone") or "formal")
         table_style = str(preferences.get("table_style") or "basic")
+        source_kind = str(preferences.get("_source_kind") or "excel").casefold()
+        source_label = "PDF" if source_kind == "pdf" else "Excel"
         intro = {
-            "formal": "본 보고서는 Excel 원본을 읽기 전용으로 분석한 결과입니다.",
-            "concise": "Excel 분석 결과 요약",
-            "friendly": "Excel 자료에서 확인한 핵심 내용을 정리했습니다.",
-        }.get(tone, "Excel 분석 결과 요약")
+            "formal": f"본 보고서는 {source_label} 원본을 읽기 전용으로 분석한 결과입니다.",
+            "concise": f"{source_label} 분석 결과 요약",
+            "friendly": f"{source_label} 자료에서 확인한 핵심 내용을 정리했습니다.",
+        }.get(tone, f"{source_label} 분석 결과 요약")
         lines = [product.title, intro, "", "핵심 지표"]
         for metric in product.metrics:
             lines.append(
@@ -1371,10 +1373,25 @@ class HwpReportWriter:
                 actual_text = str(hwp.GetTextFile("UNICODE", "") or "")
                 if product.title not in actual_text or len(actual_text) < len(product.title):
                     raise WorkflowError("한글 보고서 내용 재읽기 검증에 실패했습니다.")
+                required_citations = [
+                    str(item)
+                    for item in product.insights
+                    if str(item).startswith("근거 페이지:")
+                ]
+                if any(item not in actual_text for item in required_citations):
+                    raise WorkflowError("한글 보고서 페이지 인용 재읽기 검증에 실패했습니다.")
                 if not bool(hwp.SaveAs(str(output_path), "HWP", "")):
                     raise WorkflowError("한글 보고서를 저장하지 못했습니다.")
                 if not output_path.is_file():
                     raise WorkflowError("한글 보고서 저장 후 파일을 찾을 수 없습니다.")
+                actual_text, reopened = self._reopen_pdf_output(
+                    hwp,
+                    output_path,
+                    context,
+                    product,
+                    required_citations,
+                    actual_text,
+                )
                 return {
                     "path": str(output_path),
                     "fingerprint": file_fingerprint(output_path),
@@ -1382,6 +1399,10 @@ class HwpReportWriter:
                         "exists": True,
                         "format": "hwp",
                         "content_readback": True,
+                        "reopened": reopened,
+                        "citation_present": not required_citations or all(
+                            item in actual_text for item in required_citations
+                        ),
                         "title_present": True,
                         "text_length": len(actual_text),
                         "content_digest": hashlib.sha256(
@@ -1405,6 +1426,31 @@ class HwpReportWriter:
                 hwp = None
                 if lease is not None:
                     lease.cleanup()
+
+    @staticmethod
+    def _reopen_pdf_output(
+        hwp,
+        output_path,
+        context,
+        product,
+        required_citations,
+        actual_text,
+    ):
+        source_kind = str(
+            (context.get("preferences") or {}).get("_source_kind") or ""
+        ).casefold()
+        if source_kind != "pdf":
+            return actual_text, False
+        hwp.Clear(1)
+        if not bool(hwp.Open(str(output_path), "HWP", "forceopen:true")):
+            raise WorkflowError("한글 PDF 보고서를 다시 열지 못했습니다.")
+        reopened_text = str(hwp.GetTextFile("UNICODE", "") or "")
+        if (
+            product.title not in reopened_text
+            or any(item not in reopened_text for item in required_citations)
+        ):
+            raise WorkflowError("한글 PDF 보고서 재열기 검증에 실패했습니다.")
+        return reopened_text, True
 
 
 def _hwp_report_worker(
@@ -1529,6 +1575,35 @@ class PowerPointSummaryWriter:
         preferences = dict(preferences or {})
         number_style = str(preferences.get("number_format") or "plain")
         source = Path(product.source_files[0]).name if product.source_files else ""
+        if str(preferences.get("_source_kind") or "").casefold() == "pdf":
+            slide_count = max(3, min(int(slide_count), 20))
+            insights = [str(item) for item in product.insights if str(item).strip()]
+            summary = insights[0] if insights else "PDF에서 요약 내용을 찾지 못했습니다."
+            citations = next(
+                (item for item in insights if item.startswith("근거 페이지:")),
+                "근거 페이지가 기록되지 않았습니다.",
+            )
+            base = [
+                (product.title, f"PDF 분석 요약\r\n원본: {source}"),
+                ("핵심 요약", summary[:5_000]),
+                ("근거 페이지", citations),
+                ("검증", "원본 PDF는 변경하지 않았으며 페이지 인용을 유지했습니다."),
+                ("다음 단계", f"상세 내용은 함께 생성한 {report_label} 보고서를 확인하세요."),
+            ]
+            if slide_count <= 5:
+                selected = {
+                    3: (base[0], base[1], base[2]),
+                    4: (base[0], base[1], base[2], base[3]),
+                    5: tuple(base),
+                }
+                return list(selected[slide_count])
+            details = [
+                (f"상세 요약 {index + 1}", insight[:5_000])
+                for index, insight in enumerate(insights[1:slide_count - 4])
+            ]
+            while len(base[:-1] + details + base[-1:]) < slide_count:
+                details.append(("추가 확인", citations))
+            return (base[:-1] + details + base[-1:])[:slide_count]
         metrics = "\r\n".join(
             f"• {item.get('name')}: 합계 {_format_number(item.get('sum'), number_style)} / "
             f"평균 {_format_number(item.get('average'), number_style)}"

@@ -57,6 +57,14 @@ function boundedReferenceText(value, limit) {
         .replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
+function messageContentForModelContext(element) {
+    if (element?.dataset?.sessionOnly === 'true') {
+        return '[PDF 기반 응답은 세션 전용이라 다시 전송하지 않습니다.]';
+    }
+    return element?.dataset?.rawContent
+        || (element?.querySelector('.bubble')?.innerText.trim() || '');
+}
+
 function compactCommandResult(response, responseText) {
     const value = response && typeof response === 'object' ? response : {};
     const data = value.data && typeof value.data === 'object' ? value.data : {};
@@ -188,7 +196,7 @@ async function sendMessage(isRetry = false) {
                 const oldElements = allMsgs.slice(0, allMsgs.length - 10).filter(el => !el.classList.contains('summarized'));
                 const oldMessages = oldElements.map(el => ({
                     role: el.classList.contains('outgoing') ? 'user' : 'assistant',
-                    content: el.dataset.rawContent || (el.querySelector('.bubble')?.innerText.trim() || '')
+                    content: messageContentForModelContext(el)
                 })).filter(msg => msg.content);
 
                 if (oldMessages.length > 0) {
@@ -199,7 +207,7 @@ async function sendMessage(isRetry = false) {
             summaryPayload = window.conversationSummary;
             historyPayload = allMsgs.slice(-10).map(el => ({
                 role: el.classList.contains('outgoing') ? 'user' : 'assistant',
-                content: el.dataset.rawContent || (el.querySelector('.bubble')?.innerText.trim() || '')
+                content: messageContentForModelContext(el)
             })).filter(msg => msg.content);
         }
 
@@ -231,7 +239,10 @@ async function sendMessage(isRetry = false) {
             responseText = (typeof response === 'object' && response !== null) ? (response.display_message || response.message || response.response || JSON.stringify(response)) : response;
         }
         if (mode === 'command' && response) {
-            rememberCommandTurn(text, response, responseText || '');
+            const referenceText = response?.data?.chat_persistence === 'session_only'
+                ? '[PDF 기반 응답은 세션 전용입니다.]'
+                : (responseText || '');
+            rememberCommandTurn(text, response, referenceText);
         }
         if (
             mode === 'edit'
@@ -250,13 +261,15 @@ async function sendMessage(isRetry = false) {
         } else if (streamDiv && (currentStreamRawContent || responseText)) {
             markActiveConfirmationResolved(text);
             finalizeStreamMessage(streamDiv, responseText || currentStreamRawContent);
+            window.applyMessagePersistencePolicy?.(streamDiv, response);
         } else if (streamDiv) {
             markActiveConfirmationResolved(text);
             streamDiv.remove();
             addMessage("AI가 빈 응답을 반환했어요. 잠시 후 다시 시도해주세요.", true);
         } else if (responseText) {
             markActiveConfirmationResolved(text);
-            addMessage(responseText, true);
+            const message = addMessage(responseText, true);
+            window.applyMessagePersistencePolicy?.(message, response);
         } else {
             addMessage("AI가 빈 응답을 반환했어요. 잠시 후 다시 시도해주세요.", true);
         }

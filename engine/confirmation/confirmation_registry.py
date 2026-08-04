@@ -176,3 +176,83 @@ class ConfirmationRegistry:
             },
         )
         return self.result(record)
+
+    def queue_pdf_external_action(self, prepared, session_id, original_command):
+        """Pause before any PDF text crosses the configured AI boundary."""
+        transfer = dict(prepared.get("transfer") or {})
+        pages = tuple(int(page) for page in transfer.get("page_numbers", ()))
+        page_label = ", ".join(str(page) for page in pages)
+        provider = str(transfer.get("provider", "AI")).upper()
+        message = (
+            f"PDF 내용을 {provider}로 전송해 분석할까요?\n"
+            f"- 전송 페이지: {page_label} ({len(pages)}페이지)\n"
+            f"- 전송 글자 수: {int(transfer.get('character_count', 0)):,}자\n"
+            "- 원본 PDF는 변경하지 않습니다."
+        )
+        output_names = list((prepared.get("office") or {}).get("output_names") or ())
+        if output_names:
+            message += "\n- 새로 만들 파일: " + ", ".join(map(str, output_names))
+        record = self.pending.create(
+            session_id=normalize_session_id(session_id),
+            execution_id=self._execution_id(),
+            original_command=original_command,
+            reason="pdf_external_transfer",
+            message=message,
+            action=f"pdf_{prepared.get('intent', 'analysis')}",
+            target=prepared.get("connection_id"),
+            options=[
+                {
+                    "id": "continue",
+                    "label": "전송하고 실행",
+                    "description": "표시된 페이지만 AI로 전송해 분석합니다.",
+                    "recommended": True,
+                    "aliases": ["응", "네", "예", "진행", "계속", "실행"],
+                },
+                {
+                    "id": "cancel",
+                    "label": "취소",
+                    "description": "PDF 내용을 전송하지 않고 작업을 취소합니다.",
+                    "cancel": True,
+                    "aliases": ["아니", "아니요", "그만", "취소"],
+                },
+            ],
+            payload=copy.deepcopy(prepared),
+        )
+        return self.result(record)
+
+    def queue_pdf_office_action(self, prepared, session_id, original_command):
+        """Pause before creating an Office artifact from a verified PDF table."""
+        office = dict(prepared.get("office") or {})
+        output_names = list(office.get("output_names") or ())
+        message = (
+            "확인한 PDF 표로 새 Excel 파일을 만들까요?\n"
+            f"- 새로 만들 파일: {', '.join(map(str, output_names))}\n"
+            "- 원본 PDF는 변경하지 않으며 기존 파일을 덮어쓰지 않습니다."
+        )
+        record = self.pending.create(
+            session_id=normalize_session_id(session_id),
+            execution_id=self._execution_id(),
+            original_command=original_command,
+            reason="pdf_office_create",
+            message=message,
+            action="pdf_table_to_excel",
+            target=prepared.get("connection_id"),
+            options=[
+                {
+                    "id": "continue",
+                    "label": "파일 만들기",
+                    "description": "표를 새 Excel 파일에 쓰고 다시 읽어 검증합니다.",
+                    "recommended": True,
+                    "aliases": ["응", "네", "예", "진행", "계속", "실행"],
+                },
+                {
+                    "id": "cancel",
+                    "label": "취소",
+                    "description": "파일을 만들지 않고 취소합니다.",
+                    "cancel": True,
+                    "aliases": ["아니", "아니요", "그만", "취소"],
+                },
+            ],
+            payload=copy.deepcopy(prepared),
+        )
+        return self.result(record)

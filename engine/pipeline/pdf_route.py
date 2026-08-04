@@ -34,6 +34,8 @@ def _failure(error, *, action="pdf_command"):
     if isinstance(error, PdfReadError):
         if error.code is PdfReadErrorCode.DEPENDENCY_UNAVAILABLE:
             error_type = "environment_error"
+        elif error.outcome == "needs_input":
+            status = "clarification_required"
         elif error.code is PdfReadErrorCode.TIMEOUT:
             error_type = "timeout"
         elif error.code is PdfReadErrorCode.CANCELLED:
@@ -77,7 +79,7 @@ def _unimplemented(request):
     )
 
 
-def try_execute_pdf_route(parser, raw_input, *, log_callback=None):
+def try_execute_pdf_route(parser, raw_input, *, session_id=None, log_callback=None):
     manager = getattr(parser, "pdf_intake_manager", None)
     if manager is None:
         return None
@@ -90,6 +92,43 @@ def try_execute_pdf_route(parser, raw_input, *, log_callback=None):
             log_callback(
                 "[PDF] intent="
                 f"{request.intent.kind.value} pages={len(request.reference.page_numbers)}"
+            )
+        if request.intent.kind in {
+            PdfIntentKind.SEARCH,
+            PdfIntentKind.TABLE_OF_CONTENTS,
+            PdfIntentKind.TABLE_EXTRACT,
+        }:
+            service = getattr(parser, "pdf_task_service", None)
+            if service is None:
+                return _unimplemented(request)
+            if (
+                request.intent.kind is PdfIntentKind.TABLE_EXTRACT
+                and request.intent.output_kinds == ("excel",)
+            ):
+                confirmations = getattr(parser, "confirmations", None)
+                if confirmations is None:
+                    return _unimplemented(request)
+                prepared = service.prepare_table_excel(request)
+                return confirmations.queue_pdf_office_action(
+                    prepared,
+                    session_id,
+                    raw_input,
+                )
+            return service.execute_local(request)
+        if request.intent.kind in {
+            PdfIntentKind.SUMMARY,
+            PdfIntentKind.EXPLAIN,
+            PdfIntentKind.REPORT,
+        }:
+            service = getattr(parser, "pdf_task_service", None)
+            confirmations = getattr(parser, "confirmations", None)
+            if service is None or confirmations is None:
+                return _unimplemented(request)
+            prepared = service.prepare_external(request, raw_input)
+            return confirmations.queue_pdf_external_action(
+                prepared,
+                session_id,
+                raw_input,
             )
         if request.intent.kind is not PdfIntentKind.PAGE_COUNT:
             return _unimplemented(request)

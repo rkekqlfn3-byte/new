@@ -1,23 +1,24 @@
 import unittest
 
 from engine.workflow_step_registry import (
+    pdf_workflow_step_recipe,
     registered_workflow_step_names,
     report_workflow_step_order,
     report_workflow_step_recipe,
+    validate_pdf_workflow_step_recipe,
     validate_report_workflow_step_recipe,
 )
 
 
 class WorkflowStepRegistryTests(unittest.TestCase):
     def test_registered_recipes_are_sequential_content_free_allowlists(self):
-        self.assertEqual(
-            (
+        self.assertTrue(
+            {
                 "analyze_excel",
                 "create_word_report",
                 "create_hwp_report",
                 "create_powerpoint_summary",
-            ),
-            registered_workflow_step_names(),
+            }.issubset(registered_workflow_step_names())
         )
         for report_format in ("word", "hwp", "both"):
             with self.subTest(report_format=report_format):
@@ -33,6 +34,28 @@ class WorkflowStepRegistryTests(unittest.TestCase):
                 serialized = str(recipe).casefold()
                 self.assertNotIn("path", serialized)
                 self.assertNotIn("content", serialized)
+
+    def test_pdf_recipes_are_content_free_and_exactly_allowlisted(self):
+        outputs = ("word", "hwp", "powerpoint", "excel")
+        recipe = pdf_workflow_step_recipe(outputs)
+
+        self.assertEqual("analyze_pdf", recipe[0]["step_name"])
+        self.assertEqual(
+            [
+                "create_word_report_from_pdf",
+                "create_hwp_report_from_pdf",
+                "create_powerpoint_from_pdf",
+                "create_excel_from_pdf_table",
+            ],
+            [item["step_name"] for item in recipe[1:]],
+        )
+        self.assertNotIn("path", str(recipe).casefold())
+        self.assertNotIn("document_text", str(recipe).casefold())
+        self.assertEqual(recipe, validate_pdf_workflow_step_recipe(recipe, outputs))
+        mutated = [dict(item) for item in recipe]
+        mutated[-1]["effect"] = "modify_source"
+        with self.assertRaises(ValueError):
+            validate_pdf_workflow_step_recipe(mutated, outputs)
 
     def test_recipe_validation_rejects_unknown_reordered_or_mutated_steps(self):
         mutations = []

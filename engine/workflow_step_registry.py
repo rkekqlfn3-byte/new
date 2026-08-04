@@ -24,6 +24,33 @@ _STEP_DEFINITIONS = {
         "effect": "create_owned_file",
         "completion_evidence": "file_fingerprint_and_powerpoint_readback",
     },
+    "analyze_pdf": {
+        "effect": "read_only_analysis",
+        "completion_evidence": "page_fingerprints_and_citations",
+    },
+    "create_excel_from_pdf_table": {
+        "effect": "create_owned_file",
+        "completion_evidence": "file_fingerprint_and_excel_readback",
+    },
+    "create_word_report_from_pdf": {
+        "effect": "create_owned_file",
+        "completion_evidence": "file_fingerprint_and_word_readback",
+    },
+    "create_hwp_report_from_pdf": {
+        "effect": "create_owned_file",
+        "completion_evidence": "file_fingerprint_and_hwp_readback",
+    },
+    "create_powerpoint_from_pdf": {
+        "effect": "create_owned_file",
+        "completion_evidence": "file_fingerprint_and_powerpoint_readback",
+    },
+}
+
+_PDF_OUTPUT_STEPS = {
+    "excel": "create_excel_from_pdf_table",
+    "word": "create_word_report_from_pdf",
+    "hwp": "create_hwp_report_from_pdf",
+    "powerpoint": "create_powerpoint_from_pdf",
 }
 
 _REPORT_STEP_ORDERS = {
@@ -123,4 +150,39 @@ def validate_report_workflow_step_recipe(
     )
     if value != expected:
         raise ValueError("워크플로 단계 레시피가 허용 목록과 다릅니다.")
+    return copy.deepcopy(expected)
+
+
+def pdf_workflow_step_recipe(output_kinds) -> list[dict[str, Any]]:
+    """Build a sequential, content-free recipe for approved PDF outputs."""
+    if isinstance(output_kinds, (str, bytes)):
+        output_kinds = (output_kinds,)
+    try:
+        requested = tuple(str(item or "").strip().casefold() for item in output_kinds)
+    except TypeError as error:
+        raise ValueError("PDF output kinds must be a sequence.") from error
+    if not requested or len(requested) != len(set(requested)):
+        raise ValueError("PDF output kinds must be unique and non-empty.")
+    if any(item not in _PDF_OUTPUT_STEPS for item in requested):
+        raise ValueError("Unsupported PDF output kind.")
+    order = ("analyze_pdf", *(_PDF_OUTPUT_STEPS[item] for item in requested))
+    recipe = []
+    previous = None
+    for step_name in order:
+        definition = _STEP_DEFINITIONS[step_name]
+        recipe.append({
+            "registry_schema_version": WORKFLOW_STEP_REGISTRY_SCHEMA_VERSION,
+            "step_name": step_name,
+            "depends_on": [] if previous is None else [previous],
+            "effect": definition["effect"],
+            "completion_evidence": definition["completion_evidence"],
+        })
+        previous = step_name
+    return recipe
+
+
+def validate_pdf_workflow_step_recipe(value, output_kinds) -> list[dict[str, Any]]:
+    expected = pdf_workflow_step_recipe(output_kinds)
+    if not isinstance(value, list) or value != expected:
+        raise ValueError("PDF workflow recipe does not match the allowlist.")
     return copy.deepcopy(expected)

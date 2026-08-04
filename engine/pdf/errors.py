@@ -14,6 +14,7 @@ class PdfReadErrorCode(str, Enum):
     EMPTY_DOCUMENT = "empty_document"
     PAGE_SELECTION_INVALID = "page_selection_invalid"
     SEARCH_QUERY_INVALID = "search_query_invalid"
+    OCR_REQUIRED = "ocr_required"
     PASSWORD_REQUIRED = "password_required"
     MALFORMED_DOCUMENT = "malformed_document"
     CONTENT_STREAM_TOO_LARGE = "content_stream_too_large"
@@ -28,6 +29,7 @@ class PdfReadErrorCode(str, Enum):
 
 _OUTCOMES = {
     PdfReadErrorCode.DEPENDENCY_UNAVAILABLE: "environment_blocked",
+    PdfReadErrorCode.OCR_REQUIRED: "needs_input",
     PdfReadErrorCode.PASSWORD_REQUIRED: "needs_input",
     PdfReadErrorCode.CANCELLED: "cancelled",
 }

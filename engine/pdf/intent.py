@@ -27,10 +27,19 @@ _INTENT_PATTERNS = (
     (PdfIntentKind.MERGE, re.compile(r"(?:병합|합쳐|하나로\s*만들)")),
     (PdfIntentKind.SPLIT, re.compile(r"(?:분할|나눠|쪼개)")),
     (PdfIntentKind.ROTATE, re.compile(r"(?:회전|돌려)")),
-    (PdfIntentKind.REPORT, re.compile(r"(?:보고서|리포트)")),
+    (
+        PdfIntentKind.REPORT,
+        re.compile(
+            r"(?:보고서|리포트|발표\s*자료|파워포인트|powerpoint|ppt)",
+            re.IGNORECASE,
+        ),
+    ),
     (
         PdfIntentKind.TABLE_EXTRACT,
-        re.compile(r"(?:표\s*(?:를|만)?\s*(?:추출|뽑|정리)|테이블\s*(?:추출|뽑|정리))"),
+        re.compile(
+            r"(?:표|테이블).{0,20}(?:추출|뽑|정리|엑셀|excel|xlsx)",
+            re.IGNORECASE,
+        ),
     ),
     (PdfIntentKind.TABLE_OF_CONTENTS, re.compile(r"(?:목차|차례)")),
     (
@@ -70,6 +79,13 @@ _PDF_EXPORT_RE = re.compile(
     r"pdf\s*(?:(?:파일|형식)(?:으)?로|로).{0,20}(?:저장|내보내|변환)",
     re.IGNORECASE,
 )
+_WORD_OUTPUT_RE = re.compile(r"(?:워드|word|docx)", re.IGNORECASE)
+_HWP_OUTPUT_RE = re.compile(r"(?:한글|hwp|hwpx)", re.IGNORECASE)
+_POWERPOINT_OUTPUT_RE = re.compile(
+    r"(?:발표\s*자료|파워포인트|powerpoint|ppt)", re.IGNORECASE
+)
+_GENERAL_REPORT_RE = re.compile(r"(?:보고서|리포트)")
+_EXCEL_OUTPUT_RE = re.compile(r"(?:엑셀|excel|xlsx)", re.IGNORECASE)
 
 
 class PdfIntentError(PdfReferenceError):
@@ -80,6 +96,7 @@ class PdfIntentError(PdfReferenceError):
 class PdfCommandIntent:
     kind: PdfIntentKind | str
     query: str | None = None
+    output_kinds: tuple[str, ...] = ()
 
     def __post_init__(self):
         try:
@@ -93,8 +110,20 @@ class PdfCommandIntent:
             raise ValueError("PDF search intent requires a query.")
         if kind is not PdfIntentKind.SEARCH and query is not None:
             raise ValueError("Only PDF search intent can contain a query.")
+        outputs = tuple(str(item or "").strip().casefold() for item in self.output_kinds)
+        if outputs != tuple(dict.fromkeys(outputs)):
+            raise ValueError("PDF output kinds must be unique.")
+        allowed_outputs = {
+            PdfIntentKind.REPORT: {"word", "hwp", "powerpoint"},
+            PdfIntentKind.TABLE_EXTRACT: {"excel"},
+        }.get(kind, set())
+        if any(item not in allowed_outputs for item in outputs):
+            raise ValueError("PDF intent contains an unsupported output kind.")
+        if kind not in {PdfIntentKind.REPORT, PdfIntentKind.TABLE_EXTRACT} and outputs:
+            raise ValueError("This PDF intent cannot create Office outputs.")
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "query", query)
+        object.__setattr__(self, "output_kinds", outputs)
 
     @property
     def requires_confirmation(self) -> bool:
@@ -115,6 +144,7 @@ class PdfCommandIntent:
             "implementation_stage": self.implementation_stage,
             "query_present": self.query is not None,
             "query_length": len(self.query or ""),
+            "output_kinds": list(self.output_kinds),
         }
 
 
@@ -163,7 +193,25 @@ def parse_pdf_intent(command: str) -> PdfCommandIntent:
     for kind, pattern in _INTENT_PATTERNS:
         if pattern.search(text):
             query = _search_query(text) if kind is PdfIntentKind.SEARCH else None
-            return PdfCommandIntent(kind=kind, query=query)
+            output_kinds = ()
+            if kind is PdfIntentKind.REPORT:
+                reports = []
+                if _WORD_OUTPUT_RE.search(text):
+                    reports.append("word")
+                if _HWP_OUTPUT_RE.search(text):
+                    reports.append("hwp")
+                if _GENERAL_REPORT_RE.search(text) and not reports:
+                    reports.append("word")
+                if _POWERPOINT_OUTPUT_RE.search(text):
+                    reports.append("powerpoint")
+                output_kinds = tuple(reports or ("word",))
+            elif kind is PdfIntentKind.TABLE_EXTRACT and _EXCEL_OUTPUT_RE.search(text):
+                output_kinds = ("excel",)
+            return PdfCommandIntent(
+                kind=kind,
+                query=query,
+                output_kinds=output_kinds,
+            )
     raise PdfIntentError(
         "pdf_intent_missing",
         "PDF에서 요약·설명·검색 등 어떤 작업을 할지 알려주세요.",

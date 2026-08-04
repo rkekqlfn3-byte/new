@@ -34,6 +34,7 @@ from engine.managers.native_action_candidate_manager import (
 )
 from engine.parsing.office_command_parser import EXCEL_FORMAT_PREFERENCE_KEY
 from engine.pdf.intake import PdfIntakeManager
+from engine.pdf.task_service import PdfTaskService
 from engine.pipeline import CommandPipeline
 from engine.runtime_services import ParserRuntimeServices
 from engine.security import DynamicCodePreflight
@@ -230,6 +231,11 @@ class CommandParser:
         self.app_action_registry = AppActionRegistry()
         self.edit_mode_controller = edit_mode_controller or EditModeController()
         self.pdf_intake_manager = pdf_intake_manager or PdfIntakeManager()
+        self.pdf_task_service = PdfTaskService(
+            self.pdf_intake_manager,
+            self.llm_engine,
+            self.dict_mgr,
+        )
         bind_services = getattr(self.edit_mode_controller, "bind_services", None)
         if callable(bind_services):
             bind_services(

@@ -129,7 +129,11 @@ function bindConfirmationCard(card) {
                 if (nextConfirmation) {
                     addConfirmationCard(result);
                 } else {
-                    addMessage(result?.message || result?.response || '확인 응답을 처리했습니다.', true);
+                    const message = addMessage(
+                        result?.message || result?.response || '확인 응답을 처리했습니다.',
+                        true
+                    );
+                    window.applyMessagePersistencePolicy?.(message, result);
                 }
                 if (typeof window.refreshEditContext === 'function') {
                     await window.refreshEditContext({ required: false });

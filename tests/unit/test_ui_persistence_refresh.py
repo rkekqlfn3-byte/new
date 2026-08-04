@@ -10,6 +10,12 @@ class PersistedUiRefreshContractTests(unittest.TestCase):
         js_root = GUI_ROOT / "js"
         cls.globals_js = (js_root / "globals.js").read_text(encoding="utf-8")
         cls.sessions_js = (js_root / "sessions.js").read_text(encoding="utf-8")
+        cls.renderer_js = (js_root / "chat" / "renderer.js").read_text(
+            encoding="utf-8"
+        )
+        cls.confirmation_js = (js_root / "chat" / "confirmation.js").read_text(
+            encoding="utf-8"
+        )
         cls.chat_js = "\n".join((
             (js_root / "chat" / "learning_review.js").read_text(
                 encoding="utf-8"
@@ -36,6 +42,24 @@ class PersistedUiRefreshContractTests(unittest.TestCase):
             save_function.index("history.some(message => message.role === 'user')"),
             save_function.index("eel.save_chat_session"),
         )
+
+    def test_pdf_derived_messages_are_replaced_before_session_persistence(self):
+        save_function = self.sessions_js.split("async function _doSaveSession", 1)[1]
+        save_function = save_function.split("async function saveCurrentSession", 1)[0]
+        self.assertIn("element.dataset.sessionOnly === 'true'", save_function)
+        self.assertIn("element.dataset.persistencePlaceholder", save_function)
+        self.assertIn("SESSION_ONLY_MESSAGE_PLACEHOLDER", self.renderer_js)
+        self.assertIn("message.dataset.sessionOnly = 'true'", self.renderer_js)
+        self.assertIn("applyMessagePersistencePolicy?.(message, result)", self.confirmation_js)
+
+    def test_pdf_derived_command_reference_does_not_persist_response_body(self):
+        self.assertIn(
+            "response?.data?.chat_persistence === 'session_only'",
+            self.chat_js,
+        )
+        self.assertIn("[PDF 기반 응답은 세션 전용입니다.]", self.chat_js)
+        self.assertIn("function messageContentForModelContext", self.chat_js)
+        self.assertIn("element?.dataset?.sessionOnly === 'true'", self.chat_js)
 
     def test_session_content_loads_before_current_chat_is_replaced(self):
         switch = self.sessions_js.split("async function switchSession", 1)[1]

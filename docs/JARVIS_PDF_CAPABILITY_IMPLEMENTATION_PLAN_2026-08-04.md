@@ -246,6 +246,9 @@ engine/file_actions/
 
 ### PDF-3. 요약·질문과 Office 연결
 
+구현 상태: **2026-08-04 소스 구현 및 자동 회귀 검증 완료.** 실제 Office 환경의 최종 수동 확인과
+source-bound Goal probe 갱신은 최종 커밋 뒤 수행한다.
+
 작업:
 
 - 페이지 단위 chunking과 근거 페이지 결합

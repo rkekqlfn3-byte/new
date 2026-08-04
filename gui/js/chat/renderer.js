@@ -149,6 +149,16 @@ function createChatMessage(text, isIncoming, imageData = null) {
 }
 window.createChatMessage = createChatMessage;
 
+const SESSION_ONLY_MESSAGE_PLACEHOLDER = '[PDF 기반 응답은 현재 실행에서만 표시되었습니다.]';
+
+function applyMessagePersistencePolicy(message, response) {
+    if (!message || response?.data?.chat_persistence !== 'session_only') return message;
+    message.dataset.sessionOnly = 'true';
+    message.dataset.persistencePlaceholder = SESSION_ONLY_MESSAGE_PLACEHOLDER;
+    return message;
+}
+window.applyMessagePersistencePolicy = applyMessagePersistencePolicy;
+
 function finalizeStreamMessage(msgDiv, rawText) {
     if (!msgDiv || !rawText) return;
     msgDiv.dataset.rawContent = rawText;
@@ -170,6 +180,7 @@ function addMessage(text, isIncoming, image_data=null) {
     const msgDiv = createChatMessage(text, isIncoming, image_data);
     chatArea.appendChild(msgDiv);
     scrollToBottom();
+    return msgDiv;
 }
 
 function addSystemMessage(msg) {

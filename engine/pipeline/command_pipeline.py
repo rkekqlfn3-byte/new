@@ -278,6 +278,7 @@ class CommandPipeline:
         pdf_result = try_execute_pdf_route(
             parser,
             raw_input,
+            session_id=session_id,
             log_callback=log_callback,
         )
         if pdf_result is not None:

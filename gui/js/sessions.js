@@ -181,9 +181,13 @@ async function _doSaveSession() {
         if (element.classList.contains('system-date')) return;
         const bubble = element.querySelector('.bubble');
         if (!bubble) return;
+        const content = element.dataset.sessionOnly === 'true'
+            ? (element.dataset.persistencePlaceholder
+                || '[세션 전용 응답은 저장되지 않았습니다.]')
+            : (element.dataset.rawContent || bubble.innerText.trim());
         history.push({
             role: element.classList.contains('outgoing') ? 'user' : 'assistant',
-            content: element.dataset.rawContent || bubble.innerText.trim(),
+            content,
         });
     });
     if (!history.length) return;

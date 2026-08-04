@@ -53,6 +53,20 @@ class PdfIntentParserTests(unittest.TestCase):
 
         self.assertEqual("pdf_search_query_missing", caught.exception.code)
 
+    def test_office_output_kinds_are_explicit_and_content_free(self):
+        cases = {
+            "이 PDF로 워드 보고서 만들어줘": ("word",),
+            "이 PDF로 한글 보고서 만들어줘": ("hwp",),
+            "이 PDF로 보고서랑 발표자료 만들어줘": ("word", "powerpoint"),
+            "이 PDF로 PPT 만들어줘": ("powerpoint",),
+            "이 PDF 표를 엑셀로 추출해줘": ("excel",),
+        }
+        for command, outputs in cases.items():
+            with self.subTest(command=command):
+                intent = parse_pdf_intent(command)
+                self.assertEqual(outputs, intent.output_kinds)
+                self.assertEqual(list(outputs), intent.to_evidence_dict()["output_kinds"])
+
     def test_unknown_intent_needs_clarification(self):
         with self.assertRaises(PdfIntentError) as caught:
             parse_pdf_intent("이 PDF로 뭔가 해줘")
