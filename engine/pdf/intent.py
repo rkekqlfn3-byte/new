@@ -42,17 +42,26 @@ _INTENT_PATTERNS = (
     (
         PdfIntentKind.TABLE_EXTRACT,
         re.compile(
-            r"(?:표|테이블).{0,20}(?:추출|뽑|정리|엑셀|excel|xlsx)",
+            r"(?:표|테이블).{0,20}(?:추출|뽑|정리|찾아|보여|엑셀|excel|xlsx)",
             re.IGNORECASE,
         ),
     ),
-    (PdfIntentKind.TABLE_OF_CONTENTS, re.compile(r"(?:목차|차례)")),
+    (
+        PdfIntentKind.TABLE_OF_CONTENTS,
+        re.compile(
+            r"(?:목차|차례|제목\s*구조|장별\s*제목|소제목\s*(?:목록)?|"
+            r"제목\s*(?:목록|순서)|장과\s*절\s*구조)"
+        ),
+    ),
     (
         PdfIntentKind.PAGE_COUNT,
         re.compile(r"(?:(?:총|전체)?\s*(?:페이지|쪽)\s*(?:수|개수)|몇\s*(?:페이지|쪽))"),
     ),
     (PdfIntentKind.SEARCH, re.compile(r"(?:검색|찾아|찾기|어디\s*(?:있|나오))")),
-    (PdfIntentKind.SUMMARY, re.compile(r"(?:요약|핵심|간추|줄여)")),
+    (
+        PdfIntentKind.SUMMARY,
+        re.compile(r"(?:요약|핵심|간추|줄여|주요\s*내용.{0,10}정리)"),
+    ),
     (
         PdfIntentKind.EXPLAIN,
         re.compile(r"(?:설명|읽어|알려|보여|내용|무슨\s*말|질문|답해|뭐야|무엇)"),
@@ -74,6 +83,7 @@ _MUTATING_INTENTS = frozenset(
 )
 _CONNECTED_CONTEXT_RE = re.compile(
     r"(?:이거|이\s*문서|현재\s*문서|여기|이\s*부분|"
+    r"이\s*자료|현재\s*자료|연결(?:한|된)?\s*자료|"
     r"(?:앞|이전|전|다음|뒤)\s*(?:페이지|쪽)|방금\s*찾|검색\s*결과|"
     r"\d+(?:\s*[-~–,]\s*\d+)*\s*(?:페이지|쪽))"
 )

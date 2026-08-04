@@ -9,6 +9,7 @@ from engine.pdf import (
     PdfReadErrorCode,
     PdfReferenceError,
     looks_like_pdf_command,
+    parse_pdf_intent,
 )
 
 _INTENT_LABELS = {
@@ -36,6 +37,11 @@ def _failure(error, *, action="pdf_command"):
         if error.code is PdfReadErrorCode.DEPENDENCY_UNAVAILABLE:
             error_type = "environment_error"
         elif error.outcome == "needs_input":
+            status = "clarification_required"
+        elif error.code in {
+            PdfReadErrorCode.PAGE_SELECTION_INVALID,
+            PdfReadErrorCode.SEARCH_QUERY_INVALID,
+        }:
             status = "clarification_required"
         elif error.code is PdfReadErrorCode.TIMEOUT:
             error_type = "timeout"
@@ -87,8 +93,12 @@ def try_execute_pdf_route(parser, raw_input, *, session_id=None, log_callback=No
     connected = bool(manager.status().get("connected"))
     if not looks_like_pdf_command(raw_input, connected=connected):
         return None
+    failure_action = "pdf_command"
     try:
+        parsed_intent = parse_pdf_intent(raw_input)
+        failure_action = f"pdf_{parsed_intent.kind.value}"
         request = manager.resolve_command(raw_input)
+        failure_action = f"pdf_{request.intent.kind.value}"
         if log_callback:
             log_callback(
                 "[PDF] intent="
@@ -163,4 +173,4 @@ def try_execute_pdf_route(parser, raw_input, *, session_id=None, log_callback=No
             data={"pdf_request": request.to_evidence_dict()},
         )
     except (PdfReadError, PdfReferenceError, RuntimeError, ValueError) as error:
-        return _failure(error)
+        return _failure(error, action=failure_action)

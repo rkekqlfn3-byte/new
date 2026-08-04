@@ -41,6 +41,7 @@ TEST_GROUPS = {
         "tests.unit.test_parser_composition",
         "tests.unit.test_pdf_contracts",
         "tests.unit.test_pdf_analysis",
+        "tests.unit.test_pdf_acceptance_battery",
         "tests.unit.test_pdf_page_selection",
         "tests.unit.test_pdf_connection_ui",
         "tests.unit.test_pdf_grounded_answer",

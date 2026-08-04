@@ -20,7 +20,7 @@ _LAST_SEARCH_RE = re.compile(r"(?:방금\s*찾|찾은\s*부분|검색\s*결과|�
 _HERE_RE = re.compile(r"(?:여기|이\s*부분)")
 _RELATIVE_PAGE_RE = re.compile(r"(앞|이전|전|다음|뒤)\s*(?:페이지|쪽)")
 _CONNECTED_RE = re.compile(
-    r"(?:pdf|이거|이\s*문서|현재\s*문서|연결(?:한|된)?\s*문서)", re.IGNORECASE
+    r"(?:pdf|이거|문서|이\s*자료|현재\s*자료|연결(?:한|된)?\s*자료)", re.IGNORECASE
 )
 _CONNECTION_ID_RE = re.compile(r"^pdf-connection-[a-f0-9]{32}$")
 _FINGERPRINT_RE = re.compile(r"^[a-f0-9]{64}$")

@@ -67,7 +67,10 @@ JARVIS는 단순 챗봇, 명령어 암기식 런처, 좌표 클릭 매크로, Of
 ## 자동 수용과 사람 수용의 경계
 
 `verification.product_goal_acceptance`는 전체 자동 회귀와 최근 Stage 5~12 소유
-문서 probe를 위 8개 축에 연결한다. 모든 probe는 현재 commit뿐 아니라 dirty
+문서 probe를 위 8개 축에 연결한다. PDF MVP는 아홉 번째 제품 철학을 추가하는
+대신 자연어·문맥·안전 실행·업무 연결·실패 대응·접근성 축을 가로지르는
+`pdf_document_workflow` 확장 증거 프로필로 판정한다. 모든 probe는 현재 commit뿐
+아니라 dirty
 source tree와 변경 파일 집합 hash까지 일치해야 한다. 모든 앱 대상이 실제로
 `passed`여야 하며,
 사용자 프로세스 때문에 건너뛴 결과, 오래된 결과, 안전·후조건이 거짓인 결과는

@@ -72,6 +72,38 @@ PROBE_SPECS = {
             "failure_records_content_free",
         ),
     },
+    "pdf_utterance_acceptance": {
+        "file": "pdf_acceptance_report.json",
+        "probe": "pdf_goal_120_utterance_acceptance",
+        "required_checks": (
+            "exactly_120_cases",
+            "all_utterances_unique",
+            "twelve_categories_exact",
+            "intent_accuracy_100_percent",
+            "outcome_accuracy_100_percent",
+            "unapproved_write_zero",
+            "external_ai_calls_zero",
+            "failure_records_content_free",
+            "bounded_runtime_under_30_seconds",
+            "peak_memory_under_128_mb",
+            "owned_fixtures_cleaned",
+            "user_data_and_apps_untouched",
+        ),
+    },
+    "pdf_transformations": {
+        "file": "pdf4_transformation_report.json",
+        "probe": "pdf4_owned_fixture_transformations",
+        "required_checks": (
+            "split_page_count_verified",
+            "rotation_readback_verified",
+            "merge_order_verified",
+            "merge_page_count_verified",
+            "all_outputs_reopened",
+            "sources_unchanged",
+            "undo_deleted_unchanged_output",
+            "partial_outputs_absent",
+        ),
+    },
     "native_excel_hwp": {
         "file": "prototype1_stage5_report.json",
         "probe": "prototype1_stage5_owned_fixture_editing",
@@ -194,10 +226,15 @@ GOAL_AXES = {
     "failure_classification": {
         "probes": ("failure_diagnosis", "hwp_workflow_watchdog"),
     },
+    "pdf_document_workflow": {
+        "probes": ("pdf_utterance_acceptance", "pdf_transformations"),
+    },
     "novice_accessibility": {"probes": ()},
 }
 PROBE_COMMANDS = (
     ("utterance_acceptance_battery", (), False),
+    ("pdf_acceptance_battery", (), False),
+    ("pdf4_transformation_probe", (), False),
     ("prototype1_stage5_probe", (), False),
     ("prototype1_stage6_probe", (), False),
     ("prototype1_stage8_probe", (), True),
