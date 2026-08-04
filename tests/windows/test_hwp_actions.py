@@ -160,6 +160,16 @@ class FakeHAction:
             self.hwp._push_undo()
             self.hwp.paragraph_alignment = alignments[name]
             return False
+        if name == "Delete":
+            if self.hwp.selection is None:
+                return False
+            self.hwp._push_undo()
+            start, end = self.hwp.selection
+            self.hwp.text = self.hwp.text[:start] + self.hwp.text[end:]
+            self.hwp.cursor = start
+            self.hwp.selection = None
+            self.hwp.IsModified = True
+            return True
         if name == "SelectAll":
             self.hwp.selection = (0, len(self.hwp.text))
             return True
@@ -587,6 +597,81 @@ class HwpLineSpacingTests(unittest.TestCase):
         with self.assertRaises(AppActionContextChanged):
             adapter.undo(prepared, {"after_observations": result})
         self.assertEqual(300, hwp.line_spacing)
+
+
+class HwpDeleteTextTests(unittest.TestCase):
+    def _adapter(self, hwp):
+        return HwpAdapter(object_getter=lambda: hwp, require_visible=False)
+
+    def _selected(self, text, start, end):
+        hwp = FakeHwp(text, full_name=r"C:\docs.hwp")
+        hwp.selection = (start, end)
+        return hwp
+
+    def test_selection_is_deleted_and_verified(self):
+        hwp = self._selected("앞부분 지울내용 뒷부분", 4, 9)
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("delete_text", {})
+        self.assertEqual("지울내용 ", prepared.params["original_text"])
+        # Preview must not touch the document.
+        self.assertEqual("앞부분 지울내용 뒷부분", hwp.text)
+
+        result = adapter.execute(prepared)
+        self.assertTrue(result["verified"])
+        self.assertEqual("앞부분 뒷부분", hwp.text)
+        self.assertEqual(5, result["after"]["deleted_length"])
+
+    def test_deleting_without_a_selection_is_blocked(self):
+        hwp = FakeHwp("본문", full_name=r"C:\docs.hwp")
+        adapter = self._adapter(hwp)
+        with self.assertRaises(AppActionBlocked):
+            adapter.prepare("delete_text", {})
+        self.assertEqual("본문", hwp.text)
+
+    def test_a_document_that_moved_after_approval_is_not_deleted(self):
+        hwp = self._selected("앞부분 지울내용 뒷부분", 4, 9)
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("delete_text", {})
+        hwp.text = "완전히 다른 내용입니다."
+        hwp.selection = (0, 3)
+        with self.assertRaises(AppActionContextChanged):
+            adapter.execute(prepared)
+        self.assertEqual("완전히 다른 내용입니다.", hwp.text)
+
+    def test_repeated_text_still_verifies_exactly_one_removal(self):
+        # "반복 반복 반복"[0:3] is "반복 " with the trailing space, which occurs
+        # twice, so one occurrence must remain. The count proves an instance of
+        # the selected text of the right length went away; which instance is
+        # already pinned by the fingerprint check before execution.
+        hwp = self._selected("반복 반복 반복", 0, 3)
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("delete_text", {})
+        self.assertEqual("반복 ", prepared.params["original_text"])
+        self.assertEqual(1, prepared.params["expected_occurrences"])
+        result = adapter.execute(prepared)
+        self.assertTrue(result["verified"])
+        self.assertEqual("반복 반복", hwp.text)
+
+    def test_undo_restores_the_deleted_text(self):
+        hwp = self._selected("앞부분 지울내용 뒷부분", 4, 9)
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("delete_text", {})
+        result = adapter.execute(prepared)
+        self.assertEqual("앞부분 뒷부분", hwp.text)
+
+        restored = adapter.undo(prepared, {"after_observations": result})
+        self.assertTrue(restored["verified"])
+        self.assertEqual("앞부분 지울내용 뒷부분", hwp.text)
+
+    def test_undo_refuses_when_the_document_changed_since(self):
+        hwp = self._selected("앞부분 지울내용 뒷부분", 4, 9)
+        adapter = self._adapter(hwp)
+        prepared = adapter.prepare("delete_text", {})
+        result = adapter.execute(prepared)
+        hwp.text = "누군가 그 사이에 고쳤습니다."
+        with self.assertRaises(AppActionContextChanged):
+            adapter.undo(prepared, {"after_observations": result})
+        self.assertEqual("누군가 그 사이에 고쳤습니다.", hwp.text)
 
 
 if __name__ == "__main__":

@@ -137,6 +137,20 @@ def _formalize_text(value: str) -> str:
     return text
 
 
+def _hwp_selection_intent(command: str, quotes):
+    """한글 intents that need nothing from context beyond the selection."""
+    if not quotes and any(
+        word in command for word in ("삭제", "지워", "지워줘", "없애", "빼줘")
+    ):
+        return EditIntent(
+            "delete_text",
+            {},
+            "선택 영역 삭제",
+            after_preview="선택 영역 삭제",
+        )
+    return _paragraph_format_intent(command)
+
+
 def _paragraph_format_intent(command: str):
     """Line spacing and alignment, the two paragraph settings said out loud."""
     if re.search(LINE_SPACING_COMMAND_PATTERN, command):
@@ -469,9 +483,9 @@ class StructuredEditIntentAnalyzer:
                 after_preview=" · ".join(labels),
             )
 
-        paragraph_intent = _paragraph_format_intent(command)
-        if paragraph_intent is not None:
-            return paragraph_intent
+        selection_intent = _hwp_selection_intent(command, quotes)
+        if selection_intent is not None:
+            return selection_intent
 
         if quotes and any(
             word in command for word in ("바꿔", "교체", "입력", "넣어", "표 셀")
@@ -533,6 +547,7 @@ class Stage5NativeEditAdapter:
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
+        "delete_text",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

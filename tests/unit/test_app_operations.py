@@ -145,6 +145,7 @@ class HwpOperationStructureTests(unittest.TestCase):
         self.assertEqual(
             {
                 "insert_text",
+                "delete_text",
                 "set_text_format",
                 "set_paragraph_format",
                 "set_line_spacing",

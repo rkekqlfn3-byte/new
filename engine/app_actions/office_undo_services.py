@@ -17,6 +17,7 @@ class HwpUndoService:
 
     SUPPORTED = frozenset({
         "insert_text",
+        "delete_text",
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
@@ -67,7 +68,7 @@ class HwpUndoService:
             raise AppActionContextChanged(
                 "편집했던 한글 문서가 현재 활성 문서가 아니어서 복원하지 않았습니다."
             )
-        if prepared.operation in {"insert_text", "find_replace"}:
+        if prepared.operation in {"insert_text", "delete_text", "find_replace"}:
             expected_digest = str(
                 expected_after.get("document_digest")
                 or expected_after.get("text_digest")
@@ -124,7 +125,7 @@ class HwpUndoService:
             ) from error
 
     def _restored_snapshot(self, hwp, prepared, restored_base):
-        if prepared.operation in {"insert_text", "find_replace"}:
+        if prepared.operation in {"insert_text", "delete_text", "find_replace"}:
             expected = str(prepared.current_state.get("document_digest") or "").upper()
             restored = {"document_digest": restored_base["text_digest"]}
             return restored, bool(expected) and restored_base["text_digest"] == expected
