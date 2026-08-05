@@ -245,7 +245,167 @@ class InsertHeaderOperation(_DialogCommand):
         return None
 
 
+class SetFontNameOperation(HwpOperation):
+    """Change the typeface, which no other operation could reach.
+
+    ``set_text_format`` covers bold, size and colour because those are what
+    its parameter set was written for; the face name lives in the same
+    ``CharShape`` set and was simply never asked for. Verified by reading
+    ``FaceNameHangul`` back: 함초롬바탕 became 궁서.
+    """
+
+    name = "set_font_name"
+
+    def prepare(self, adapter, hwp, params):
+        font = _clean(params.get("font") or params.get("font_name"), "글꼴 이름", 60)
+        _, base, document_text, selection = adapter._context(hwp)
+        if not selection["has_selection"]:
+            raise AppActionBlocked("글꼴을 바꿀 글을 먼저 선택해주세요.")
+        current = self.current_font(hwp)
+        snapshot = {
+            **base,
+            "operation": self.name,
+            "target": adapter._target(base, selection),
+            "font": current,
+        }
+        return PreparedAction(
+            app=self.app,
+            operation=self.name,
+            document_id=base["document_id"],
+            workbook_name=base["document_name"],
+            sheet="현재 문서",
+            target=f"{adapter._target(base, selection)} · 글꼴 {font}",
+            params={"font": font},
+            current_state={
+                "font": current,
+                "document_length": len(document_text),
+                "document_digest": base["text_digest"],
+            },
+            estimated_changes=1,
+            destructive=False,
+            reversible=True,
+            verification_method="read_char_shape_face_name",
+            context_fingerprint=adapter._state_fingerprint(snapshot),
+            prepared_at=adapter._created_at(),
+            metadata={"window_handle": base["window_handle"]},
+        )
+
+    @staticmethod
+    def current_font(hwp) -> str:
+        try:
+            shape = hwp.HParameterSet.HCharShape
+            hwp.HAction.GetDefault("CharShape", shape.HSet)
+            return str(shape.FaceNameHangul)
+        except Exception:
+            return ""
+
+    def run(self, adapter, hwp, current):
+        wanted = str(current.params["font"])
+        before = str(current.current_state.get("font") or "")
+        try:
+            shape = hwp.HParameterSet.HCharShape
+            hwp.HAction.GetDefault("CharShape", shape.HSet)
+            shape.FaceNameHangul = wanted
+            if not hwp.HAction.Execute("CharShape", shape.HSet):
+                raise AppActionBlocked(
+                    "한글이 현재 선택 영역의 글꼴 변경을 허용하지 않았습니다."
+                )
+            after = self.current_font(hwp)
+            if after != wanted:
+                raise AppActionVerificationError(
+                    f"한글 글꼴이 {wanted}(으)로 바뀌지 않았습니다. "
+                    "설치된 글꼴 이름인지 확인해주세요."
+                )
+        except Exception as error:
+            try:
+                adapter._undo(hwp)
+            except Exception:
+                pass
+            if isinstance(error, AppActionError):
+                raise
+            raise AppActionVerificationError(
+                "한글 글꼴 변경 또는 검증에 실패했습니다."
+            ) from error
+        return adapter._result(
+            current, {"font": before}, {"font": wanted}, True
+        )
+
+
+class ConvertHanjaToHangulOperation(HwpOperation):
+    """Read 한자 out loud in 한글, which ``ManualChangeHangul`` would not do.
+
+    Running the named action reported success and changed nothing even with
+    大韓民國 selected. Its parameter set does the work: 大韓民國 became
+    大韓民國(대한민국).
+    """
+
+    name = "convert_hanja_to_hangul"
+
+    def prepare(self, adapter, hwp, params):
+        _, base, document_text, selection = adapter._context(hwp)
+        if not selection["has_selection"]:
+            raise AppActionBlocked("한자를 한글로 바꿀 글을 먼저 선택해주세요.")
+        snapshot = {
+            **base,
+            "operation": self.name,
+            "target": adapter._target(base, selection),
+        }
+        return PreparedAction(
+            app=self.app,
+            operation=self.name,
+            document_id=base["document_id"],
+            workbook_name=base["document_name"],
+            sheet="현재 문서",
+            target=f"{adapter._target(base, selection)} · 한자를 한글로",
+            params={},
+            current_state={
+                "document_length": len(document_text),
+                "document_digest": base["text_digest"],
+            },
+            estimated_changes=1,
+            destructive=False,
+            reversible=True,
+            verification_method="read_document_text",
+            context_fingerprint=adapter._state_fingerprint(snapshot),
+            prepared_at=adapter._created_at(),
+            metadata={"window_handle": base["window_handle"]},
+        )
+
+    def run(self, adapter, hwp, current):
+        before = str(current.current_state.get("document_digest") or "")
+        try:
+            parameters = hwp.HParameterSet.HConvertToHangul
+            hwp.HAction.GetDefault("ConvertToHangul", parameters.HSet)
+            if not hwp.HAction.Execute("ConvertToHangul", parameters.HSet):
+                raise AppActionBlocked(
+                    "한글이 현재 선택 영역의 한자 변환을 허용하지 않았습니다."
+                )
+            _, after_base, _, _ = adapter._context(hwp)
+            if after_base["text_digest"] == before:
+                raise AppActionVerificationError(
+                    "선택 영역에서 바꿀 한자를 찾지 못했습니다."
+                )
+        except Exception as error:
+            try:
+                adapter._undo(hwp)
+            except Exception:
+                pass
+            if isinstance(error, AppActionError):
+                raise
+            raise AppActionVerificationError(
+                "한글 한자 변환 또는 검증에 실패했습니다."
+            ) from error
+        return adapter._result(
+            current,
+            {"document_digest": before},
+            {"document_digest": after_base["text_digest"]},
+            True,
+        )
+
+
 __all__ = [
+    "ConvertHanjaToHangulOperation",
+    "SetFontNameOperation",
     "InsertBookmarkOperation",
     "InsertHeaderOperation",
     "InsertHyperlinkOperation",

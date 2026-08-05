@@ -149,6 +149,8 @@ class HwpOperationStructureTests(unittest.TestCase):
                 "insert_bookmark",
                 "insert_page_number",
                 "insert_header",
+                "set_font_name",
+                "convert_hanja_to_hangul",
                 "insert_text",
                 "delete_text",
                 "insert_table",

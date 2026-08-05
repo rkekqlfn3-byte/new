@@ -106,6 +106,8 @@ HWP_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {
     "insert_bookmark": ("책갈피 넣기. name=책갈피 이름", ("name",)),
     "insert_page_number": ("쪽 번호 넣기. 파라미터 없음", ()),
     "insert_header": ("머리말 넣기. 파라미터 없음", ()),
+    "set_font_name": ("글꼴 바꾸기. font=글꼴 이름 (예: 궁서, 맑은 고딕)", ("font",)),
+    "convert_hanja_to_hangul": ("선택한 한자를 한글로 바꾸기. 파라미터 없음", ()),
     "run_ribbon_action": (
         "리본 기능. ribbon_action 은 다음 중 하나: italic(기울임), underline(밑줄), strikethrough(취소선), superscript(위 첨자), subscript(아래 첨자), outline(외곽선), shadow(그림자), column_break(단 나누기), indent_more(들여쓰기), indent_less(내어쓰기), line_spacing_wider(줄 간격 넓히기), line_spacing_narrower(줄 간격 좁히기), margin_wider(문단 여백 넓히기), margin_narrower(문단 여백 좁히기), align_division(나눔 정렬), memo(메모), page_of_total(현재 쪽/전체 쪽 넣기), insert_file_name(파일 이름 넣기), insert_file_path(파일 경로 넣기), left_margin_wider(왼쪽 여백 넓히기), left_margin_narrower(왼쪽 여백 좁히기), right_margin_wider(오른쪽 여백 넓히기), right_margin_narrower(오른쪽 여백 좁히기), paste(붙여넣기), paste_without_field(필드 빼고 붙여넣기), paste_page(쪽 붙여넣기), insert_doc_info(문서 정보 넣기), insert_last_save_by(마지막 저장자 넣기), insert_datetime_field(날짜·시간 필드 넣기), insert_datetime_text(날짜·시간 글자 넣기), list_level_down(번호 수준 내리기), paragraph_break(문단 나누기), insert_tab(탭 넣기), footnote(각주), endnote(미주)",
         ("ribbon_action",),

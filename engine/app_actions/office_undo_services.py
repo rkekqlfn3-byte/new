@@ -107,6 +107,8 @@ class HwpUndoService:
         "insert_bookmark",
         "insert_page_number",
         "insert_header",
+        "set_font_name",
+        "convert_hanja_to_hangul",
     })
 
     def __init__(self, adapter, paragraph_alignments):
@@ -270,6 +272,14 @@ class HwpUndoService:
                 raise AppActionContextChanged(
                     "직전에 적용한 한글 기능이 그대로 있지 않아 복원하지 않았습니다."
                 )
+            return
+        if prepared.operation != "set_paragraph_format":
+            # The tail used to assume any unrecognised operation was an
+            # alignment edit, so every operation added after it was refused
+            # with "문단 정렬이 달라져" — three times in one day. An edit with
+            # no check of its own is allowed through; the adapter has already
+            # verified it, and refusing to undo a verified edit is worse than
+            # undoing one whose presence could not be re-confirmed here.
             return
         alignment = str(prepared.params.get("alignment") or "")
         expected_alignment = self.paragraph_alignments.get(

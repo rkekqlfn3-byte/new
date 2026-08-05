@@ -5,10 +5,12 @@ from __future__ import annotations
 from engine.app_actions.operations.contracts import OperationRegistry
 from engine.app_actions.operations.hwp.delete_text import DeleteTextOperation
 from engine.app_actions.operations.hwp.dialog_commands import (
+    ConvertHanjaToHangulOperation,
     InsertBookmarkOperation,
     InsertHeaderOperation,
     InsertHyperlinkOperation,
     InsertPageNumberOperation,
+    SetFontNameOperation,
 )
 from engine.app_actions.operations.hwp.find_replace import FindReplaceOperation
 from engine.app_actions.operations.hwp.insert_table import InsertTableOperation
@@ -77,6 +79,8 @@ HWP_OPERATIONS = OperationRegistry(
         InsertBookmarkOperation(),
         InsertPageNumberOperation(),
         InsertHeaderOperation(),
+        SetFontNameOperation(),
+        ConvertHanjaToHangulOperation(),
     ),
 )
 

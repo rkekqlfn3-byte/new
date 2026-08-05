@@ -776,6 +776,9 @@ _DIALOG_WORDS = (
 )
 
 
+_FONT_RE = re.compile(r"(?:글꼴|폰트|서체)(?:을|를|이|가)?\s*[\'\"“‘]?([가-힣A-Za-z0-9 ]{1,30}?)[\'\"”’]?\s*(?:로|으로)")
+
+
 def _hwp_dialog_intent(command: str, quotes):
     """Commands 한글 would ask about in a dialog, driven by parameters."""
     if any(word in command for word in ("하이퍼링크", "링크 걸", "링크 넣")):
@@ -788,6 +791,15 @@ def _hwp_dialog_intent(command: str, quotes):
             "insert_hyperlink",
             {"text": quotes[0], "url": quotes[1]},
             f"하이퍼링크 “{quotes[0]}”",
+        )
+    if any(word in command for word in ("한자를 한글", "한자 한글", "한자 읽")):
+        return EditIntent("convert_hanja_to_hangul", {}, "한자를 한글로")
+    font = _FONT_RE.search(command)
+    if font:
+        return EditIntent(
+            "set_font_name",
+            {"font": font.group(1).strip()},
+            f"글꼴 {font.group(1).strip()}",
         )
     for operation, words in _DIALOG_WORDS:
         if not any(word in command for word in words):
@@ -882,6 +894,8 @@ class Stage5NativeEditAdapter:
         "insert_bookmark",
         "insert_page_number",
         "insert_header",
+        "set_font_name",
+        "convert_hanja_to_hangul",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
