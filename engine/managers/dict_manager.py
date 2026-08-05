@@ -148,6 +148,7 @@ class DictionaryManager:
         self.search_engines_dict = {}
         self.favorites = []
         self.user_nouns = set()
+        self.removed_targets = set()
         self.has_scanned = False
         self.ai_config = {
             "provider": "openai", "api_key": "", "routing_mode": "auto",
@@ -165,6 +166,16 @@ class DictionaryManager:
             protected_api_key=self._protected_api_key,
             credential_error=self.credential_error,
         )
+
+    def _restore_dictionaries(self, data):
+        """Put back the stored collections; validation stays with the caller."""
+        self.noun_dict = data.get("noun_dictionary", {})
+        self.macro_dict = data.get("macro_dictionary", {})
+        self.search_engines_dict = data.get("search_engines_dict", {})
+        self.favorites = data.get("favorites", [])
+        self.user_nouns = set(data.get("user_nouns", []))
+        self.removed_targets = set(data.get("removed_targets", []))
+        self.has_scanned = data.get("has_scanned", False)
 
     @contextmanager
     def locked(self):
@@ -277,12 +288,7 @@ class DictionaryManager:
         storage_changed = not file_existed or migrated
 
         if data:
-            self.noun_dict = data.get("noun_dictionary", {})
-            self.macro_dict = data.get("macro_dictionary", {})
-            self.search_engines_dict = data.get("search_engines_dict", {})
-            self.favorites = data.get("favorites", [])
-            self.user_nouns = set(data.get("user_nouns", []))
-            self.has_scanned = data.get("has_scanned", False)
+            self._restore_dictionaries(data)
             loaded_ai_config = data.get("ai_config", {})
             provider = str(loaded_ai_config.get("provider", "openai")).casefold()
             routing_mode = str(
@@ -401,6 +407,7 @@ class DictionaryManager:
             "search_engines_dict": self.search_engines_dict,
             "favorites": self.favorites,
             "user_nouns": sorted(self.user_nouns),
+            "removed_targets": sorted(self.removed_targets),
             "ai_config": stored_ai_config,
             "learned_macros": self.learned_macros
         })
@@ -788,6 +795,7 @@ class DictionaryManager:
             return -1
         apps_found = scan_windows_apps(self.noun_dict)
         if apps_found > 0:
+            apps_found = max(apps_found - self._drop_removed_targets(), 0)
             self._touch_nouns()
         self.has_scanned = True
         self.save()
@@ -797,6 +805,8 @@ class DictionaryManager:
     def scan_recent_apps(self, hours=24):
         removed = self.prune_invalid_nouns(remove_noise=True, save=False)
         apps_found = scan_recent_windows_apps(self.noun_dict, hours)
+        if apps_found > 0:
+            apps_found = max(apps_found - self._drop_removed_targets(), 0)
         if apps_found > 0 or any(removed.values()):
             self._touch_nouns()
             self.save()
@@ -806,6 +816,8 @@ class DictionaryManager:
     def scan_web_bookmarks(self):
         apps_found = scan_chrome_bookmarks(self.noun_dict)
         if apps_found > 0:
+            apps_found = max(apps_found - self._drop_removed_targets(), 0)
+        if apps_found > 0:
             self._touch_nouns()
             self.save()
         return apps_found
@@ -814,6 +826,8 @@ class DictionaryManager:
     def discover_apps(self, candidates):
         """Run one bounded, target-specific app rediscovery pass."""
         apps_found = scan_matching_windows_apps(self.noun_dict, candidates)
+        if apps_found > 0:
+            apps_found = max(apps_found - self._drop_removed_targets(), 0)
         if apps_found > 0:
             self._touch_nouns()
             self.save()
@@ -847,10 +861,46 @@ class DictionaryManager:
         return False
         
     @_manager_locked
+    def remove_noun(self, noun):
+        """Forget an entry the user deleted from the app list.
+
+        The list shows one row per target, so deleting a row has to remove
+        every name pointing at that target; otherwise the row returns under
+        one of its own synonyms and the delete looks like it did nothing.
+        The target itself is remembered, because a scan that found it once
+        will find it again — teaching it back explicitly undoes that.
+        """
+        key = str(noun).lower()
+        target = self.noun_dict.get(key)
+        if target is None:
+            return False
+        for name in [n for n, p in self.noun_dict.items() if p == target]:
+            del self.noun_dict[name]
+            self.user_nouns.discard(name)
+            if name in self.favorites:
+                self.favorites.remove(name)
+        self.removed_targets.add(target)
+        self._touch_nouns()
+        self.save()
+        return True
+
+    def _drop_removed_targets(self):
+        """Take back out whatever a scan re-added that the user had deleted."""
+        dropped = 0
+        for name, target in list(self.noun_dict.items()):
+            if target in self.removed_targets:
+                del self.noun_dict[name]
+                self.user_nouns.discard(name)
+                dropped += 1
+        return dropped
+
+    @_manager_locked
     def add_custom_noun(self, noun, path):
         noun = noun.lower()
         self.noun_dict[noun] = path
         self.user_nouns.add(noun)
+        # Teaching an entry back is how a deletion is undone.
+        self.removed_targets.discard(path)
         self._touch_nouns()
         self.save()
         return True

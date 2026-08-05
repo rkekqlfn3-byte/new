@@ -91,7 +91,47 @@ async function updateAppSelect(filter = '') {
             location.style.cssText = 'color:#888;font-size:0.75em;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
             location.title = path;
             location.textContent = displayPath;
-            row.append(name, location);
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.className = 'row-edit';
+            edit.textContent = '✏️';
+            edit.title = `'${noun}' 이름 바꾸기`;
+            edit.setAttribute('aria-label', `${noun} 이름 바꾸기`);
+            edit.style.cssText = 'background:none;border:none;cursor:pointer;padding:2px 4px;opacity:0.55;';
+
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'row-delete';
+            del.textContent = '×';
+            del.title = `'${noun}' 목록에서 지우기`;
+            del.setAttribute('aria-label', `${noun} 목록에서 지우기`);
+            del.style.cssText = 'background:none;border:none;color:#e06c75;font-size:1.2em;line-height:1;cursor:pointer;padding:2px 6px;opacity:0.7;';
+
+            edit.addEventListener('click', (e) => {
+                e.stopPropagation();
+                row.click();
+                if (dictRenameInput) {
+                    dictRenameInput.value = noun;
+                    dictRenameInput.focus();
+                    dictRenameInput.select();
+                }
+            });
+            del.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`'${noun}'을(를) 목록에서 지울까요?\n\n다시 검색해도 돌아오지 않습니다. 나중에 필요하면 아래 '직접 가르치기'로 다시 등록할 수 있어요.`)) return;
+                const removed = await eel.remove_noun(noun)();
+                if (!removed) { alert('삭제에 실패했습니다.'); return; }
+                if (listDiv.getAttribute('data-selected') === noun) {
+                    listDiv.setAttribute('data-selected', '');
+                    const synList = document.getElementById('dict-synonyms-list');
+                    if (synList) synList.innerHTML = '';
+                }
+                currentNouns = await eel.get_nouns()();
+                favoritesList = await eel.get_favorites()();
+                updateAppSelect(dictSearchInput ? dictSearchInput.value.toLowerCase() : '');
+            });
+
+            row.append(name, location, edit, del);
             row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-radius:6px;transition:background 0.15s;';
             row.addEventListener('mouseover', () => row.style.background = 'rgba(255,255,255,0.07)');
             row.addEventListener('mouseout', () => row.style.background = listDiv.getAttribute('data-selected') === noun ? 'rgba(108,92,231,0.25)' : '');

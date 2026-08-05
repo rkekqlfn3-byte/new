@@ -40,6 +40,10 @@ def add_custom_noun(noun, path):
     return get_dict_manager().add_custom_noun(noun, path)
 
 @eel.expose
+def remove_noun(noun):
+    return get_dict_manager().remove_noun(noun)
+
+@eel.expose
 def rename_noun(old_noun, new_noun):
     return get_dict_manager().rename_noun(old_noun, new_noun)
 

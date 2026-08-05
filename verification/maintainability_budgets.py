@@ -118,7 +118,7 @@ LONG_FUNCTION_EXCEPTIONS = {
         112, "macro", "Macro lifecycle and timeout cleanup need separation."
     ),
     "engine/managers/dict_manager.py::DictionaryManager.load": _exception(
-        123, "storage", "Schema loading, credential migration, and repair need phases."
+        118, "storage", "Schema loading, credential migration, and repair need phases."
     ),
     "engine/managers/native_action_candidate_manager.py::_migrate_candidate_record": _exception(
         114, "learning", "Candidate schema migration needs versioned migration steps."

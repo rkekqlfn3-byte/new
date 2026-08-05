@@ -95,3 +95,58 @@ class ChromeBookmarkMergeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MobileBookmarkTests(unittest.TestCase):
+    """Bookmarks synced from a phone are not apps on this computer."""
+
+    def _write_roots(self, profile_dir, roots):
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "Bookmarks").write_text(
+            json.dumps({"roots": roots}, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def test_the_mobile_folder_is_left_out_of_the_app_list(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_roots(
+                root / "Default",
+                {
+                    "bookmark_bar": {
+                        "type": "folder",
+                        "children": [
+                            {"type": "url", "name": "회사 위키", "url": "https://wiki"}
+                        ],
+                    },
+                    # Chrome's own interface calls this 모바일 즐겨찾기.
+                    "synced": {
+                        "type": "folder",
+                        "children": [
+                            {"type": "url", "name": "폰 북마크", "url": "https://phone"}
+                        ],
+                    },
+                },
+            )
+            nouns = {}
+            scan_chrome_bookmarks(nouns, root)
+
+            self.assertEqual({"회사 위키": "https://wiki"}, nouns)
+
+    def test_the_other_bookmarks_folder_is_still_scanned(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._write_roots(
+                root / "Default",
+                {
+                    "other": {
+                        "type": "folder",
+                        "children": [
+                            {"type": "url", "name": "기타 항목", "url": "https://other"}
+                        ],
+                    }
+                },
+            )
+            nouns = {}
+            scan_chrome_bookmarks(nouns, root)
+
+            self.assertIn("기타 항목", nouns)

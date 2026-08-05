@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 PROFILE_DIR_RE = re.compile(r"^Profile (\d+)$", re.IGNORECASE)
 BOOKMARK_NAME_RE = re.compile(r"[^a-z0-9가-힣\s]")
 
+# Chrome keeps the bookmarks synced from a phone under "synced", which its own
+# interface calls 모바일 즐겨찾기. They are not things on this computer, so
+# offering them as apps to open fills the list with places the user never
+# bookmarked here.
+EXCLUDED_BOOKMARK_ROOTS = frozenset({"synced"})
+
 
 def _default_chrome_user_data_dir():
     return Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "User Data"
@@ -73,7 +79,14 @@ def scan_chrome_bookmarks(noun_dict, user_data_dir=None):
             continue
 
         roots = data.get("roots", {})
-        root_nodes = roots.values() if isinstance(roots, dict) else []
+        if isinstance(roots, dict):
+            root_nodes = [
+                node
+                for name, node in roots.items()
+                if str(name).lower() not in EXCLUDED_BOOKMARK_ROOTS
+            ]
+        else:
+            root_nodes = []
         for root_node in root_nodes:
             for raw_name, url in _iter_bookmark_urls(root_node):
                 clean_name = clean_bookmark_name(raw_name)

@@ -102,6 +102,7 @@ TEST_GROUPS = {
         "tests.integration.test_local_command_analyzer",
         "tests.integration.test_maintenance_failure_injection",
         "tests.integration.test_native_action_candidates",
+        "tests.integration.test_noun_removal",
         "tests.integration.test_parser_accuracy",
         "tests.integration.test_performance",
         "tests.integration.test_persistence",
