@@ -339,6 +339,7 @@ class Win32SelectionOverlayBackend:
         self._label = "JARVIS"
         self._cell_size = (1, 1)
         self._label_width = 104
+        self._caret_mode = False
         self._closed = False
         atexit.register(self.close)
 
@@ -355,10 +356,18 @@ class Win32SelectionOverlayBackend:
                 self._thread.start()
             return True
 
-    def show(self, owner_handle: int, rectangle: ScreenRectangle, label: str) -> bool:
+    def show(
+        self,
+        owner_handle: int,
+        rectangle: ScreenRectangle,
+        label: str,
+        caret: bool = False,
+    ) -> bool:
         if os.name != "nt" or not rectangle.visible or not self._ensure_thread():
             return False
-        self._commands.put(("show", int(owner_handle), rectangle, str(label)))
+        self._commands.put(
+            ("show", int(owner_handle), rectangle, str(label), bool(caret))
+        )
         return True
 
     def hide(self) -> None:
@@ -394,6 +403,14 @@ class Win32SelectionOverlayBackend:
         try:
             client = win32gui.GetClientRect(handle)
             win32gui.FillRect(dc, client, transparent_brush)
+            if self._caret_mode:
+                # Solid bar: a hollow frame this thin is not readable, and a
+                # caret has no interior worth leaving see-through.
+                win32gui.FillRect(dc, client, accent_brush)
+                win32gui.EndPaint(handle, paint)
+                win32gui.DeleteObject(transparent_brush)
+                win32gui.DeleteObject(accent_brush)
+                return 0
             label_rect = (0, 0, self._label_width, self.LABEL_HEIGHT)
             win32gui.FillRect(dc, label_rect, accent_brush)
 
@@ -486,13 +503,37 @@ class Win32SelectionOverlayBackend:
             win32con.LWA_COLORKEY,
         )
 
-    def _show(self, owner_handle: int, rectangle: ScreenRectangle, label: str):
+    def _show(
+        self,
+        owner_handle: int,
+        rectangle: ScreenRectangle,
+        label: str,
+        caret: bool = False,
+    ):
         import win32con
         import win32gui
 
         self._create_window(owner_handle)
         self._label = label[:64]
         self._cell_size = (rectangle.width, rectangle.height)
+        self._caret_mode = bool(caret)
+        if self._caret_mode:
+            # A caret marks a point, so the window is exactly the caret and
+            # nothing is drawn above it. The range marker's label bar sat on
+            # the line above and read as the marker being a line out of place.
+            self._label_width = 0
+            win32gui.SetWindowPos(
+                self._window,
+                win32con.HWND_TOP,
+                rectangle.left,
+                rectangle.top,
+                rectangle.width,
+                rectangle.height,
+                win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW,
+            )
+            win32gui.InvalidateRect(self._window, None, True)
+            win32gui.UpdateWindow(self._window)
+            return
         self._label_width = max(104, min(260, 54 + len(self._label) * 8))
         window_width = max(
             rectangle.width + self.BORDER * 2,
@@ -524,7 +565,7 @@ class Win32SelectionOverlayBackend:
             try:
                 if command:
                     if command[0] == "show":
-                        self._show(command[1], command[2], command[3])
+                        self._show(*command[1:])
                     elif command[0] == "hide" and self._window:
                         win32gui.ShowWindow(self._window, win32con.SW_HIDE)
                     elif command[0] == "close":
@@ -789,6 +830,15 @@ class SelectionOverlayManager:
                 self._status["status"] = "hidden"
             return dict(self._status)
 
+    def _show_caret_marker(self, handle, rectangle) -> bool:
+        """Ask for the caret rendering, tolerating a backend without it."""
+        try:
+            return self.backend.show(
+                handle, rectangle, self.CARET_LABEL, caret=True
+            )
+        except TypeError:
+            return self.backend.show(handle, rectangle, self.CARET_LABEL)
+
     def _update_caret(self, session) -> dict:
         """Mark the 한글 caret, which the user otherwise has to hunt for.
 
@@ -807,7 +857,9 @@ class SelectionOverlayManager:
         rectangle = self.caret_locator.locate(handle)
         if rectangle is None:
             return self.hide("caret_unavailable")
-        shown = bool(self.backend.show(handle, rectangle, self.CARET_LABEL))
+        shown = bool(
+            self._show_caret_marker(handle, rectangle)
+        )
         with self._condition:
             self._status = {
                 "enabled": self._enabled,

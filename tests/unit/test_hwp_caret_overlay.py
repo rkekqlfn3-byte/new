@@ -18,10 +18,14 @@ from engine.edit_mode.selection_overlay import SelectionOverlayManager
 
 
 class FakeCaretApi:
-    def __init__(self, bounds=None, error=None):
+    def __init__(self, bounds=None, error=None, screen=(0, 0, 3840, 2160)):
         self.bounds = bounds
         self.error = error
+        self.screen = screen
         self.handles = []
+
+    def virtual_screen(self):
+        return self.screen
 
     def caret_rectangle(self, window_handle):
         self.handles.append(window_handle)
@@ -36,8 +40,8 @@ class FakeBackend:
         self.shows = []
         self.hides = 0
 
-    def show(self, handle, rectangle, label):
-        self.shows.append((handle, rectangle, label))
+    def show(self, handle, rectangle, label, caret=False):
+        self.shows.append((handle, rectangle, label, caret))
         return self.shown
 
     def hide(self):
@@ -90,10 +94,13 @@ class HwpCaretOverlayTests(unittest.TestCase):
         status = manager.update({"app_type": "hwp", "window_handle": 4242}, {})
         self.assertEqual("shown", status["status"])
         self.assertTrue(status["visible"])
-        handle, rectangle, label = backend.shows[-1]
+        handle, rectangle, label, caret = backend.shows[-1]
         self.assertEqual(4242, handle)
         self.assertEqual(100, rectangle.left)
         self.assertEqual("커서", label)
+        # The range marker hangs a label bar above the rectangle, which for a
+        # caret sits on the line above and reads as being one line out.
+        self.assertTrue(caret)
 
     def test_no_caret_hides_rather_than_leaving_a_stale_marker(self):
         manager, backend = self._manager(None)
@@ -155,6 +162,66 @@ class UnsavedHwpDocumentTests(unittest.TestCase):
 
         with self.assertRaises(EditDocumentOpenTimeout):
             self._manager()._runtime_hwp_document({"window_handle": 0})
+
+
+class CaretMemoryTests(unittest.TestCase):
+    """The marker is needed exactly when the caret cannot be read."""
+
+    def test_a_lost_focus_keeps_showing_where_the_caret_was(self):
+        api = FakeCaretApi((100, 200, 101, 201))
+        locator = HwpCaretLocator(api)
+        first = locator.locate(4242)
+        # Clicking into the command box takes focus away from 한글 and its
+        # caret is gone; it has not moved, so the answer has not changed.
+        api.bounds = None
+        self.assertEqual(first, locator.locate(4242))
+
+    def test_a_moved_caret_replaces_what_was_remembered(self):
+        api = FakeCaretApi((100, 200, 101, 201))
+        locator = HwpCaretLocator(api)
+        locator.locate(4242)
+        api.bounds = (300, 400, 301, 401)
+        self.assertEqual(300, locator.locate(4242).left)
+        api.bounds = None
+        self.assertEqual(300, locator.locate(4242).left)
+
+    def test_windows_are_remembered_separately(self):
+        api = FakeCaretApi((10, 20, 11, 21))
+        locator = HwpCaretLocator(api)
+        locator.locate(1)
+        api.bounds = None
+        self.assertIsNotNone(locator.locate(1))
+        self.assertIsNone(locator.locate(2))
+
+    def test_forgetting_a_window_stops_showing_its_old_place(self):
+        api = FakeCaretApi((10, 20, 11, 21))
+        locator = HwpCaretLocator(api)
+        locator.locate(1)
+        locator.forget(1)
+        api.bounds = None
+        self.assertIsNone(locator.locate(1))
+
+
+class OffScreenCaretTests(unittest.TestCase):
+    def test_a_minimised_window_does_not_move_the_marker(self):
+        # A minimised window reports its client area near -32000. The numbers
+        # are a valid rectangle and point nowhere a person can look.
+        api = FakeCaretApi((2039, 215, 2042, 216))
+        locator = HwpCaretLocator(api)
+        known = locator.locate(4242)
+        api.bounds = (-31766, -31571, -31763, -31570)
+        self.assertEqual(known, locator.locate(4242))
+
+    def test_without_screen_bounds_the_read_is_still_used(self):
+        class NoScreenApi:
+            bounds = (10, 20, 11, 21)
+
+            def caret_rectangle(self, handle):
+                return self.bounds
+
+        rectangle = HwpCaretLocator(NoScreenApi()).locate(4242)
+        self.assertIsNotNone(rectangle)
+        self.assertEqual(10, rectangle.left)
 
 
 if __name__ == "__main__":
