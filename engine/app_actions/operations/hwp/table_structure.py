@@ -51,21 +51,32 @@ def table_dimensions(hwp, control):
     table.  ``TableLowerCell`` moves down exactly one row, and cell identity is
     row-major, so the identity it gains *is* the column count.
     """
-    enter_first_cell(hwp, control)
-    total = cell_count(hwp)
-    if total <= 0:
-        raise AppActionBlocked("표의 칸을 읽지 못해 구조를 바꾸지 않았습니다.")
-    before = cell_identity(hwp)
-    hwp.HAction.Run("TableLowerCell")
-    columns = cell_identity(hwp) - before
-    if columns <= 0:
-        # A single-row table: nothing below to step to.
-        columns = total
-    if total % columns:
-        raise AppActionBlocked(
-            "표의 행과 열을 확인하지 못해 구조를 바꾸지 않았습니다."
-        )
-    return total // columns, columns
+    # Measuring moves the caret, and a preview must leave it where the user
+    # put it: the caret is part of the fingerprint that decides whether an
+    # approved edit may still run.
+    origin = hwp.GetPos()
+    try:
+        enter_first_cell(hwp, control)
+        total = cell_count(hwp)
+        if total <= 0:
+            raise AppActionBlocked("표의 칸을 읽지 못해 구조를 바꾸지 않았습니다.")
+        before = cell_identity(hwp)
+        hwp.HAction.Run("TableLowerCell")
+        columns = cell_identity(hwp) - before
+        if columns <= 0:
+            # A single-row table: nothing below to step to.
+            columns = total
+        if total % columns:
+            raise AppActionBlocked(
+                "표의 행과 열을 확인하지 못해 구조를 바꾸지 않았습니다."
+            )
+        return total // columns, columns
+    finally:
+        try:
+            hwp.HAction.Run("Cancel")
+            hwp.SetPos(*origin)
+        except Exception:
+            pass
 
 
 class TableStructureOperation(HwpOperation):

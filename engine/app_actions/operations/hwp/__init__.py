@@ -10,6 +10,7 @@ from engine.app_actions.operations.hwp.insert_text import InsertTextOperation
 from engine.app_actions.operations.hwp.line_spacing import SetLineSpacingOperation
 from engine.app_actions.operations.hwp.list_format import SetListFormatOperation
 from engine.app_actions.operations.hwp.page_break import InsertPageBreakOperation
+from engine.app_actions.operations.hwp.page_setup import SetPageSetupOperation
 from engine.app_actions.operations.hwp.paragraph_format import (
     SetParagraphFormatOperation,
 )
@@ -21,6 +22,11 @@ from engine.app_actions.operations.hwp.state import (
     paragraph_state,
 )
 from engine.app_actions.operations.hwp.table_cell import SetTableCellOperation
+from engine.app_actions.operations.hwp.table_edit import (
+    DeleteTableOperation,
+    SetTableBorderOperation,
+    SplitTableCellOperation,
+)
 from engine.app_actions.operations.hwp.table_structure import (
     DeleteTableColumnOperation,
     DeleteTableRowOperation,
@@ -45,11 +51,15 @@ HWP_OPERATIONS = OperationRegistry(
         DeleteTableColumnOperation(),
         MergeTableCellsOperation(),
         SetTableColumnWidthOperation(),
+        DeleteTableOperation(),
+        SplitTableCellOperation(),
+        SetTableBorderOperation(),
         SetTextFormatOperation(),
         SetParagraphFormatOperation(),
         SetLineSpacingOperation(),
         SetListFormatOperation(),
         InsertPageBreakOperation(),
+        SetPageSetupOperation(),
         FindReplaceOperation(),
         SaveAsOperation(),
     ),

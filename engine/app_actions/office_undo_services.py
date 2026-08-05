@@ -12,6 +12,10 @@ from engine.app_actions.base import (
 from engine.app_actions.office_edit_helpers import exact_office_document
 from engine.app_actions.operations.hwp.insert_table import table_control_count
 from engine.app_actions.operations.hwp.page_break import page_count
+from engine.app_actions.operations.hwp.page_setup import (
+    MARGIN_TOLERANCE,
+    page_setup_state,
+)
 from engine.app_actions.operations.hwp.table_cell import (
     enter_first_cell,
     first_table_control,
@@ -19,6 +23,7 @@ from engine.app_actions.operations.hwp.table_cell import (
     step_to_cell,
     visiting_cell,
 )
+from engine.app_actions.operations.hwp.table_edit import border_state
 from engine.app_actions.operations.hwp.table_structure import cell_count
 from engine.app_actions.operations.hwp.table_width import STEP_UNITS, column_width
 
@@ -28,7 +33,17 @@ _TABLE_STRUCTURE_OPERATIONS = frozenset({
     "delete_table_row",
     "delete_table_column",
     "merge_table_cells",
+    "split_table_cell",
 })
+
+
+def _table_border(hwp, prepared) -> dict:
+    control = first_table_control(hwp)
+    if control is None:
+        return {}
+    enter_first_cell(hwp, control)
+    step_to_cell(hwp, int(prepared.params["row"]), int(prepared.params["column"]))
+    return border_state(hwp)
 
 
 def _table_column_width(hwp, prepared) -> int:
@@ -76,11 +91,15 @@ class HwpUndoService:
         "delete_table_column",
         "merge_table_cells",
         "set_table_column_width",
+        "delete_table",
+        "split_table_cell",
+        "set_table_border",
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
         "set_list_format",
         "insert_page_break",
+        "set_page_setup",
         "find_replace",
     })
 
@@ -177,6 +196,8 @@ class HwpUndoService:
                     "직전에 넣은 표가 그대로 있지 않아 복원하지 않았습니다."
                 )
             return
+        if self._table_and_page_state_matches(hwp, prepared, self.adapter):
+            return
         if prepared.operation == "insert_page_break":
             if page_count(hwp) != int(prepared.params.get("expected_page_count", -1)):
                 raise AppActionContextChanged(
@@ -209,6 +230,33 @@ class HwpUndoService:
                 "직전 편집 뒤 문단 정렬이 달라져 복원하지 않았습니다."
             )
 
+
+    @staticmethod
+    def _table_and_page_state_matches(hwp, prepared, adapter):
+        """Return True when this operation has its own pre-undo check."""
+        if prepared.operation == "delete_table":
+            if table_control_count(hwp) != int(
+                prepared.params.get("expected_table_count", -1)
+            ):
+                raise AppActionContextChanged(
+                    "직전에 지운 표 상태가 달라져 복원하지 않았습니다."
+                )
+            return True
+        if prepared.operation == "set_table_border":
+            return True
+        if prepared.operation == "set_page_setup":
+            current_setup = page_setup_state(hwp)
+            desired = dict(prepared.params.get("desired") or {})
+            if any(
+                abs(int(current_setup.get(key, -1)) - int(value))
+                > MARGIN_TOLERANCE
+                for key, value in desired.items()
+            ):
+                raise AppActionContextChanged(
+                    "직전 편집 뒤 쪽 설정이 달라져 복원하지 않았습니다."
+                )
+            return True
+        return False
     def _undo_and_verify(self, hwp, prepared):
         try:
             self.adapter._undo(hwp)
@@ -241,6 +289,22 @@ class HwpUndoService:
             original = str(prepared.params.get("original_text", ""))
             restored = {"cell_text": _current_cell_text(hwp, prepared)}
             return restored, restored["cell_text"] == original
+        if prepared.operation == "delete_table":
+            expected = int(prepared.current_state.get("table_count", -1))
+            restored = {"table_count": table_control_count(hwp)}
+            return restored, restored["table_count"] == expected
+        if prepared.operation == "set_table_border":
+            expected = dict(prepared.current_state.get("border") or {})
+            restored = {"border": _table_border(hwp, prepared)}
+            return restored, restored["border"] == expected
+        if prepared.operation == "set_page_setup":
+            original = dict(prepared.current_state.get("format") or {})
+            restored = page_setup_state(hwp)
+            return restored, all(
+                abs(int(restored.get(key, -1)) - int(value))
+                <= MARGIN_TOLERANCE
+                for key, value in original.items()
+            )
         if prepared.operation == "insert_page_break":
             expected = int(prepared.current_state.get("page_count", -1))
             restored = {"page_count": page_count(hwp)}

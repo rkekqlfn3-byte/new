@@ -162,6 +162,62 @@ def _probe(lease, steps, checks):
     checks["merge_undo_verified"] = bool(merge_restored.get("verified"))
 
     fresh_document()
+    steps.append("table_edit")
+    from engine.app_actions.operations.hwp.table_edit import border_state
+
+    adapter.execute(adapter.prepare("insert_table", {"rows": 3, "columns": 4}))
+    control = first_table_control(hwp)
+
+    split = adapter.prepare(
+        "split_table_cell", {"row": 1, "column": 1, "rows": 1, "columns": 3}
+    )
+    split_result = adapter.execute(split)
+    checks["split_verified"] = bool(split_result.get("verified"))
+    checks["split_cell_count"] = split_result["after"]["cell_count"] == 14
+    split_restored = adapter.undo(split, {"after_observations": split_result})
+    checks["split_undo_verified"] = bool(split_restored.get("verified"))
+
+    border = adapter.prepare(
+        "set_table_border", {"row": 1, "column": 1, "thickness": "굵게"}
+    )
+    border_result = adapter.execute(border)
+    checks["border_verified"] = bool(border_result.get("verified"))
+    enter_first_cell(hwp, first_table_control(hwp))
+    checks["border_applied"] = all(
+        value == 6 for value in border_state(hwp).values()
+    )
+    border_restored = adapter.undo(border, {"after_observations": border_result})
+    checks["border_undo_verified"] = bool(border_restored.get("verified"))
+
+    delete = adapter.prepare("delete_table", {})
+    delete_result = adapter.execute(delete)
+    checks["delete_table_verified"] = bool(delete_result.get("verified"))
+    checks["table_is_gone"] = table_control_count(hwp) == 0
+    delete_restored = adapter.undo(delete, {"after_observations": delete_result})
+    checks["delete_table_undo_verified"] = bool(delete_restored.get("verified"))
+    checks["table_came_back"] = table_control_count(hwp) == 1
+
+    fresh_document()
+    steps.append("page_setup")
+    from engine.app_actions.operations.hwp.page_setup import page_setup_state
+
+    setup_before = page_setup_state(hwp)
+    setup = adapter.prepare(
+        "set_page_setup", {"margin_mm": 15, "orientation": "landscape"}
+    )
+    checks["setup_preview_changed_nothing"] = (
+        page_setup_state(hwp) == setup_before
+    )
+    setup_result = adapter.execute(setup)
+    checks["setup_execute_verified"] = bool(setup_result.get("verified"))
+    applied = page_setup_state(hwp)
+    checks["margins_applied"] = applied["left"] == hwp.MiliToHwpUnit(15)
+    checks["orientation_applied"] = applied["landscape"] == 1
+    setup_restored = adapter.undo(setup, {"after_observations": setup_result})
+    checks["setup_undo_verified"] = bool(setup_restored.get("verified"))
+    checks["page_setup_restored"] = page_setup_state(hwp) == setup_before
+
+    fresh_document()
     steps.append("column_width")
     from engine.app_actions.operations.hwp.table_cell import step_to_cell
     from engine.app_actions.operations.hwp.table_width import (

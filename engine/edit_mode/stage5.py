@@ -27,6 +27,14 @@ from engine.vocabulary.list_format import (
     list_format_label,
     normalize_list_format,
 )
+from engine.vocabulary.page_setup import (
+    MARGIN_COMMAND_PATTERN,
+    ORIENTATION_COMMAND_PATTERN,
+    normalize_margin_mm,
+    normalize_margin_sides,
+    normalize_orientation,
+    orientation_label,
+)
 from engine.vocabulary.table_size import (
     COLUMN_WIDTH_COMMAND_PATTERN,
     column_width_label,
@@ -154,7 +162,7 @@ _TABLE_CELL_RE = re.compile(r"(\d+)\s*(?:행|줄)\D{0,4}?(\d+)\s*(?:열|칸)")
 
 
 def _hwp_table_cell_intent(command: str, quotes):
-    if "표" not in command or not quotes:
+    if not _mentions_table(command) or not quotes:
         return None
     if not any(word in command for word in ("넣어", "입력", "바꿔", "채워", "써")):
         return None
@@ -182,8 +190,56 @@ _TABLE_STRUCTURE_ACTIONS = (
 )
 
 
+def _mentions_table(command: str) -> bool:
+    """Whether 표 in this sentence means a table.
+
+    `글머리표` ends in 표 but is a bullet, so `글머리표 없애줘` must not reach the
+    table commands — it did, and offered to delete the table.
+    """
+    return "표" in command.replace("글머리표", "").replace("글머리 표", "")
+
+
+def _hwp_table_edit_intent(command: str):
+    if not _mentions_table(command):
+        return None
+    address = _TABLE_CELL_RE.search(command)
+    row, column = (
+        (int(address.group(1)), int(address.group(2))) if address else (1, 1)
+    )
+    if any(word in command for word in ("표 삭제", "표 지워", "표 없애", "표 제거")):
+        return EditIntent(
+            "delete_table", {}, "표 삭제", after_preview="표 삭제"
+        )
+    if any(word in command for word in ("분할", "나눠", "나누")):
+        into = re.search(r"(\d+)\s*(?:개|칸|등분)", _TABLE_CELL_RE.sub("", command))
+        columns = int(into.group(1)) if into else 2
+        label = f"표 {row}행 {column}열 칸 {columns}개로 분할"
+        return EditIntent(
+            "split_table_cell",
+            {"row": row, "column": column, "rows": 1, "columns": columns},
+            label,
+            after_preview=label,
+        )
+    if "테두리" in command:
+        thickness = next(
+            (word for word in ("얇게", "보통", "굵게") if word in command), None
+        )
+        if not thickness:
+            raise Stage5EditError("표 테두리는 얇게·보통·굵게 중에서 알려주세요.")
+        colour = next(
+            (word for word in ("빨간색", "파란색", "검은색", "회색") if word in command),
+            None,
+        )
+        params = {"row": row, "column": column, "thickness": thickness}
+        if colour:
+            params["color"] = colour
+        label = f"표 {row}행 {column}열 테두리 {thickness}"
+        return EditIntent("set_table_border", params, label, after_preview=label)
+    return None
+
+
 def _hwp_table_width_intent(command: str):
-    if "표" not in command:
+    if not _mentions_table(command):
         return None
     if not re.search(COLUMN_WIDTH_COMMAND_PATTERN, command):
         return None
@@ -211,7 +267,7 @@ def _hwp_table_width_intent(command: str):
 
 
 def _hwp_table_structure_intent(command: str):
-    if "표" not in command:
+    if not _mentions_table(command):
         return None
     for operation, words in _TABLE_STRUCTURE_ACTIONS:
         if not any(word in command for word in words):
@@ -234,7 +290,7 @@ def _hwp_table_structure_intent(command: str):
 
 
 def _hwp_table_intent(command: str):
-    if "표" not in command or not any(
+    if not _mentions_table(command) or not any(
         word in command for word in ("넣어", "삽입", "만들", "추가", "생성")
     ):
         return None
@@ -253,6 +309,9 @@ def _hwp_table_intent(command: str):
 
 def _hwp_selection_intent(command: str, quotes):
     """한글 intents that need nothing from context beyond the selection."""
+    edit = _hwp_table_edit_intent(command)
+    if edit is not None:
+        return edit
     width = _hwp_table_width_intent(command)
     if width is not None:
         return width
@@ -284,7 +343,31 @@ def _hwp_selection_intent(command: str, quotes):
     return None
 
 
+def _hwp_page_setup_intent(command: str):
+    margin = re.search(MARGIN_COMMAND_PATTERN, command)
+    orientation = re.search(ORIENTATION_COMMAND_PATTERN, command)
+    if not margin and not orientation:
+        return None
+    params = {}
+    labels = []
+    if margin:
+        value = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:mm|밀리|미리)?", command)
+        if not value:
+            raise Stage5EditError("여백은 '여백 20mm로 해줘'처럼 값을 함께 알려주세요.")
+        params["margin_mm"] = normalize_margin_mm(value.group(1))
+        params["margin_sides"] = list(normalize_margin_sides(command))
+        labels.append(f"여백 {params['margin_mm']}mm")
+    if orientation:
+        params["orientation"] = normalize_orientation(orientation.group(1))
+        labels.append(orientation_label(params["orientation"]))
+    label = " · ".join(labels)
+    return EditIntent("set_page_setup", params, label, after_preview=label)
+
+
 def _paragraph_format_intent(command: str):
+    page = _hwp_page_setup_intent(command)
+    if page is not None:
+        return page
     """Page break, list format, line spacing and alignment.
 
     Ordered most specific first: a request naming a list or a spacing must not
@@ -716,6 +799,9 @@ class Stage5NativeEditAdapter:
         "delete_table_column",
         "merge_table_cells",
         "set_table_column_width",
+        "set_page_setup",
+        "split_table_cell",
+        "set_table_border",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
