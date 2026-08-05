@@ -1,0 +1,294 @@
+{
+  "schema_version": 2,
+  "restarts": 0,
+  "total": 35,
+  "counts": {
+    "noop": 12,
+    "failed": 13,
+    "changed": 8,
+    "dialog": 2
+  },
+  "undoable": 8,
+  "records": [
+    {
+      "action": "TableCellBorderAll",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.05,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderNone",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderOutside",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderInside",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderLeft",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderRight",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderTop",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderBottom",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableAutoFitContents",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableAutoFitWindow",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableDistributeCellWidth",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableDistributeCellHeight",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableSubtractRow",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.03,
+      "group": "표"
+    },
+    {
+      "action": "TableSubtractCol",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableAppendRow",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "표"
+    },
+    {
+      "action": "TableAppendCol",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableInsertLeftColumn",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "표"
+    },
+    {
+      "action": "TableInsertRightColumn",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableInsertUpperRow",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableInsertLowerRow",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "표"
+    },
+    {
+      "action": "TableDeleteRow",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableDeleteColumn",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableMergeCell",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableSplitCell",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.3,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBlock",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBlockRow",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBlockCol",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableColBegin",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableColEnd",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableCellAlignCenter",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "표"
+    },
+    {
+      "action": "TableCellAlignLeft",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableCellAlignRight",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableFormula",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.17,
+      "group": "표"
+    },
+    {
+      "action": "TableFormulaSumAuto",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableFormulaAvgAuto",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    }
+  ]
+}

@@ -39,9 +39,13 @@ class RibbonAction:
 
 # Verified 2026-08-05 against a real 한글: changed the document and undid
 # cleanly, and then run again through this operation against a real 한글.
-# Two names the catalogue accepted are absent: BreakLine and
+# Five names the catalogue accepted are absent. BreakLine and
 # CharShapeSpacingIncrease return True and move the caret without altering
 # the document, which the catalogue counted as a change until it was fixed.
+# InsertDateCode and InsertCpNo insert a field whose text the document
+# digest does not carry, so the operation cannot confirm they worked.
+# DeleteWord deletes forward and does nothing with the caret at the end,
+# which is where the catalogue left it.
 # See verification/hwp_action_catalogue.json for the full run, including the
 # names that failed and the eight that open a dialog.
 RIBBON_ACTIONS: dict[str, RibbonAction] = {
@@ -53,6 +57,36 @@ RIBBON_ACTIONS: dict[str, RibbonAction] = {
     "outline": RibbonAction("CharShapeOutline", "외곽선", True, words=("외곽선", "테두리 글자",)),
     "shadow": RibbonAction("CharShapeShadow", "그림자", True, words=("그림자",)),
     "column_break": RibbonAction("BreakColumn", "단 나누기", words=("단 나누", "단나누",)),
+    "indent_more": RibbonAction(
+        "ParagraphShapeIndentPositive", "들여쓰기",
+        words=("들여쓰", "들여 쓰", "안으로 밀"),
+    ),
+    "indent_less": RibbonAction(
+        "ParagraphShapeIndentNegative", "내어쓰기",
+        words=("내어쓰", "내어 쓰", "밖으로 밀"),
+    ),
+    "line_spacing_wider": RibbonAction(
+        "ParagraphShapeIncreaseLineSpacing", "줄 간격 넓히기",
+        words=("줄간격 넓", "줄 간격 넓", "줄간격 늘", "줄 간격 늘"),
+    ),
+    "line_spacing_narrower": RibbonAction(
+        "ParagraphShapeDecreaseLineSpacing", "줄 간격 좁히기",
+        words=("줄간격 좁", "줄 간격 좁", "줄간격 줄", "줄 간격 줄"),
+    ),
+    "margin_wider": RibbonAction(
+        "ParagraphShapeIncreaseMargin", "문단 여백 넓히기",
+        words=("문단 여백 넓", "문단여백 넓", "문단 여백 늘"),
+    ),
+    "margin_narrower": RibbonAction(
+        "ParagraphShapeDecreaseMargin", "문단 여백 좁히기",
+        words=("문단 여백 좁", "문단여백 좁", "문단 여백 줄"),
+    ),
+    "align_division": RibbonAction(
+        "ParagraphShapeAlignDivision", "나눔 정렬", words=("나눔 정렬",),
+    ),
+    "memo": RibbonAction(
+        "InsertFieldMemo", "메모", words=("메모",),
+    ),
     "footnote": RibbonAction("InsertFootnote", "각주", words=("각주",)),
     "endnote": RibbonAction("InsertEndnote", "미주", words=("미주",)),
 }
@@ -67,7 +101,10 @@ CHAR_FIELDS = (
     "SubScript", "Height", "TextColor", "Spacing", "OutLineType",
     "ShadowType",
 )
-PARA_FIELDS = ("AlignType", "HeadingType", "LineSpacing", "Indentation")
+PARA_FIELDS = (
+    "AlignType", "HeadingType", "LineSpacing", "Indentation",
+    "LeftMargin", "RightMargin",
+)
 
 
 def _shape_state(hwp, action_name: str, set_name: str, fields) -> dict:
