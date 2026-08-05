@@ -19,6 +19,7 @@ from engine.edit_mode.contracts import EditPreparedAction, EditRequest
 from engine.edit_mode.coordinator import EditExecutionCoordinator
 from engine.edit_mode.file_picker import choose_edit_document
 from engine.edit_mode.intake import FileIntakeManager
+from engine.edit_mode.llm_intent import assisted_analyzer, translator_for
 from engine.edit_mode.selection_overlay import SelectionOverlayManager
 from engine.edit_mode.session import (
     EditSessionBusy,
@@ -95,6 +96,7 @@ class EditModeController:
         self._execution_controller = None
         self._app_action_registry = None
         self._confirmations = None
+        self._intent_translator = None
         self._persist_layout = layout_manager is None or settings_path is not None
         self._settings_path = Path(
             settings_path or (Path(USER_DATA_DIR) / "edit_mode_settings.json")
@@ -108,12 +110,14 @@ class EditModeController:
         self.file_picker = file_picker or choose_edit_document
 
     def bind_services(
-        self, execution_controller, app_action_registry, confirmations
+        self, execution_controller, app_action_registry, confirmations,
+        llm_engine=None,
     ) -> None:
         """Bind only the runtime services used by edit-mode coordination."""
         self._execution_controller = execution_controller
         self._app_action_registry = app_action_registry
         self._confirmations = confirmations
+        self._intent_translator = translator_for(llm_engine)
 
     def _learning_manager(self):
         if self._user_learning_manager is None:
@@ -1003,6 +1007,9 @@ class EditModeController:
                 native = bind_session(session)
         adapter_class = Stage11NativeEditAdapter
         kwargs = {"user_learning_manager": self._learning_manager()}
+        kwargs["analyzer"] = assisted_analyzer(
+            self._intent_translator, adapter_class.supported_operations
+        )
         if self._workflow_executor is None:
             from engine.workflows import WorkflowExecutor
 

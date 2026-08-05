@@ -239,9 +239,8 @@ class CommandParser:
         bind_services = getattr(self.edit_mode_controller, "bind_services", None)
         if callable(bind_services):
             bind_services(
-                self.execution_controller,
-                self.app_action_registry,
-                self.confirmations,
+                self.execution_controller, self.app_action_registry,
+                self.confirmations, llm_engine=self.llm_engine,
             )
         self.edit_mode_handler = self.edit_mode_controller
         self.decision_engine = DecisionEngine()

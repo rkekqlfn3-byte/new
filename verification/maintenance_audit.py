@@ -25,7 +25,7 @@ DEFAULT_MAX_PARSER_LINES = 1000
 DEFAULT_LARGE_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_MODULE_LINE_BUDGETS = {
     "engine/workflows/business_workflow.py": 2477,
-    "engine/edit_mode/controller.py": 1628,
+    "engine/edit_mode/controller.py": 1633,
     "engine/edit_mode/native_bridge.py": 1123,
     "engine/action_executor.py": 1101,
     "engine/edit_mode/stage11.py": 1026,

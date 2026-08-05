@@ -123,9 +123,6 @@ LONG_FUNCTION_EXCEPTIONS = {
     "engine/managers/native_action_candidate_manager.py::_migrate_candidate_record": _exception(
         114, "learning", "Candidate schema migration needs versioned migration steps."
     ),
-    "engine/parser.py::CommandParser.__init__": _exception(
-        100, "composition", "Facade construction awaits a dedicated composition root."
-    ),
     "engine/pipeline/command_pipeline.py::CommandPipeline.execute": _exception(
         156, "pipeline", "Top-level route ordering needs declarative route stages."
     ),
