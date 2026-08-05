@@ -16,9 +16,11 @@ from engine.app_actions.operations.hwp.table_cell import (
     enter_first_cell,
     first_table_control,
     read_addressed_cell,
+    step_to_cell,
     visiting_cell,
 )
 from engine.app_actions.operations.hwp.table_structure import cell_count
+from engine.app_actions.operations.hwp.table_width import STEP_UNITS, column_width
 
 _TABLE_STRUCTURE_OPERATIONS = frozenset({
     "insert_table_row",
@@ -27,6 +29,15 @@ _TABLE_STRUCTURE_OPERATIONS = frozenset({
     "delete_table_column",
     "merge_table_cells",
 })
+
+
+def _table_column_width(hwp, prepared) -> int:
+    control = first_table_control(hwp)
+    if control is None:
+        return -1
+    enter_first_cell(hwp, control)
+    step_to_cell(hwp, int(prepared.params["row"]), int(prepared.params["column"]))
+    return column_width(hwp)
 
 
 def _table_cell_count(hwp) -> int:
@@ -64,6 +75,7 @@ class HwpUndoService:
         "delete_table_row",
         "delete_table_column",
         "merge_table_cells",
+        "set_table_column_width",
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
@@ -136,6 +148,14 @@ class HwpUndoService:
                 )
             return
         current_format = self.adapter._paragraph_state(hwp)
+        if prepared.operation == "set_table_column_width":
+            if abs(_table_column_width(hwp, prepared) - int(
+                prepared.params.get("wanted_units", -1)
+            )) > STEP_UNITS:
+                raise AppActionContextChanged(
+                    "직전에 조절한 열 너비가 달라져 복원하지 않았습니다."
+                )
+            return
         if prepared.operation in _TABLE_STRUCTURE_OPERATIONS:
             if _table_cell_count(hwp) != int(
                 prepared.params.get("expected_cell_count", -1)
@@ -209,6 +229,10 @@ class HwpUndoService:
             ) from error
 
     def _restored_snapshot(self, hwp, prepared, restored_base):
+        if prepared.operation == "set_table_column_width":
+            expected = int(prepared.current_state.get("width", -1))
+            restored = {"width": _table_column_width(hwp, prepared)}
+            return restored, abs(restored["width"] - expected) <= STEP_UNITS
         if prepared.operation in _TABLE_STRUCTURE_OPERATIONS:
             expected = int(prepared.current_state.get("cell_count", -1))
             restored = {"cell_count": _table_cell_count(hwp)}

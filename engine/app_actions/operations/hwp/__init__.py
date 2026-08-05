@@ -28,6 +28,7 @@ from engine.app_actions.operations.hwp.table_structure import (
     InsertTableRowOperation,
     MergeTableCellsOperation,
 )
+from engine.app_actions.operations.hwp.table_width import SetTableColumnWidthOperation
 from engine.app_actions.operations.hwp.text_format import SetTextFormatOperation
 
 HWP_OPERATIONS = OperationRegistry(
@@ -43,6 +44,7 @@ HWP_OPERATIONS = OperationRegistry(
         DeleteTableRowOperation(),
         DeleteTableColumnOperation(),
         MergeTableCellsOperation(),
+        SetTableColumnWidthOperation(),
         SetTextFormatOperation(),
         SetParagraphFormatOperation(),
         SetLineSpacingOperation(),

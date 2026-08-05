@@ -162,6 +162,39 @@ def _probe(lease, steps, checks):
     checks["merge_undo_verified"] = bool(merge_restored.get("verified"))
 
     fresh_document()
+    steps.append("column_width")
+    from engine.app_actions.operations.hwp.table_cell import step_to_cell
+    from engine.app_actions.operations.hwp.table_width import (
+        STEP_UNITS,
+        column_width,
+    )
+
+    adapter.execute(adapter.prepare("insert_table", {"rows": 3, "columns": 4}))
+    control = first_table_control(hwp)
+
+    def measured_width(column):
+        enter_first_cell(hwp, control)
+        step_to_cell(hwp, 1, column)
+        return column_width(hwp)
+
+    width_before = measured_width(2)
+    resize = adapter.prepare(
+        "set_table_column_width", {"row": 1, "column": 2, "width_mm": 50}
+    )
+    checks["width_preview_changed_nothing"] = measured_width(2) == width_before
+    resize_result = adapter.execute(resize)
+    checks["width_execute_verified"] = bool(resize_result.get("verified"))
+    checks["width_reached_request"] = (
+        abs(measured_width(2) - int(hwp.MiliToHwpUnit(50))) <= STEP_UNITS
+    )
+    checks["width_actually_changed"] = measured_width(2) != width_before
+    width_restored = adapter.undo(resize, {"after_observations": resize_result})
+    checks["width_undo_verified"] = bool(width_restored.get("verified"))
+    checks["width_restored"] = (
+        abs(measured_width(2) - width_before) <= STEP_UNITS
+    )
+
+    fresh_document()
     steps.append("list_format")
     listing = adapter.prepare("set_list_format", {"list_format": "bullet"})
     checks["list_preview_changed_nothing"] = (

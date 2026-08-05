@@ -153,6 +153,7 @@ class HwpOperationStructureTests(unittest.TestCase):
                 "delete_table_row",
                 "delete_table_column",
                 "merge_table_cells",
+                "set_table_column_width",
                 "set_list_format",
                 "insert_page_break",
                 "set_text_format",

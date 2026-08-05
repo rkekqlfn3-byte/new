@@ -27,6 +27,11 @@ from engine.vocabulary.list_format import (
     list_format_label,
     normalize_list_format,
 )
+from engine.vocabulary.table_size import (
+    COLUMN_WIDTH_COMMAND_PATTERN,
+    column_width_label,
+    normalize_column_width_mm,
+)
 
 _CELL_OR_RANGE = re.compile(
     r"^([A-Z]{1,3})([1-9]\d*)(?::([A-Z]{1,3})([1-9]\d*))?$",
@@ -177,6 +182,34 @@ _TABLE_STRUCTURE_ACTIONS = (
 )
 
 
+def _hwp_table_width_intent(command: str):
+    if "표" not in command:
+        return None
+    if not re.search(COLUMN_WIDTH_COMMAND_PATTERN, command):
+        return None
+    # Strip the address first so "2열 너비 40mm" does not read 2 as the width.
+    address = _TABLE_CELL_RE.search(command)
+    row, column = (
+        (int(address.group(1)), int(address.group(2))) if address else (1, 1)
+    )
+    remainder = _TABLE_CELL_RE.sub("", command)
+    single = re.search(r"(\d+)\s*열", remainder)
+    if single and not address:
+        column = int(single.group(1))
+        remainder = remainder.replace(single.group(0), "", 1)
+    value = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:mm|밀리|미리)?", remainder)
+    if not value:
+        raise Stage5EditError("열 너비는 '2열 너비 40mm로'처럼 값을 함께 알려주세요.")
+    millimetres = normalize_column_width_mm(value.group(1))
+    label = f"표 {column}열 " + column_width_label(millimetres)
+    return EditIntent(
+        "set_table_column_width",
+        {"row": row, "column": column, "width_mm": millimetres},
+        label,
+        after_preview=label,
+    )
+
+
 def _hwp_table_structure_intent(command: str):
     if "표" not in command:
         return None
@@ -220,6 +253,9 @@ def _hwp_table_intent(command: str):
 
 def _hwp_selection_intent(command: str, quotes):
     """한글 intents that need nothing from context beyond the selection."""
+    width = _hwp_table_width_intent(command)
+    if width is not None:
+        return width
     structure = _hwp_table_structure_intent(command)
     if structure is not None:
         return structure
@@ -679,6 +715,7 @@ class Stage5NativeEditAdapter:
         "delete_table_row",
         "delete_table_column",
         "merge_table_cells",
+        "set_table_column_width",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
