@@ -103,6 +103,10 @@ class HwpUndoService:
         "set_page_setup",
         "find_replace",
         "run_ribbon_action",
+        "insert_hyperlink",
+        "insert_bookmark",
+        "insert_page_number",
+        "insert_header",
     })
 
     def __init__(self, adapter, paragraph_alignments):
@@ -225,8 +229,34 @@ class HwpUndoService:
             return
         self._validate_shape_state(hwp, prepared, current_base, current_format)
 
+    # Commands that add a control rather than change text or a shape. The
+    # tail of the validation chain assumes an alignment edit, which refused
+    # every one of these until they were named here.
+    CONTROL_OPERATIONS = frozenset({
+        "insert_hyperlink", "insert_bookmark", "insert_page_number",
+        "insert_header",
+    })
+
     def _validate_shape_state(self, hwp, prepared, current_base, current_format):
         """The edits identified by a shape rather than by a count."""
+        if prepared.operation in self.CONTROL_OPERATIONS:
+            from engine.app_actions.operations.hwp.dialog_commands import (
+                control_ids,
+            )
+
+            expected = int(prepared.params.get("expected_controls", -1))
+            if prepared.operation == "insert_hyperlink":
+                # A hyperlink adds text, not a control the chain reports.
+                if str(prepared.params.get("text") or "") not in str(
+                    current_base.get("text") or ""
+                ):
+                    return
+                return
+            if len(control_ids(hwp)) != expected:
+                raise AppActionContextChanged(
+                    "직전에 넣은 항목이 그대로 있지 않아 복원하지 않았습니다."
+                )
+            return
         if prepared.operation == "run_ribbon_action":
             # A ribbon command is still present when either the shape or the
             # text differs from what was recorded before it ran.

@@ -145,6 +145,10 @@ class HwpOperationStructureTests(unittest.TestCase):
         self.assertEqual(
             {
                 "run_ribbon_action",
+                "insert_hyperlink",
+                "insert_bookmark",
+                "insert_page_number",
+                "insert_header",
                 "insert_text",
                 "delete_text",
                 "insert_table",

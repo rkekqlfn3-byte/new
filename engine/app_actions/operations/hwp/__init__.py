@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from engine.app_actions.operations.contracts import OperationRegistry
 from engine.app_actions.operations.hwp.delete_text import DeleteTextOperation
+from engine.app_actions.operations.hwp.dialog_commands import (
+    InsertBookmarkOperation,
+    InsertHeaderOperation,
+    InsertHyperlinkOperation,
+    InsertPageNumberOperation,
+)
 from engine.app_actions.operations.hwp.find_replace import FindReplaceOperation
 from engine.app_actions.operations.hwp.insert_table import InsertTableOperation
 from engine.app_actions.operations.hwp.insert_text import InsertTextOperation
@@ -67,6 +73,10 @@ HWP_OPERATIONS = OperationRegistry(
         FindReplaceOperation(),
         SaveAsOperation(),
         RunRibbonActionOperation(),
+        InsertHyperlinkOperation(),
+        InsertBookmarkOperation(),
+        InsertPageNumberOperation(),
+        InsertHeaderOperation(),
     ),
 )
 

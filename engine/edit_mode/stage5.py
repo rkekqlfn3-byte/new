@@ -695,6 +695,12 @@ class StructuredEditIntentAnalyzer:
                 after_preview=quotes[1],
             )
 
+        # Checked before the general rules: “1장” 책갈피 넣어줘 otherwise
+        # matches the quoted-text insert rule and types 1장 into the document.
+        dialog = _hwp_dialog_intent(command, quotes)
+        if dialog is not None:
+            return dialog
+
         desired: dict[str, Any] = {}
         labels = []
         if "굵게" in command or "볼드" in command:
@@ -762,6 +768,38 @@ HWP_HELP = (
     "각주, 쪽 나누기, 여백 20mm, 가로로, 3행 4열 표, 표 칸 합치기, "
     "“A”를 “B”로 바꿔줘, 다른 이름으로 저장"
 )
+
+_DIALOG_WORDS = (
+    ("insert_bookmark", ("책갈피",)),
+    ("insert_page_number", ("쪽 번호", "쪽번호", "페이지 번호")),
+    ("insert_header", ("머리말", "머릿말")),
+)
+
+
+def _hwp_dialog_intent(command: str, quotes):
+    """Commands 한글 would ask about in a dialog, driven by parameters."""
+    if any(word in command for word in ("하이퍼링크", "링크 걸", "링크 넣")):
+        if len(quotes) < 2:
+            raise Stage5EditError(
+                "하이퍼링크는 보일 글과 주소를 따옴표로 알려주세요. "
+                "예: “자비스”를 “https://example.com”으로 링크 걸어줘"
+            )
+        return EditIntent(
+            "insert_hyperlink",
+            {"text": quotes[0], "url": quotes[1]},
+            f"하이퍼링크 “{quotes[0]}”",
+        )
+    for operation, words in _DIALOG_WORDS:
+        if not any(word in command for word in words):
+            continue
+        params = {}
+        if operation == "insert_bookmark":
+            if not quotes:
+                raise Stage5EditError("책갈피 이름을 따옴표로 알려주세요.")
+            params = {"name": quotes[-1]}
+        return EditIntent(operation, params, f"{words[0]} 추가")
+    return None
+
 
 def _hwp_ribbon_intent(command: str):
     """Ribbon commands that have no operation of their own.
@@ -840,6 +878,10 @@ class Stage5NativeEditAdapter:
         "split_table_cell",
         "set_table_border",
         "run_ribbon_action",
+        "insert_hyperlink",
+        "insert_bookmark",
+        "insert_page_number",
+        "insert_header",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
