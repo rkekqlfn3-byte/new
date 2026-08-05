@@ -1,0 +1,941 @@
+{
+  "schema_version": 2,
+  "restarts": 12,
+  "total": 183,
+  "counts": {
+    "noop": 50,
+    "still_dialog": 11,
+    "refused": 28,
+    "parameterised": 8,
+    "no_parameter_set": 73,
+    "error:com_error": 1,
+    "execute_failed:com_error": 3,
+    "set_unavailable": 1,
+    "error:AttributeError": 8
+  },
+  "records": [
+    {
+      "action": "AddFieldBibliography",
+      "set_id": "Bibliography",
+      "outcome": "noop"
+    },
+    {
+      "action": "AddHanjaWord",
+      "set_id": "AddHanjaWord",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "Average",
+      "set_id": "Sum",
+      "outcome": "noop"
+    },
+    {
+      "action": "Bookmark",
+      "set_id": "BookMark",
+      "outcome": "noop"
+    },
+    {
+      "action": "CertLoadEnc",
+      "set_id": "XSecurity",
+      "outcome": "refused"
+    },
+    {
+      "action": "CertificateUser",
+      "set_id": "XSecurity",
+      "outcome": "noop"
+    },
+    {
+      "action": "ChangeRome",
+      "set_id": "ChangeRome",
+      "outcome": "parameterised",
+      "undoable": true
+    },
+    {
+      "action": "ChangeRomeToName",
+      "set_id": "ChangeRome",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "ChangeSkin",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CharShape",
+      "set_id": "CharShape",
+      "outcome": "noop"
+    },
+    {
+      "action": "CharShapeDialogWithoutBorder",
+      "set_id": "CharShape",
+      "outcome": "noop"
+    },
+    {
+      "action": "CharShapeHeight",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CharShapeHeightSpin",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CharShapeLang",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CharShapeSpacing",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CharShapeTBTitle",
+      "set_id": "CharShape",
+      "outcome": "noop"
+    },
+    {
+      "action": "CharShapeTypeFace",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CharShapeWidth",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "CompatibleDocument",
+      "set_id": "CompatibleDocument",
+      "outcome": "noop"
+    },
+    {
+      "action": "ComposeChars",
+      "set_id": "ChCompose",
+      "outcome": "parameterised",
+      "undoable": true
+    },
+    {
+      "action": "ComposeCharsEdit",
+      "set_id": "ChCompose",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "ConvertCase",
+      "set_id": "ConvertCase",
+      "outcome": "noop"
+    },
+    {
+      "action": "ConvertFullHalfWidth",
+      "set_id": "ConvertFullHalf",
+      "outcome": "noop"
+    },
+    {
+      "action": "ConvertHiraGata",
+      "set_id": "ConvertHiraToGata",
+      "outcome": "noop"
+    },
+    {
+      "action": "ConvertJianFan",
+      "set_id": "ConvertJianFan",
+      "outcome": "noop"
+    },
+    {
+      "action": "ConvertToHangul",
+      "set_id": "ConvertToHangul",
+      "outcome": "noop"
+    },
+    {
+      "action": "CustomizeToolbar",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "DeleteCtrls",
+      "set_id": "DeleteCtrls",
+      "outcome": "refused"
+    },
+    {
+      "action": "DeletePrivateInfoMark",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "DeletePrivateInfoMarkAtCurrentPos",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "DocSummaryInfo",
+      "set_id": "SummaryInfo",
+      "outcome": "noop"
+    },
+    {
+      "action": "DocumentSecurity",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "DrawObjCreatorArc",
+      "set_id": "ShapeObject",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "DrawObjCreatorObject",
+      "set_id": "ShapeObject",
+      "outcome": "parameterised",
+      "undoable": true
+    },
+    {
+      "action": "DrawObjPart",
+      "set_id": "ShapeObject",
+      "outcome": "refused"
+    },
+    {
+      "action": "DrawObjTemplateLoad",
+      "set_id": "ShapeObject",
+      "outcome": "refused"
+    },
+    {
+      "action": "DutmalChars",
+      "set_id": "Dutmal",
+      "outcome": "refused"
+    },
+    {
+      "action": "EditFieldBibliography",
+      "set_id": "BibliographyAll",
+      "outcome": "noop"
+    },
+    {
+      "action": "FormObjHanjaBusu",
+      "set_id": "FormObjHanjaBusu",
+      "outcome": "noop"
+    },
+    {
+      "action": "FormObjHanjaMean",
+      "set_id": "FormObjHanjaMean",
+      "outcome": "noop"
+    },
+    {
+      "action": "FormObjInputCodeTable",
+      "set_id": "CodeTable",
+      "outcome": "noop"
+    },
+    {
+      "action": "FtpUpload",
+      "set_id": "FtpUpload",
+      "outcome": "noop"
+    },
+    {
+      "action": "HanThDIC",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "HancomAsset",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "HeaderFooter",
+      "set_id": "HeaderFooter",
+      "outcome": "parameterised",
+      "undoable": true
+    },
+    {
+      "action": "HelpAbout",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "HimKbdChange",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "Hyperlink",
+      "set_id": "HyperLink",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "HyperlinkJump",
+      "set_id": "HyperlinkJump",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "ImageTileGroupTextArt",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ImportCharactersFromPicture",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ImportDaisyStyle",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "IndexMark",
+      "set_id": "IndexMark",
+      "outcome": "noop"
+    },
+    {
+      "action": "InputCodeTable",
+      "set_id": "CodeTable",
+      "outcome": "noop"
+    },
+    {
+      "action": "InputDateStyle",
+      "set_id": "InputDateStyle",
+      "outcome": "refused"
+    },
+    {
+      "action": "InputHanja",
+      "set_id": "InputHanja",
+      "outcome": "noop"
+    },
+    {
+      "action": "InputHanjaMean",
+      "set_id": "InputHanjaMean",
+      "outcome": "refused"
+    },
+    {
+      "action": "InputPersonsNameHanja",
+      "set_id": "InputHanja",
+      "outcome": "noop"
+    },
+    {
+      "action": "InsertCCLMark",
+      "set_id": "CCLMark",
+      "outcome": "parameterised",
+      "undoable": true
+    },
+    {
+      "action": "InsertChart",
+      "set_id": "ChartObjShape",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "InsertConnectLineArcBoth",
+      "set_id": "ShapeObject",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "InsertCrossReference",
+      "set_id": "ActionCrossRef",
+      "outcome": "noop"
+    },
+    {
+      "action": "InsertFieldFileName",
+      "set_id": "InsertFieldTemplate",
+      "outcome": "parameterised",
+      "undoable": false
+    },
+    {
+      "action": "InsertFieldTemplate",
+      "set_id": "",
+      "outcome": "error:com_error"
+    },
+    {
+      "action": "InsertFile",
+      "set_id": "InsertFile",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertFlash",
+      "set_id": "OleCreation",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertHyperlink",
+      "set_id": "HyperLink",
+      "outcome": "noop"
+    },
+    {
+      "action": "InsertIdiom",
+      "set_id": "Idiom",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertKOGLMark",
+      "set_id": "CCLMark",
+      "outcome": "parameterised",
+      "undoable": true
+    },
+    {
+      "action": "InsertMovie",
+      "set_id": "ShapeObject",
+      "outcome": "noop"
+    },
+    {
+      "action": "InsertRevision",
+      "set_id": "RevisionDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertRevisionHyperlink",
+      "set_id": "HyperLink",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertRevisionLeftMove",
+      "set_id": "RevisionDef",
+      "outcome": "noop"
+    },
+    {
+      "action": "InsertRevisionLineTransfer",
+      "set_id": "RevisionDef",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "InsertRevisionRightMove",
+      "set_id": "RevisionDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertRevisionSimpleChange",
+      "set_id": "RevisionDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertRevisionTransfer",
+      "set_id": "RevisionDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "InsertVoice",
+      "set_id": "OleCreation",
+      "outcome": "refused"
+    },
+    {
+      "action": "IntegMacroPlay1",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "IntegMacroPlay12",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "IntegMacroPlay13",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "IntegMacroPlay2",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "IntegMacroPlay3",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "IntegMacroPlay4",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "Jajun",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "LabelAdd",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "LabelTemplate",
+      "set_id": "Label",
+      "outcome": "refused"
+    },
+    {
+      "action": "LinkDocument",
+      "set_id": "LinkDocument",
+      "outcome": "noop"
+    },
+    {
+      "action": "LoadCertDRM",
+      "set_id": "CertDRM",
+      "outcome": "execute_failed:com_error"
+    },
+    {
+      "action": "MakeContents",
+      "set_id": "MakeContents",
+      "outcome": "execute_failed:com_error"
+    },
+    {
+      "action": "MakeIndex",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "MarkPrivateInfo",
+      "set_id": "PrivateInfoSecurity",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "MasterPage",
+      "set_id": "MasterPage",
+      "outcome": "noop"
+    },
+    {
+      "action": "MasterPageType",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "MemoShape",
+      "set_id": "SecDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "MenuExNetffice",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "MenuExTrackChangeApply",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "MenuExTrackChangeCancel",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "MessageBox",
+      "set_id": "MessageBox",
+      "outcome": "set_unavailable"
+    },
+    {
+      "action": "MetaTag_delete_DOC",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ModifySection",
+      "set_id": "SecDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "MultiColumn",
+      "set_id": "ColDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "NetfficeLogInOut",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "NewNumber",
+      "set_id": "AutoNum",
+      "outcome": "noop"
+    },
+    {
+      "action": "OnlineOptionEPostSend",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "OnlineOptionEPostTemplate",
+      "set_id": "FileOpen",
+      "outcome": "refused"
+    },
+    {
+      "action": "OutlineNumber",
+      "set_id": "SecDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "PUAConvertAll",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "PUAFindBackwark",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "PUAFindForward",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "PUAMarkAll",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "PageBorder",
+      "set_id": "SecDef",
+      "outcome": "refused"
+    },
+    {
+      "action": "PageMarginSetup",
+      "set_id": "SecDef",
+      "outcome": "noop"
+    },
+    {
+      "action": "PageNumPos",
+      "set_id": "PageNumPos",
+      "outcome": "noop"
+    },
+    {
+      "action": "PageSetup",
+      "set_id": "SecDef",
+      "outcome": "noop"
+    },
+    {
+      "action": "PageSetupDL",
+      "set_id": "SecDef",
+      "outcome": "noop"
+    },
+    {
+      "action": "ParaNumberBullet",
+      "set_id": "ParaShape",
+      "outcome": "noop"
+    },
+    {
+      "action": "ParaShapeLineSpace",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ParaShapeNextSpace",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ParaShapePrevSpace",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ParagraphShape",
+      "set_id": "ParaShape",
+      "outcome": "noop"
+    },
+    {
+      "action": "PasteSpecial",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "Preference",
+      "set_id": "Preference",
+      "outcome": "noop"
+    },
+    {
+      "action": "Presentation",
+      "set_id": "Presentation",
+      "outcome": "still_dialog"
+    },
+    {
+      "action": "PresentationRange",
+      "set_id": "Presentation",
+      "outcome": "noop"
+    },
+    {
+      "action": "PresentationSetup",
+      "set_id": "Presentation",
+      "outcome": "noop"
+    },
+    {
+      "action": "PrivateInfoSetPassword",
+      "set_id": "PrivateInfoSecurity",
+      "outcome": "refused"
+    },
+    {
+      "action": "PstGradientType",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "PstScrChangeType",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove0",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove1",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove2",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove3",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove4",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove5",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove6",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove7",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove8",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "QuickMarkMove9",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "RecentCode",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SBPaneTrackChange",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SBPaneZoomCtrl",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SHAPE_IDS_THEME_BUTTERFLY",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "SaveAsCertDRM",
+      "set_id": "CertDRM",
+      "outcome": "execute_failed:com_error"
+    },
+    {
+      "action": "SaveAsCertEnc",
+      "set_id": "XSecurity",
+      "outcome": "refused"
+    },
+    {
+      "action": "SaveAsCertSig",
+      "set_id": "XSecurity",
+      "outcome": "refused"
+    },
+    {
+      "action": "SaveDocument",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "SaveHistoryItem",
+      "set_id": "VersionInfo",
+      "outcome": "parameterised",
+      "undoable": false
+    },
+    {
+      "action": "SaveState",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "ScanHFTFonts",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ScrMacroDefine",
+      "set_id": "ScriptMacro",
+      "outcome": "noop"
+    },
+    {
+      "action": "ScrMacroPlay1",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ScrMacroPlay2",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ScrMacroPlay3",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ScrMacroPlay4",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ScrMacroStop",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SearchForeign",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SearchPrivateInfo",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SetLineNumbers",
+      "set_id": "SecDef",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetNoneButtonText",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "SetupDbfImport",
+      "set_id": "DocumentFilterDialog",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetupDocImgExport",
+      "set_id": "DocumentFilterDialog",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetupFlashExport",
+      "set_id": "DocumentFilterDialog",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetupHtmlExport",
+      "set_id": "DocumentFilterDialog",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetupHtmlImport",
+      "set_id": "DocumentFilterDialog",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetupHtmlPlusExport",
+      "set_id": "HtmlPlusExport",
+      "outcome": "noop"
+    },
+    {
+      "action": "SetupTextExport",
+      "set_id": "DocumentFilterDialog",
+      "outcome": "noop"
+    },
+    {
+      "action": "Shape",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "ShapeObjGuideLine",
+      "set_id": "ShapeGuideLine",
+      "outcome": "noop"
+    },
+    {
+      "action": "ShapeObjInsertCaptionNum",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ShapeObjLock",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ShapeObjSelect",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ShapeObjShear",
+      "set_id": "ShapeObject",
+      "outcome": "refused"
+    },
+    {
+      "action": "ShapeObjTableSelCell",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ShapeObjUngroup",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ShapeObjUnlockAll",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "ShowWindow",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "SingletonDomainUnload",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "SiteCreator",
+      "set_id": "",
+      "outcome": "error:AttributeError"
+    },
+    {
+      "action": "SmartSearchMode",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "Sort",
+      "set_id": "Sort",
+      "outcome": "refused"
+    },
+    {
+      "action": "SpellChecker",
+      "set_id": "",
+      "outcome": "no_parameter_set"
+    },
+    {
+      "action": "SpellingCheck",
+      "set_id": "SpellingCheck",
+      "outcome": "noop"
+    }
+  ]
+}
