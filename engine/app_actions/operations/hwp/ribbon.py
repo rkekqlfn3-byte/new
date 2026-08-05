@@ -57,6 +57,17 @@ class RibbonAction:
 # so the operation cannot confirm they did anything. InsertCpTpNo,
 # InsertFileName and InsertFilePath insert visible text and do work.
 #
+# The whole 6368-name list was probed once: 97 changed, 84 undid cleanly,
+# 183 opened a dialog. 84 is the ceiling for driving 한글 this way, which is
+# far below the "hundreds" this approach looked like it promised.
+#
+# Also absent, and for reasons worth keeping: the six FormObjCreator entries
+# need 한글's form design mode, which this operation does not enter, and
+# InsertLastSaveDate and InsertLastPrintDate have nothing to insert into a
+# document that has never been saved or printed. ManualChangeHangul reported
+# success and changed nothing even with 大韓民國 selected, so 한자 conversion
+# is not claimed until something is found that actually performs it.
+#
 # See verification/hwp_action_catalogue.json for the full run, including the
 # names that failed and the ones that open a dialog.
 RIBBON_ACTIONS: dict[str, RibbonAction] = {
@@ -123,6 +134,36 @@ RIBBON_ACTIONS: dict[str, RibbonAction] = {
     "right_margin_narrower": RibbonAction(
         "ParagraphShapeDecreaseRightMargin", "오른쪽 여백 좁히기",
         words=("오른쪽 여백 좁", "오른쪽 여백 줄", "우측 여백 좁"),
+    ),
+    "paste": RibbonAction(
+        "Paste", "붙여넣기", words=("붙여넣", "붙여 넣", "붙이기"),
+    ),
+    "paste_without_field": RibbonAction(
+        "PasteExceptField", "필드 빼고 붙여넣기", words=("필드 빼고", "필드 없이 붙여"),
+    ),
+    "paste_page": RibbonAction(
+        "PastePage", "쪽 붙여넣기", words=("쪽 붙여넣", "쪽 붙여 넣"),
+    ),
+    "insert_doc_info": RibbonAction(
+        "InsertDocInfo", "문서 정보 넣기", words=("문서 정보 넣", "문서정보 넣"),
+    ),
+    "insert_last_save_by": RibbonAction(
+        "InsertLastSaveBy", "마지막 저장자 넣기", words=("마지막 저장자", "최종 저장자"),
+    ),
+    "insert_datetime_field": RibbonAction(
+        "InsertFieldDateTime", "날짜·시간 필드 넣기", words=("날짜·시간 필드", "날짜 시간 필드", "날짜시간 필드"),
+    ),
+    "insert_datetime_text": RibbonAction(
+        "InsertStringDateTime", "날짜·시간 글자 넣기", words=("날짜·시간 글자", "날짜 시간 넣", "지금 시각 넣"),
+    ),
+    "list_level_down": RibbonAction(
+        "ParaNumberBulletLevelDown", "번호 수준 내리기", words=("수준 내리", "수준 내려", "수준 낮춰", "한 단계 내려"),
+    ),
+    "paragraph_break": RibbonAction(
+        "BreakPara", "문단 나누기", words=("문단 나누", "문단나누"),
+    ),
+    "insert_tab": RibbonAction(
+        "InsertTab", "탭 넣기", words=("탭 넣", "탭 삽입"),
     ),
     "footnote": RibbonAction("InsertFootnote", "각주", words=("각주",)),
     "endnote": RibbonAction("InsertEndnote", "미주", words=("미주",)),

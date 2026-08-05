@@ -371,7 +371,7 @@ def _stop_stray_processes(baseline: set) -> None:
             continue
 
 
-def run_catalogue(groups=None) -> dict:
+def run_catalogue(groups=None, on_progress=None) -> dict:
     from engine.app_actions.com_lifecycle import com_apartment
     from engine.app_actions.hwp_adapter import create_owned_hwp_application
     from engine.workflows.business_workflow import _registered_hwp_security_module
@@ -442,6 +442,8 @@ def run_catalogue(groups=None) -> dict:
                             f"{group} / {name}",
                             flush=True,
                         )
+                        if on_progress is not None and index % 25 == 0:
+                            on_progress(records)
                         if record["outcome"] == "destabilised":
                             break
             finally:
@@ -480,8 +482,20 @@ def main(argv=None) -> int:
         names = tuple(supplied.get("names") or supplied)
         CANDIDATES.clear()
         CANDIDATES["한글 목록"] = (SETUP_TEXT, names)
-    report = run_catalogue(args.groups)
-    Path(args.report).write_text(
+    destination = Path(args.report)
+
+    def save(records):
+        """Keep partial results: a four-hour run must survive a crash."""
+        destination.write_text(
+            json.dumps(
+                {"schema_version": 2, "partial": True, "records": records},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    report = run_catalogue(args.groups, on_progress=save)
+    destination.write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print("\ntotal:", report["total"])
