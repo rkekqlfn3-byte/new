@@ -334,9 +334,11 @@ class LlmAssistedEditIntentAnalyzer:
         structured,
         translator: LlmEditIntentTranslator | None,
         supported_operations=None,
+        memory=None,
     ):
         self._structured = structured
         self._translator = translator
+        self._memory = memory
         # The adapter refuses an operation outside its own allow-list after
         # analysis, so translating into one would only trade a clear message
         # for a confusing one. Ask for the same list up front.
@@ -346,6 +348,10 @@ class LlmAssistedEditIntentAnalyzer:
             else set().union(*OPERATION_GUIDES.values())
         )
 
+    @property
+    def memory(self):
+        return self._memory
+
     def __getattr__(self, name):
         # Callers reach past analyze() for the analyser's own helpers.
         return getattr(self._structured, name)
@@ -354,6 +360,9 @@ class LlmAssistedEditIntentAnalyzer:
         try:
             return self._structured.analyze(text, context, selection_reader)
         except Stage5EditError:
+            remembered = self._recall(text, context)
+            if remembered is not None:
+                return remembered
             translation = self._translate(text, context)
             if translation is None:
                 raise
@@ -361,7 +370,30 @@ class LlmAssistedEditIntentAnalyzer:
                 operation=translation.operation,
                 params=translation.params,
                 description=translation.description,
+                source="provider",
             )
+
+    def _recall(self, text, context) -> EditIntent | None:
+        """A wording translated once before does not need translating again."""
+        if self._memory is None:
+            return None
+        app_type = str((context or {}).get("app_type") or "").casefold()
+        if app_type not in OPERATION_GUIDES:
+            return None
+        found = self._memory.recall(app_type, text)
+        if found is None:
+            return None
+        operation, params = found
+        if operation not in self._supported:
+            # The allow-list can shrink between sessions; a note for an
+            # operation this adapter no longer runs is not usable.
+            return None
+        return EditIntent(
+            operation=operation,
+            params=dict(params),
+            description=str(text),
+            source="memory",
+        )
 
     def _translate(self, text, context) -> Translation | None:
         if self._translator is None:
@@ -400,9 +432,9 @@ def translator_for(llm_engine) -> LlmEditIntentTranslator | None:
     return LlmEditIntentTranslator(ask)
 
 
-def assisted_analyzer(translator, supported_operations):
+def assisted_analyzer(translator, supported_operations, memory=None):
     """Put the provider behind the stage rules, or leave the rules alone."""
-    if translator is None:
+    if translator is None and memory is None:
         return None
     from engine.edit_mode.stage6 import StructuredStage6IntentAnalyzer
 
@@ -410,6 +442,7 @@ def assisted_analyzer(translator, supported_operations):
         StructuredStage6IntentAnalyzer(),
         translator,
         supported_operations=supported_operations,
+        memory=memory,
     )
 
 

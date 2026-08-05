@@ -19,6 +19,7 @@ from engine.edit_mode.contracts import EditPreparedAction, EditRequest
 from engine.edit_mode.coordinator import EditExecutionCoordinator
 from engine.edit_mode.file_picker import choose_edit_document
 from engine.edit_mode.intake import FileIntakeManager
+from engine.edit_mode.intent_memory import shared_memory
 from engine.edit_mode.llm_intent import assisted_analyzer, translator_for
 from engine.edit_mode.selection_overlay import SelectionOverlayManager
 from engine.edit_mode.session import (
@@ -1008,7 +1009,9 @@ class EditModeController:
         adapter_class = Stage11NativeEditAdapter
         kwargs = {"user_learning_manager": self._learning_manager()}
         kwargs["analyzer"] = assisted_analyzer(
-            self._intent_translator, adapter_class.supported_operations
+            self._intent_translator,
+            adapter_class.supported_operations,
+            memory=shared_memory(),
         )
         if self._workflow_executor is None:
             from engine.workflows import WorkflowExecutor

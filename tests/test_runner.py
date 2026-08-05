@@ -26,6 +26,7 @@ TEST_GROUPS = {
         "tests.unit.test_edit_target_ui",
         "tests.unit.test_excel_a_group_contract",
         "tests.unit.test_edit_target_identity",
+        "tests.unit.test_edit_intent_memory",
         "tests.unit.test_edit_session",
         "tests.unit.test_learning_quality",
         "tests.unit.test_learning_schema",

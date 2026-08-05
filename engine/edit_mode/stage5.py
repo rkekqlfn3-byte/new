@@ -62,6 +62,9 @@ class EditIntent:
     before_preview: str = ""
     after_preview: str = ""
     read_only: bool = False
+    # Which layer answered. Only a provider translation is worth writing
+    # down, and only after it has been approved and verified.
+    source: str = "rules"
 
 
 def _quoted_values(text: str) -> list[str]:
@@ -845,6 +848,7 @@ class Stage5NativeEditAdapter:
         self.context_manager = context_manager
         self.native_adapter = native_adapter
         self.analyzer = analyzer or StructuredEditIntentAnalyzer()
+        self.intent_memory = getattr(self.analyzer, "memory", None)
         self._last_native_result = None
 
     def get_context(self) -> Mapping[str, Any]:
@@ -1013,6 +1017,11 @@ class Stage5NativeEditAdapter:
                 "preview": preview,
                 "estimated_changes": estimated_changes,
                 "native_reversible": bool(native.reversible) if native else True,
+                # Carried so a translation can be written down after it has
+                # been approved and verified, never before.
+                "intent_source": intent.source,
+                "intent_command": request.text,
+                "intent_params": dict(intent.params),
             },
         )
 
@@ -1028,7 +1037,34 @@ class Stage5NativeEditAdapter:
         )
         result = self.native_adapter.execute(native)
         self._last_native_result = dict(result)
+        self._remember_intent(prepared_action, result)
         return dict(result)
+
+    def _remember_intent(self, prepared_action, result) -> None:
+        """Write down a provider translation that actually worked.
+
+        Reaching execute means the reader approved it; a verified result
+        means 한글 agreed it happened. Anything less is not evidence that
+        the wording means what the provider said.
+        """
+        metadata = prepared_action.metadata or {}
+        if metadata.get("intent_source") != "provider":
+            return
+        if not bool(result.get("verified")):
+            return
+        memory = getattr(self, "intent_memory", None)
+        if memory is None:
+            return
+        try:
+            memory.remember(
+                prepared_action.app_type,
+                metadata.get("intent_command") or "",
+                prepared_action.operation,
+                metadata.get("intent_params") or {},
+            )
+        except Exception:
+            # Failing to write a note must never fail the edit that worked.
+            pass
 
     def verify(
         self,
