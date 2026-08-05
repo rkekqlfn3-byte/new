@@ -739,36 +739,70 @@ class StructuredEditIntentAnalyzer:
                 after_preview=quotes[-1],
             )
 
-        if any(word in command for word in ("줄여", "축약", "간결하게")):
-            if not callable(selection_reader):
-                raise Stage5EditError("한글 선택 텍스트를 다시 읽지 못했습니다.")
-            selected_text = str(selection_reader() or "")
-            shortened = _shorten_text(selected_text)
-            return EditIntent(
-                "insert_text",
-                {"text": shortened},
-                "선택 문단 간단 축약",
-                before_preview=selected_text,
-                after_preview=shortened,
-            )
+        rewritten = _hwp_rewrite_intent(command, selection_reader)
+        if rewritten is not None:
+            return rewritten
 
-        if any(word in command for word in ("격식체", "보고서체", "공손하게", "문체")):
-            if not callable(selection_reader):
-                raise Stage5EditError("한글 선택 텍스트를 다시 읽지 못했습니다.")
-            selected_text = str(selection_reader() or "")
-            formalized = _formalize_text(selected_text)
-            return EditIntent(
-                "insert_text",
-                {"text": formalized},
-                "선택 문장 격식체 변환",
-                before_preview=selected_text,
-                after_preview=formalized,
-            )
+        ribbon = _hwp_ribbon_intent(command)
+        if ribbon is not None:
+            return ribbon
 
-        raise Stage5EditError(
-            "지원하는 한글 편집 예: 선택 문장을 “...”로 바꿔줘, 조금 줄여줘, "
-            "굵게, 글자 크기 12, 조금 크게, 가운데 정렬, “A”를 “B”로 바꿔줘"
+        raise Stage5EditError(HWP_HELP)
+
+
+# The old help named seven of the twenty-two 한글 operations, so a reader
+# whose wording missed — 번호 매겨줘, for one — read it as the feature not
+# existing at all.
+HWP_HELP = (
+    "지원하는 한글 편집 예: 선택 문장을 “...”로 바꿔줘, 굵게, 기울임, 밑줄, "
+    "글자 크기 12, 조금 크게, 가운데 정렬, 줄간격 1.5, 글머리표, 번호 매기기, "
+    "각주, 쪽 나누기, 여백 20mm, 가로로, 3행 4열 표, 표 칸 합치기, "
+    "“A”를 “B”로 바꿔줘, 다른 이름으로 저장"
+)
+
+def _hwp_ribbon_intent(command: str):
+    """Ribbon commands that have no operation of their own.
+
+    Checked after every other rule so an existing operation always wins;
+    the table only holds commands nothing else covers.
+    """
+    from engine.app_actions.operations.hwp import RIBBON_ACTIONS
+
+    for key, entry in RIBBON_ACTIONS.items():
+        if any(word in command for word in entry.words):
+            return EditIntent(
+                "run_ribbon_action",
+                {"ribbon_action": key},
+                f"{entry.label} 적용",
+            )
+    return None
+
+
+def _hwp_rewrite_intent(command: str, selection_reader):
+    """Rewrites that replace the selected text with a new version of it."""
+    rewrites = (
+        (("줄여", "축약", "간결하게"), _shorten_text, "선택 문단 간단 축약"),
+        (
+            ("격식체", "보고서체", "공손하게", "문체"),
+            _formalize_text,
+            "선택 문장 격식체 변환",
+        ),
+    )
+    for words, rewrite, description in rewrites:
+        if not any(word in command for word in words):
+            continue
+        if not callable(selection_reader):
+            raise Stage5EditError("한글 선택 텍스트를 다시 읽지 못했습니다.")
+        selected_text = str(selection_reader() or "")
+        replacement = rewrite(selected_text)
+        return EditIntent(
+            "insert_text",
+            {"text": replacement},
+            description,
+            before_preview=selected_text,
+            after_preview=replacement,
         )
+    return None
 
 
 class Stage5NativeEditAdapter:
@@ -802,6 +836,7 @@ class Stage5NativeEditAdapter:
         "set_page_setup",
         "split_table_cell",
         "set_table_border",
+        "run_ribbon_action",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

@@ -99,6 +99,13 @@ HWP_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {
         "다른 이름으로 저장. path=저장할 전체 경로, format=파일 형식",
         ("path", "format"),
     ),
+    "run_ribbon_action": (
+        "리본 기능. ribbon_action 은 italic(기울임), underline(밑줄), "
+        "strikethrough(취소선), superscript(위 첨자), subscript(아래 첨자), "
+        "outline(외곽선), shadow(그림자), column_break(단 나누기), "
+        "footnote(각주), endnote(미주) 중 하나",
+        ("ribbon_action",),
+    ),
 }
 
 EXCEL_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {

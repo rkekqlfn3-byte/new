@@ -171,9 +171,11 @@ class AssistedAnalyzerTests(unittest.TestCase):
 
     def test_a_refused_translation_keeps_the_original_guidance(self):
         # The reader should see the same help as before, not a provider error.
+        # 각주 is a real operation now, so this asks for something 한글
+        # support genuinely does not cover.
         analyzer, _ = self._analyzer(reply("unsupported"))
         with self.assertRaises(Stage5EditError) as caught:
-            analyzer.analyze("각주 달아줘", HWP)
+            analyzer.analyze("맞춤법 검사해줘", HWP)
         self.assertIn("지원하는 한글 편집 예", str(caught.exception))
 
     def test_an_application_without_a_guide_is_left_to_the_rules(self):

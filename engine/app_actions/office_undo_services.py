@@ -16,6 +16,7 @@ from engine.app_actions.operations.hwp.page_setup import (
     MARGIN_TOLERANCE,
     page_setup_state,
 )
+from engine.app_actions.operations.hwp.ribbon import ribbon_state
 from engine.app_actions.operations.hwp.table_cell import (
     enter_first_cell,
     first_table_control,
@@ -101,6 +102,7 @@ class HwpUndoService:
         "insert_page_break",
         "set_page_setup",
         "find_replace",
+        "run_ribbon_action",
     })
 
     def __init__(self, adapter, paragraph_alignments):
@@ -219,6 +221,24 @@ class HwpUndoService:
             ):
                 raise AppActionContextChanged(
                     "직전 편집 뒤 줄간격이 달라져 복원하지 않았습니다."
+                )
+            return
+        self._validate_shape_state(hwp, prepared, current_base, current_format)
+
+    def _validate_shape_state(self, hwp, prepared, current_base, current_format):
+        """The edits identified by a shape rather than by a count."""
+        if prepared.operation == "run_ribbon_action":
+            # A ribbon command is still present when either the shape or the
+            # text differs from what was recorded before it ran.
+            previous = prepared.current_state or {}
+            unchanged = ribbon_state(hwp) == (
+                previous.get("state") or {}
+            ) and current_base["text_digest"] == str(
+                previous.get("document_digest") or ""
+            ).upper()
+            if unchanged:
+                raise AppActionContextChanged(
+                    "직전에 적용한 한글 기능이 그대로 있지 않아 복원하지 않았습니다."
                 )
             return
         alignment = str(prepared.params.get("alignment") or "")

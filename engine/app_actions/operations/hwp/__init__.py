@@ -14,6 +14,10 @@ from engine.app_actions.operations.hwp.page_setup import SetPageSetupOperation
 from engine.app_actions.operations.hwp.paragraph_format import (
     SetParagraphFormatOperation,
 )
+from engine.app_actions.operations.hwp.ribbon import (
+    RIBBON_ACTIONS,
+    RunRibbonActionOperation,
+)
 from engine.app_actions.operations.hwp.save_as import SaveAsOperation
 from engine.app_actions.operations.hwp.state import (
     COLOR_RGB,
@@ -62,12 +66,14 @@ HWP_OPERATIONS = OperationRegistry(
         SetPageSetupOperation(),
         FindReplaceOperation(),
         SaveAsOperation(),
+        RunRibbonActionOperation(),
     ),
 )
 
 __all__ = [
     "COLOR_RGB",
     "HWP_OPERATIONS",
+    "RIBBON_ACTIONS",
     "PARAGRAPH_ALIGNMENTS",
     "char_state",
     "paragraph_state",

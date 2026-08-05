@@ -144,6 +144,7 @@ class HwpOperationStructureTests(unittest.TestCase):
     def test_registered_hwp_operations_are_stable(self):
         self.assertEqual(
             {
+                "run_ribbon_action",
                 "insert_text",
                 "delete_text",
                 "insert_table",
@@ -369,3 +370,48 @@ class PowerPointWriteRetrySafetyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HwpRibbonCatalogueTests(unittest.TestCase):
+    """Ribbon commands stand in for operations that do not exist.
+
+    Two routes to the same edit is how `글머리표 없애줘` ended up offering to
+    delete the reader's table: whichever rule matched first won.
+    """
+
+    def test_no_ribbon_command_duplicates_a_real_operation(self):
+        from engine.app_actions.operations.hwp import RIBBON_ACTIONS
+        from engine.edit_mode.stage5 import _hwp_ribbon_intent
+
+        # Every ribbon entry must be reachable only through its own operation.
+        for key, entry in RIBBON_ACTIONS.items():
+            with self.subTest(ribbon=key):
+                intent = _hwp_ribbon_intent(entry.label)
+                self.assertIsNotNone(intent, f"{entry.label} matches no rule")
+                self.assertEqual("run_ribbon_action", intent.operation)
+
+    def test_an_existing_operation_always_wins_over_the_ribbon(self):
+        from engine.edit_mode.stage5 import StructuredEditIntentAnalyzer
+
+        analyzer = StructuredEditIntentAnalyzer()
+        context = {
+            "app_type": "hwp",
+            "selection_kind": "text",
+            "selected_text_preview": "안녕하세요",
+        }
+        # 굵게 has its own operation; 기울임 does not.
+        self.assertEqual(
+            "set_text_format", analyzer.analyze("굵게 해줘", context).operation
+        )
+        self.assertEqual(
+            "run_ribbon_action", analyzer.analyze("기울임 해줘", context).operation
+        )
+
+    def test_an_unverified_ribbon_name_is_refused(self):
+        from engine.app_actions.base import AppActionBlocked
+        from engine.app_actions.operations.hwp.ribbon import (
+            RunRibbonActionOperation,
+        )
+
+        with self.assertRaises(AppActionBlocked):
+            RunRibbonActionOperation().prepare(None, None, {"ribbon_action": "만들어낸것"})

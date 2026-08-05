@@ -1,0 +1,613 @@
+{
+  "schema_version": 1,
+  "total": 75,
+  "counts": {
+    "changed": 34,
+    "dialog": 8,
+    "noop": 14,
+    "failed": 19
+  },
+  "undoable": 25,
+  "records": [
+    {
+      "action": "CharShapeBold",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeItalic",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeUnderline",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeStrikeout",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeSuperscript",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeSubscript",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeHeight",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.41,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeHeightIncrease",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeHeightDecrease",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeTextColorRed",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeOutline",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeShadow",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeSpacingIncrease",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "글자 모양"
+    },
+    {
+      "action": "CharShapeSpacingDecrease",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "글자 모양"
+    },
+    {
+      "action": "ParagraphShapeAlignLeft",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeAlignCenter",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeAlignRight",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeAlignJustify",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeAlignDistribute",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeIndentPositive",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeIndentNegative",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeLineSpacingIncrease",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "문단 모양"
+    },
+    {
+      "action": "ParagraphShapeLineSpacingDecrease",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "문단 모양"
+    },
+    {
+      "action": "Copy",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.48,
+      "group": "편집"
+    },
+    {
+      "action": "Cut",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "편집"
+    },
+    {
+      "action": "Paste",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.09,
+      "group": "편집"
+    },
+    {
+      "action": "SelectAll",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "편집"
+    },
+    {
+      "action": "Undo",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "편집"
+    },
+    {
+      "action": "Redo",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "편집"
+    },
+    {
+      "action": "DeleteBack",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "편집"
+    },
+    {
+      "action": "Delete",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "편집"
+    },
+    {
+      "action": "Erase",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "편집"
+    },
+    {
+      "action": "BreakPage",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "입력"
+    },
+    {
+      "action": "BreakColumn",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "입력"
+    },
+    {
+      "action": "BreakLine",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "입력"
+    },
+    {
+      "action": "InsertFootnote",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "입력"
+    },
+    {
+      "action": "InsertEndnote",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "입력"
+    },
+    {
+      "action": "InsertFieldDate",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "입력"
+    },
+    {
+      "action": "InsertFieldTime",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "입력"
+    },
+    {
+      "action": "InsertPageNumber",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "입력"
+    },
+    {
+      "action": "InsertLine",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "입력"
+    },
+    {
+      "action": "HyperlinkInsert",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "입력"
+    },
+    {
+      "action": "InsertFieldMemo",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "입력"
+    },
+    {
+      "action": "PageNumPos",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.39,
+      "group": "쪽"
+    },
+    {
+      "action": "PageNumberInsert",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "쪽"
+    },
+    {
+      "action": "HeaderFooter",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.23,
+      "group": "쪽"
+    },
+    {
+      "action": "PageBorderFill",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "쪽"
+    },
+    {
+      "action": "MultiColumn",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.34,
+      "group": "쪽"
+    },
+    {
+      "action": "PageSetup",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.47,
+      "group": "쪽"
+    },
+    {
+      "action": "ViewOptionParagraphMark",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "보기"
+    },
+    {
+      "action": "ViewOptionCtrlMark",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.3,
+      "group": "보기"
+    },
+    {
+      "action": "ViewZoomFitWidth",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "보기"
+    },
+    {
+      "action": "ViewZoomFitPage",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "보기"
+    },
+    {
+      "action": "ViewZoomNormal",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "보기"
+    },
+    {
+      "action": "SpellingCheck",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.2,
+      "group": "검토"
+    },
+    {
+      "action": "WordCount",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "검토"
+    },
+    {
+      "action": "TrackChangeApply",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "검토"
+    },
+    {
+      "action": "CommentInsert",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "검토"
+    },
+    {
+      "action": "CommentDelete",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "검토"
+    },
+    {
+      "action": "MoveDocBegin",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "이동"
+    },
+    {
+      "action": "MoveDocEnd",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "이동"
+    },
+    {
+      "action": "MoveLineBegin",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "이동"
+    },
+    {
+      "action": "MoveLineEnd",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "이동"
+    },
+    {
+      "action": "MovePageDown",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.01,
+      "group": "이동"
+    },
+    {
+      "action": "MovePageUp",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "이동"
+    },
+    {
+      "action": "MoveNextParaBegin",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02,
+      "group": "이동"
+    },
+    {
+      "action": "TableCellBorderAll",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableCellBorderNone",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableAutoFitContents",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableAutoFitWindow",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableDistributeCellWidth",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "TableDistributeCellHeight",
+      "outcome": "failed",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "표"
+    },
+    {
+      "action": "StyleShortcut1",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "스타일"
+    },
+    {
+      "action": "StyleShortcut2",
+      "outcome": "changed",
+      "undoable": false,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "group": "스타일"
+    },
+    {
+      "action": "StyleTemplate",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.7,
+      "group": "스타일"
+    }
+  ]
+}
