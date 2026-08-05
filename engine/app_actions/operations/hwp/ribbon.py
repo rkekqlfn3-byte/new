@@ -46,8 +46,19 @@ class RibbonAction:
 # digest does not carry, so the operation cannot confirm they worked.
 # DeleteWord deletes forward and does nothing with the caret at the end,
 # which is where the catalogue left it.
+# The names themselves are no longer guessed. ``verification/hwp_action_names``
+# reads 한글's own action table out of HwpAppModule.dll, which is how
+# InsertHyperlink turned up after HyperlinkInsert had been recorded as a
+# missing feature for a whole run.
+#
+# Four more accepted by the catalogue are absent for the same kind of reason
+# as the first two: InsertPageNum, InsertDateCode, InsertUserName and
+# InsertFixedWidthSpace insert content the document digest does not carry,
+# so the operation cannot confirm they did anything. InsertCpTpNo,
+# InsertFileName and InsertFilePath insert visible text and do work.
+#
 # See verification/hwp_action_catalogue.json for the full run, including the
-# names that failed and the eight that open a dialog.
+# names that failed and the ones that open a dialog.
 RIBBON_ACTIONS: dict[str, RibbonAction] = {
     "italic": RibbonAction("CharShapeItalic", "기울임", True, words=("기울임", "이탤릭", "기울여",)),
     "underline": RibbonAction("CharShapeUnderline", "밑줄", True, words=("밑줄", "언더라인",)),
@@ -86,6 +97,32 @@ RIBBON_ACTIONS: dict[str, RibbonAction] = {
     ),
     "memo": RibbonAction(
         "InsertFieldMemo", "메모", words=("메모",),
+    ),
+    "page_of_total": RibbonAction(
+        "InsertCpTpNo", "현재 쪽/전체 쪽 넣기",
+        words=("전체 쪽", "몇 쪽 중", "쪽 분의"),
+    ),
+    "insert_file_name": RibbonAction(
+        "InsertFileName", "파일 이름 넣기", words=("파일 이름 넣", "파일명 넣"),
+    ),
+    "insert_file_path": RibbonAction(
+        "InsertFilePath", "파일 경로 넣기", words=("파일 경로 넣", "경로 넣"),
+    ),
+    "left_margin_wider": RibbonAction(
+        "ParagraphShapeIncreaseLeftMargin", "왼쪽 여백 넓히기",
+        words=("왼쪽 여백 넓", "왼쪽 여백 늘", "좌측 여백 넓"),
+    ),
+    "left_margin_narrower": RibbonAction(
+        "ParagraphShapeDecreaseLeftMargin", "왼쪽 여백 좁히기",
+        words=("왼쪽 여백 좁", "왼쪽 여백 줄", "좌측 여백 좁"),
+    ),
+    "right_margin_wider": RibbonAction(
+        "ParagraphShapeIncreaseRightMargin", "오른쪽 여백 넓히기",
+        words=("오른쪽 여백 넓", "오른쪽 여백 늘", "우측 여백 넓"),
+    ),
+    "right_margin_narrower": RibbonAction(
+        "ParagraphShapeDecreaseRightMargin", "오른쪽 여백 좁히기",
+        words=("오른쪽 여백 좁", "오른쪽 여백 줄", "우측 여백 좁"),
     ),
     "footnote": RibbonAction("InsertFootnote", "각주", words=("각주",)),
     "endnote": RibbonAction("InsertEndnote", "미주", words=("미주",)),

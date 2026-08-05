@@ -100,7 +100,7 @@ HWP_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {
         ("path", "format"),
     ),
     "run_ribbon_action": (
-        "리본 기능. ribbon_action 은 다음 중 하나: italic(기울임), underline(밑줄), strikethrough(취소선), superscript(위 첨자), subscript(아래 첨자), outline(외곽선), shadow(그림자), column_break(단 나누기), indent_more(들여쓰기), indent_less(내어쓰기), line_spacing_wider(줄 간격 넓히기), line_spacing_narrower(줄 간격 좁히기), margin_wider(문단 여백 넓히기), margin_narrower(문단 여백 좁히기), align_division(나눔 정렬), memo(메모), footnote(각주), endnote(미주)",
+        "리본 기능. ribbon_action 은 다음 중 하나: italic(기울임), underline(밑줄), strikethrough(취소선), superscript(위 첨자), subscript(아래 첨자), outline(외곽선), shadow(그림자), column_break(단 나누기), indent_more(들여쓰기), indent_less(내어쓰기), line_spacing_wider(줄 간격 넓히기), line_spacing_narrower(줄 간격 좁히기), margin_wider(문단 여백 넓히기), margin_narrower(문단 여백 좁히기), align_division(나눔 정렬), memo(메모), page_of_total(현재 쪽/전체 쪽 넣기), insert_file_name(파일 이름 넣기), insert_file_path(파일 경로 넣기), left_margin_wider(왼쪽 여백 넓히기), left_margin_narrower(왼쪽 여백 좁히기), right_margin_wider(오른쪽 여백 넓히기), right_margin_narrower(오른쪽 여백 좁히기), footnote(각주), endnote(미주)",
         ("ribbon_action",),
     ),
 }

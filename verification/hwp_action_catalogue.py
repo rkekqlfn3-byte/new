@@ -468,9 +468,18 @@ def run_catalogue(groups=None) -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", action="append", dest="groups")
+    parser.add_argument(
+        "--names-file",
+        help="Probe names read out of 한글 itself (verification.hwp_action_names)",
+    )
     parser.add_argument("--report", default=str(REPORT_PATH))
     args = parser.parse_args(argv)
 
+    if args.names_file:
+        supplied = json.loads(Path(args.names_file).read_text(encoding="utf-8"))
+        names = tuple(supplied.get("names") or supplied)
+        CANDIDATES.clear()
+        CANDIDATES["한글 목록"] = (SETUP_TEXT, names)
     report = run_catalogue(args.groups)
     Path(args.report).write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
