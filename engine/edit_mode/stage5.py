@@ -627,11 +627,16 @@ class StructuredEditIntentAnalyzer:
             and not re.search(r"=[A-Za-z]", command)
         ):
             # 입력 요청이 아닌 미지원·모호 문장은 입력 예시가 아니라
-            # 지원 편집 목록으로 안내한다.
+            # 지원 편집 목록으로 안내한다. 리본 명령은 그 전에 본다.
+            ribbon = _excel_command_intent(command)
+            if ribbon is not None:
+                return ribbon
             raise Stage5EditError(
                 "지원하는 Excel 편집 예: 42 입력해줘, “완료” 입력해줘, 굵게, "
                 "글자 크기 14, 가운데 정렬, “대기”를 “완료”로 바꿔줘, "
-                "“상태” 열을 “완료”로 필터해줘, 내림차순 정렬, 2개 행 추가"
+                "“상태” 열을 “완료”로 필터해줘, 내림차순 정렬, 2개 행 추가, "
+                "기울임, 밑줄, 셀 병합, 자동 줄바꿈, 바깥 테두리, 아래로 채우기, "
+                "내용 지우기"
             )
         explicit_cells = _CELL_REFERENCE.findall(_without_quoted_values(command).upper())
         target = explicit_cells[0].upper() if explicit_cells else address
@@ -813,6 +818,24 @@ def _hwp_dialog_intent(command: str, quotes):
     return None
 
 
+def _excel_command_intent(command: str):
+    """Excel ribbon commands that have no operation of their own.
+
+    Checked after every other Excel rule so an existing operation always
+    wins; the table only holds commands nothing else covers.
+    """
+    from engine.app_actions.operations.excel import EXCEL_COMMANDS
+
+    for key, entry in EXCEL_COMMANDS.items():
+        if any(word in command for word in entry.words):
+            return EditIntent(
+                "run_excel_command",
+                {"excel_command": key},
+                f"{entry.label} 적용",
+            )
+    return None
+
+
 def _hwp_ribbon_intent(command: str):
     """Ribbon commands that have no operation of their own.
 
@@ -896,6 +919,7 @@ class Stage5NativeEditAdapter:
         "insert_header",
         "set_font_name",
         "convert_hanja_to_hangul",
+        "run_excel_command",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

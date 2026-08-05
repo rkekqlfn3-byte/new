@@ -35,7 +35,7 @@ class ExcelAGroupContractTests(unittest.TestCase):
         required = {
             "write_cell", "sum_column_to_cell", "format_range",
             "filter_range", "find_replace", "sort_range",
-            "insert_rows", "insert_columns",
+            "insert_rows", "insert_columns", "run_excel_command",
         }
         self.assertTrue(required.issubset(ExcelAdapter.supported_operations))
         self.assertEqual(required, set(ExcelAdapter.undo_supported_operations))

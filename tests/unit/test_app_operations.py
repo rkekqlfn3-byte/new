@@ -189,6 +189,7 @@ class HwpOperationStructureTests(unittest.TestCase):
                 "insert_columns",
                 "apply_conditional_format",
                 "format_matching_values",
+                "run_excel_command",
             },
             set(EXCEL_OPERATIONS.names),
         )
@@ -206,6 +207,7 @@ class HwpOperationStructureTests(unittest.TestCase):
                 "sort_range",
                 "insert_rows",
                 "insert_columns",
+                "run_excel_command",
             },
             set(ExcelAdapter.undo_supported_operations),
         )

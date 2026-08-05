@@ -163,6 +163,10 @@ EXCEL_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {
         "threshold=기준 값, color 는 red, orange, yellow, green, blue, gray",
         ("range", "operator", "threshold", "color"),
     ),
+    "run_excel_command": (
+        "리본 기능. excel_command 는 다음 중 하나: italic(기울임), underline(밑줄), subscript(아래 첨자), wrap_text(자동 줄바꿈), merge_cells(셀 병합), border_outside(바깥 테두리), border_inside(안쪽 테두리), border_left(왼쪽 테두리), border_right(오른쪽 테두리), border_top(위쪽 테두리), fill_down(아래로 채우기), fill_right(오른쪽으로 채우기), fill_left(왼쪽으로 채우기), fill_up(위로 채우기), clear_contents(내용 지우기), clear_all(모두 지우기)",
+        ("excel_command",),
+    ),
     "format_matching_values": (
         "조건에 맞는 셀만 칠하기. 파라미터는 apply_conditional_format 과 같다",
         ("range", "operator", "threshold", "color"),

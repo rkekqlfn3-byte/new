@@ -118,7 +118,7 @@ class StructuredEditIntentAnalyzerTests(unittest.TestCase):
         self.assertNotIn("font_size_delta", quoted.params)
 
     def test_excel_non_input_commands_get_supported_examples_guidance(self):
-        for command in ("셀 병합해줘", "차트 만들어줘", "알아서 예쁘게 해줘"):
+        for command in ("피벗 테이블 만들어줘", "차트 만들어줘", "알아서 예쁘게 해줘"):
             with self.subTest(command=command):
                 with self.assertRaises(Stage5EditError) as caught:
                     self.analyzer.analyze(command, self.excel)

@@ -16,6 +16,10 @@ from engine.app_actions.operations.excel.conditional_format import (
 from engine.app_actions.operations.excel.filter_range import FilterRangeOperation
 from engine.app_actions.operations.excel.find_replace import FindReplaceOperation
 from engine.app_actions.operations.excel.range_format import FormatRangeOperation
+from engine.app_actions.operations.excel.ribbon import (
+    EXCEL_COMMANDS,
+    RunExcelCommandOperation,
+)
 from engine.app_actions.operations.excel.sort_range import (
     SortRangeOperation,
     table_values,
@@ -41,6 +45,7 @@ EXCEL_OPERATIONS = OperationRegistry(
         InsertColumnsOperation(),
         ApplyConditionalFormatOperation(),
         FormatMatchingValuesOperation(),
+        RunExcelCommandOperation(),
     ),
 )
 
@@ -53,6 +58,7 @@ EXCEL_UNDO_OPERATIONS = frozenset(
 )
 
 __all__ = [
+    "EXCEL_COMMANDS",
     "COLOR_VALUES",
     "CONDITION_OPERATORS",
     "EXCEL_OPERATIONS",

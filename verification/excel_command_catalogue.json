@@ -1,0 +1,1546 @@
+{
+  "schema_version": 1,
+  "total": 218,
+  "counts": {
+    "destabilised": 6,
+    "dialog": 28,
+    "changed": 21,
+    "failed:com_error": 124,
+    "noop": 39
+  },
+  "undoable": 21,
+  "records": [
+    {
+      "command": "About",
+      "outcome": "destabilised",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "detail": "com_error"
+    },
+    {
+      "command": "AddNode",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.14
+    },
+    {
+      "command": "AlignCenter",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "AlignLeft",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "AlignRight",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "AlternativeText",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "AppGuardTrustPromotion",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ArrowStyleGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "AsppRelationships",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "AutoCorrect",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 1.33
+    },
+    {
+      "command": "AutoSum",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.23
+    },
+    {
+      "command": "Backspace",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.03
+    },
+    {
+      "command": "BorderBottom",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "BorderDiagonalDown",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "BorderDiagonalUp",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "BorderInside",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "BorderLeft",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "BorderNone",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "BorderOutside",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "BorderRight",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "BorderStyle",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "BorderTop",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "BulletsGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChangeIcon",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChartAxes",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "ChartDataLabel",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChartDataTable",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChartErrorBars",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChartGridlines",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChartInsertGalleryNew",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.56
+    },
+    {
+      "command": "ChartLegend",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "ChartPlotArea",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ChartTitle",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "ChartTrendline",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ClassifyLabelProtect",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ClearAll",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "ClearContents",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ColumnWidth",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.06
+    },
+    {
+      "command": "CombineCharacters",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "Connections",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "Consolidate",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.14
+    },
+    {
+      "command": "ConstrainNumeric",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ControlProperties",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.2
+    },
+    {
+      "command": "CopyAsPicture",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.2
+    },
+    {
+      "command": "CreatePivotTableFromDataModel",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "CreatePivotTableFromExternalDataSource",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.11
+    },
+    {
+      "command": "CreatePivotTableFromFmla",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "CreatePivotTableFromTableRange",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.24
+    },
+    {
+      "command": "DataRangeProperties",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "DataTable",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.12
+    },
+    {
+      "command": "DataValidation",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.27
+    },
+    {
+      "command": "Delete",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.2
+    },
+    {
+      "command": "DocumentLocation",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EditLinks",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EditQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EquationAccentGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "EquationDelimiterGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "EquationFractionGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "EquationFunctionGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "EquationIntegralGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EquationLimitGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "EquationLinearFormat",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EquationMatrixGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EquationNormalText",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "EquationOperatorGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "EquationRadicalGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "EquationScriptGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "FileCloseAll",
+      "outcome": "destabilised",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "detail": "com_error"
+    },
+    {
+      "command": "FileNewDefault",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.38
+    },
+    {
+      "command": "FilePermission",
+      "outcome": "destabilised",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "detail": "com_error"
+    },
+    {
+      "command": "FilePrintPreview",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 1802.69
+    },
+    {
+      "command": "FileProperties",
+      "outcome": "destabilised",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "detail": "com_error"
+    },
+    {
+      "command": "FileSaveACopy",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 2,
+      "seconds": 1.55
+    },
+    {
+      "command": "FileSaveAsOtherFormats",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 1.23
+    },
+    {
+      "command": "FileSaveAsWebPage",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 2,
+      "seconds": 1.3
+    },
+    {
+      "command": "FillDown",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "FillLeft",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "FillRight",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "FillSeries",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.14
+    },
+    {
+      "command": "FillUp",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "Filter",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "FontColorPicker",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.25
+    },
+    {
+      "command": "FontSize",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "FormatPainter",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.05
+    },
+    {
+      "command": "FreezeFirstColumn",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.03
+    },
+    {
+      "command": "FreezePanes",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.03
+    },
+    {
+      "command": "FreezeTopRow",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "GoToComments",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "GoToConditionalFormatting",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "GoToConstants",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "GoToDataValidation",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "GoToFooter",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "GoToFormulas",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "GoToHeader",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "GoalSeek",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.16
+    },
+    {
+      "command": "GradientGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "HangulHanjaConversion",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.41
+    },
+    {
+      "command": "HideInk",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "HyperlinkOpenInMenu",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "HyperlinkOpenInNative",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "HyperlinkOpenInWeb",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "InkColorPicker",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "InkEquation",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 2,
+      "seconds": 165.25
+    },
+    {
+      "command": "InkEraser",
+      "outcome": "destabilised",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "detail": "com_error"
+    },
+    {
+      "command": "Insights",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "Italic",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.24
+    },
+    {
+      "command": "ManageAccess",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "MarkAsDecorative",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "MergeCells",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "NameManager",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.27
+    },
+    {
+      "command": "NamedSetManager",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "NumberingGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PageMarginsGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PageOrientationGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PageSizeGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "Paste",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteAsPicture",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteDestinationFormatting",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "PasteDestinationTheme",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PasteGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteInk",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteLink",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PastePictureLink",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteRefreshableWebQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteSourceFormatting",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteSourceTheme",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PasteTextOnly",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteUsingTextImportWizard",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteValuesAndSourceFormatting",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PasteWithColumnWidths",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PictureReset",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PivotTableFilterMenu",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerBIData",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerMapAddData",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryAppendQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryCancelRefresh",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryDataFromAdobeAnalytics",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryDataFromSnowflake",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryDeleteQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryDuplicateQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryEditQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryExportConnectionFile",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PowerQueryManageWorkbookQueries",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryMergeQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "PowerQueryModernGetData",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryQueryLoadOptions",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PowerQueryReferenceQuery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PrintListRange",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "PrintPreviewAndPrint",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.34
+    },
+    {
+      "command": "PrintPreviewClose",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "PrintTitles",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.2
+    },
+    {
+      "command": "QuickCode",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ReadOnly",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "Refresh",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "RefreshStatus",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "RemoveDuplicates",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.19
+    },
+    {
+      "command": "ReopenFromServer",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "ReopenServerFile",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "Repeat",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "Replay",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "RibbonCustomization",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.3
+    },
+    {
+      "command": "RowHeight",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.09
+    },
+    {
+      "command": "ScenarioManager",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.11
+    },
+    {
+      "command": "SelectAll",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SelectionPane",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "SheetHide",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SheetInsert",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.05
+    },
+    {
+      "command": "SheetRename",
+      "outcome": "destabilised",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0,
+      "detail": "com_error"
+    },
+    {
+      "command": "SheetUnhide",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ShowClipboard",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.05
+    },
+    {
+      "command": "ShowFormulas",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.06
+    },
+    {
+      "command": "SlicerClearFilter",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerDataSourceOrder",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerDelete",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "SlicerMultiSelect",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerName",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerRefresh",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerSettings",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerSortDown",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerSortUp",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SlicerStyles",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SnapToGrid",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineAxisDateType",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineAxisGeneralType",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "SparklineConvertToColumn",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineConvertToLine",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "SparklineConvertToWinLoss",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineCustomWeight",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineMoreColors",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineToggleFirstPoint",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineToggleHighPoint",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineToggleLastPoint",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineToggleLowPoint",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "SparklineToggleMarkers",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "SparklineToggleNegativePoints",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "Spelling",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.12
+    },
+    {
+      "command": "Strikethrough",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.31
+    },
+    {
+      "command": "Subscript",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.03
+    },
+    {
+      "command": "Superscript",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "TableName",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "TableResize",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "TableStyleNew",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.16
+    },
+    {
+      "command": "TellMe",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "Thesaurus",
+      "outcome": "dialog",
+      "undoable": null,
+      "dialogs": 1,
+      "seconds": 0.22
+    },
+    {
+      "command": "TimeSlicerClearFilter",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "TimeSlicerDelete",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "TimeSlicerRefresh",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "TimelineStyles",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "Underline",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "UnderlineGallery",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "UnmergeCells",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "UpgradeDocument",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ViewHeadings",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.01
+    },
+    {
+      "command": "WebGoBack",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "WebGoForward",
+      "outcome": "failed:com_error",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "WrapText",
+      "outcome": "changed",
+      "undoable": true,
+      "dialogs": 0,
+      "seconds": 0.02
+    },
+    {
+      "command": "ZoomIn",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    },
+    {
+      "command": "ZoomOut",
+      "outcome": "noop",
+      "undoable": null,
+      "dialogs": 0,
+      "seconds": 0.0
+    }
+  ]
+}

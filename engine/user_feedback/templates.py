@@ -53,6 +53,7 @@ ACTION_LABELS = {
     "sort_range": "표 정렬",
     "insert_rows": "행 삽입",
     "insert_columns": "열 삽입",
+    "run_excel_command": "Excel 리본 기능",
     "read_selection": "선택 영역 읽기",
     "undo_last_edit": "직전 편집 되돌리기",
     "set_text_format": "글자 서식 변경",
