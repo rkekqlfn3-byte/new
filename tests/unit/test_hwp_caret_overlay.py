@@ -58,7 +58,10 @@ class HwpCaretLocatorTests(unittest.TestCase):
         rectangle = locator.locate(4242)
         self.assertEqual(2189, rectangle.left)
         self.assertEqual(2189 + MIN_MARKER_WIDTH, rectangle.right)
-        self.assertEqual(404 + MIN_MARKER_HEIGHT, rectangle.bottom)
+        # That pixel sits at the bottom of the caret's line, so the marker
+        # grows upwards; growing down put it on the following line.
+        self.assertEqual(405, rectangle.bottom)
+        self.assertEqual(405 - MIN_MARKER_HEIGHT, rectangle.top)
 
     def test_a_caret_taller_than_the_minimum_keeps_its_own_height(self):
         locator = HwpCaretLocator(FakeCaretApi((10, 20, 12, 20 + 40)))

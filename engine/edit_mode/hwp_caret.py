@@ -151,8 +151,20 @@ class HwpCaretLocator:
         if right < left or bottom < top:
             return self._remembered.get(handle)
         width = max(right - left, MIN_MARKER_WIDTH)
-        height = max(bottom - top, MIN_MARKER_HEIGHT)
-        rectangle = ScreenRectangle(left, top, left + width, top + height)
+        height = bottom - top
+        if height >= MIN_MARKER_HEIGHT:
+            marker_top = top
+        else:
+            # 한글 registers its one-pixel caret at the *bottom* of the line,
+            # not the top: measured against a real 한글, the glyphs of the
+            # caret's own line ended one pixel above the reported point. A
+            # marker grown downwards from there lands on the line below and
+            # reads as pointing at the wrong place, so it grows upwards.
+            height = MIN_MARKER_HEIGHT
+            marker_top = bottom - height
+        rectangle = ScreenRectangle(
+            left, marker_top, left + width, marker_top + height
+        )
         if not rectangle.visible or not self._on_screen(rectangle):
             return self._remembered.get(handle)
         self._remembered[handle] = rectangle

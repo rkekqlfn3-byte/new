@@ -407,9 +407,6 @@ class Win32SelectionOverlayBackend:
                 # Solid bar: a hollow frame this thin is not readable, and a
                 # caret has no interior worth leaving see-through.
                 win32gui.FillRect(dc, client, accent_brush)
-                win32gui.EndPaint(handle, paint)
-                win32gui.DeleteObject(transparent_brush)
-                win32gui.DeleteObject(accent_brush)
                 return 0
             label_rect = (0, 0, self._label_width, self.LABEL_HEIGHT)
             win32gui.FillRect(dc, label_rect, accent_brush)
