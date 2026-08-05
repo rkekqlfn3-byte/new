@@ -10,9 +10,13 @@ from __future__ import annotations
 import json
 import unittest
 
+from engine.app_actions.operations.excel import EXCEL_OPERATIONS
 from engine.app_actions.operations.hwp import HWP_OPERATIONS
+from engine.app_actions.operations.powerpoint import POWERPOINT_OPERATIONS
+from engine.app_actions.operations.word import WORD_OPERATIONS
 from engine.edit_mode.llm_intent import (
     HWP_OPERATION_GUIDE,
+    OPERATION_GUIDES,
     LlmAssistedEditIntentAnalyzer,
     LlmEditIntentTranslator,
     build_prompt,
@@ -54,13 +58,40 @@ def reply(operation, params=None, description="설명"):
     return json.dumps({"response": body}, ensure_ascii=False)
 
 
+REGISTRIES = {
+    "hwp": HWP_OPERATIONS,
+    "excel": EXCEL_OPERATIONS,
+    "word": WORD_OPERATIONS,
+    "powerpoint": POWERPOINT_OPERATIONS,
+}
+
+
 class GuideIntegrityTests(unittest.TestCase):
     def test_every_named_operation_really_exists(self):
         # A guide entry the adapter cannot run would be offered to the model
         # and then refused after translation.
-        self.assertEqual(
-            set(), set(HWP_OPERATION_GUIDE) - set(HWP_OPERATIONS.names)
-        )
+        for app_type, registry in REGISTRIES.items():
+            with self.subTest(app=app_type):
+                self.assertEqual(
+                    set(),
+                    set(OPERATION_GUIDES[app_type]) - set(registry.names),
+                )
+
+    def test_every_application_operation_is_offered(self):
+        # An operation missing from a guide is one the reader can reach by
+        # the rules but never by rephrasing.
+        for app_type, registry in REGISTRIES.items():
+            with self.subTest(app=app_type):
+                self.assertEqual(
+                    set(),
+                    set(registry.names) - set(OPERATION_GUIDES[app_type]),
+                )
+
+    def test_each_application_is_told_which_one_it_is(self):
+        from engine.edit_mode.llm_intent import build_prompt
+
+        self.assertIn("Excel", build_prompt({"sort_range"}, "excel"))
+        self.assertIn("한글", build_prompt({"insert_table"}, "hwp"))
 
     def test_the_prompt_only_offers_operations_the_adapter_allows(self):
         prompt = build_prompt({"set_line_spacing", "insert_table"})
@@ -145,10 +176,12 @@ class AssistedAnalyzerTests(unittest.TestCase):
             analyzer.analyze("각주 달아줘", HWP)
         self.assertIn("지원하는 한글 편집 예", str(caught.exception))
 
-    def test_apps_that_were_not_measured_are_left_to_the_rules(self):
+    def test_an_application_without_a_guide_is_left_to_the_rules(self):
+        # A guide is written from what that application's rules actually
+        # produce. Translating without one would be guessing parameter names.
         analyzer, caller = self._analyzer(reply("set_line_spacing"))
         with self.assertRaises(Stage5EditError):
-            analyzer.analyze("두껍게 해줘", {**HWP, "app_type": "excel"})
+            analyzer.analyze("두껍게 해줘", {**HWP, "app_type": "notepad"})
         self.assertEqual([], caller.calls)
 
     def test_without_a_provider_nothing_changes(self):

@@ -9,7 +9,6 @@ from engine.pdf import (
     PdfReadErrorCode,
     PdfReferenceError,
     looks_like_pdf_command,
-    parse_pdf_intent,
 )
 
 _INTENT_LABELS = {
@@ -95,7 +94,7 @@ def try_execute_pdf_route(parser, raw_input, *, session_id=None, log_callback=No
         return None
     failure_action = "pdf_command"
     try:
-        parsed_intent = parse_pdf_intent(raw_input)
+        parsed_intent = manager.parse_intent(raw_input)
         failure_action = f"pdf_{parsed_intent.kind.value}"
         request = manager.resolve_command(raw_input)
         failure_action = f"pdf_{request.intent.kind.value}"

@@ -10,7 +10,12 @@ from pathlib import Path
 from engine.pdf.context import PdfConnection
 from engine.pdf.errors import PdfReadError, PdfReadErrorCode
 from engine.pdf.file_picker import choose_pdf_document
-from engine.pdf.intent import PdfCommandRequest, parse_pdf_intent
+from engine.pdf.intent import (
+    PdfCommandIntent,
+    PdfCommandRequest,
+    PdfIntentError,
+    parse_pdf_intent,
+)
 from engine.pdf.reader import read_pdf_document
 from engine.pdf.reference import (
     PdfReferenceError,
@@ -27,9 +32,10 @@ class PdfConnectionError(PdfReferenceError):
 class PdfIntakeManager:
     """Own one explicit read-only PDF connection for the current process."""
 
-    def __init__(self, *, reader=None, file_picker=None):
+    def __init__(self, *, reader=None, file_picker=None, intent_translator=None):
         self._reader = reader or read_pdf_document
         self._file_picker = file_picker or choose_pdf_document
+        self._intent_translator = intent_translator
         self._lock = threading.RLock()
         self._connection: PdfConnection | None = None
         self._last_search: PdfSearchResult | None = None
@@ -254,7 +260,25 @@ class PdfIntakeManager:
             self._last_reference = reference
         return reference
 
+    def bind_intent_translator(self, translator) -> None:
+        """Let an unrecognised wording be translated instead of refused."""
+        self._intent_translator = translator
+
+    def parse_intent(self, command: str) -> PdfCommandIntent:
+        """The patterns first; the provider only sees what they turned down."""
+        try:
+            return parse_pdf_intent(command)
+        except PdfIntentError:
+            translated = (
+                self._intent_translator.translate(command)
+                if self._intent_translator is not None
+                else None
+            )
+            if translated is None:
+                raise
+            return translated
+
     def resolve_command(self, command: str) -> PdfCommandRequest:
-        intent = parse_pdf_intent(command)
+        intent = self.parse_intent(command)
         reference = self.resolve_reference(command)
         return PdfCommandRequest(intent=intent, reference=reference)

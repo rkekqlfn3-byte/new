@@ -34,6 +34,7 @@ from engine.managers.native_action_candidate_manager import (
 )
 from engine.parsing.office_command_parser import EXCEL_FORMAT_PREFERENCE_KEY
 from engine.pdf.intake import PdfIntakeManager
+from engine.pdf.llm_intent import translator_for as pdf_translator_for
 from engine.pdf.task_service import PdfTaskService
 from engine.pipeline import CommandPipeline
 from engine.runtime_services import ParserRuntimeServices
@@ -236,12 +237,7 @@ class CommandParser:
             self.llm_engine,
             self.dict_mgr,
         )
-        bind_services = getattr(self.edit_mode_controller, "bind_services", None)
-        if callable(bind_services):
-            bind_services(
-                self.execution_controller, self.app_action_registry,
-                self.confirmations, llm_engine=self.llm_engine,
-            )
+        self._bind_intent_translators()
         self.edit_mode_handler = self.edit_mode_controller
         self.decision_engine = DecisionEngine()
         self.preference_manager = PreferenceManager()
@@ -752,6 +748,23 @@ class CommandParser:
                 error_type=self._failure_type_for_error(error),
                 failed_step=getattr(error, "failed_step", None),
                 retryable=getattr(error, "retryable", False),
+            )
+
+    def _bind_intent_translators(self):
+        """Give the rule-based routes a provider fallback where one exists.
+
+        Both PDF and edit-mode recognition match wordings written down in
+        advance. The provider only sees a sentence those patterns turned
+        down, and only ever picks from their own closed lists.
+        """
+        self.pdf_intake_manager.bind_intent_translator(
+            pdf_translator_for(self.llm_engine)
+        )
+        bind_services = getattr(self.edit_mode_controller, "bind_services", None)
+        if callable(bind_services):
+            bind_services(
+                self.execution_controller, self.app_action_registry,
+                self.confirmations, llm_engine=self.llm_engine,
             )
 
     def _parse_and_execute_core(
