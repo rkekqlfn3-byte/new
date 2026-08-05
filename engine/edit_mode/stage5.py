@@ -164,8 +164,22 @@ _TABLE_SIZE_RE = re.compile(r"(\d+)\s*(?:행|줄)\D{0,4}?(\d+)\s*(?:열|칸)")
 _TABLE_CELL_RE = re.compile(r"(\d+)\s*(?:행|줄)\D{0,4}?(\d+)\s*(?:열|칸)")
 
 
+# Asking for a table to be made is not asking for one of its cells. Without
+# this, `3행 2열 표 만들고 첫 칸에 “제목” 넣어줘` read 3행 2열 as a cell
+# address and tried to type into a table that did not exist yet.
+_TABLE_CREATION_WORDS = ("만들", "삽입", "생성", "추가해", "그려")
+
+
+def _asks_to_create_table(command: str) -> bool:
+    return _mentions_table(command) and any(
+        word in command for word in _TABLE_CREATION_WORDS
+    )
+
+
 def _hwp_table_cell_intent(command: str, quotes):
     if not _mentions_table(command) or not quotes:
+        return None
+    if _asks_to_create_table(command):
         return None
     if not any(word in command for word in ("넣어", "입력", "바꿔", "채워", "써")):
         return None

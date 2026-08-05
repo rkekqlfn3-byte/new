@@ -39,6 +39,7 @@ TEST_GROUPS = {
         "tests.unit.test_maintenance_performance",
         "tests.unit.test_maintainability_budgets",
         "tests.unit.test_llm_edit_intent",
+        "tests.unit.test_llm_macro",
         "tests.unit.test_llm_pdf_intent",
         "tests.unit.test_llm_failures",
         "tests.unit.test_native_candidate_workflow",

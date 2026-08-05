@@ -348,10 +348,12 @@ class LlmAssistedEditIntentAnalyzer:
         translator: LlmEditIntentTranslator | None,
         supported_operations=None,
         memory=None,
+        composer=None,
     ):
         self._structured = structured
         self._translator = translator
         self._memory = memory
+        self._composer = composer
         # The adapter refuses an operation outside its own allow-list after
         # analysis, so translating into one would only trade a clear message
         # for a confusing one. Ask for the same list up front.
@@ -360,6 +362,10 @@ class LlmAssistedEditIntentAnalyzer:
             if supported_operations is not None
             else set().union(*OPERATION_GUIDES.values())
         )
+
+    # The most recent layer 3 proposal, or None. Read by the caller that
+    # shows the refusal, so the reader sees what could be done instead.
+    last_proposal = None
 
     @property
     def memory(self):
@@ -378,6 +384,14 @@ class LlmAssistedEditIntentAnalyzer:
                 return remembered
             translation = self._translate(text, context)
             if translation is None:
+                proposal = self._propose(text, context)
+                if proposal is not None:
+                    raise Stage5EditError(
+                        "이 요청에 딱 맞는 기능은 없지만, 아래 순서로는 "
+                        "할 수 있습니다.\n"
+                        f"{proposal.as_text()}\n"
+                        "한 단계씩 말씀해주시면 그대로 해드리겠습니다."
+                    )
                 raise
             return EditIntent(
                 operation=translation.operation,
@@ -407,6 +421,27 @@ class LlmAssistedEditIntentAnalyzer:
             description=str(text),
             source="memory",
         )
+
+    def _propose(self, text, context):
+        """Offer an ordering of existing operations, and refuse anyway.
+
+        Layer 3 suggests; it does not act. A plan the reader has not seen is
+        a plan the reader has not approved, so the proposal is attached to
+        the same refusal they would have got, for them to decide on.
+        """
+        if self._composer is None:
+            return None
+        app_type = str((context or {}).get("app_type") or "").casefold()
+        if app_type not in OPERATION_GUIDES:
+            return None
+        try:
+            proposal = self._composer.compose(
+                text, self._supported, app_type, context
+            )
+        except Exception:
+            return None
+        self.last_proposal = proposal
+        return proposal
 
     def _translate(self, text, context) -> Translation | None:
         if self._translator is None:
@@ -445,9 +480,11 @@ def translator_for(llm_engine) -> LlmEditIntentTranslator | None:
     return LlmEditIntentTranslator(ask)
 
 
-def assisted_analyzer(translator, supported_operations, memory=None):
+def assisted_analyzer(
+    translator, supported_operations, memory=None, composer=None
+):
     """Put the provider behind the stage rules, or leave the rules alone."""
-    if translator is None and memory is None:
+    if translator is None and memory is None and composer is None:
         return None
     from engine.edit_mode.stage6 import StructuredStage6IntentAnalyzer
 
@@ -456,6 +493,7 @@ def assisted_analyzer(translator, supported_operations, memory=None):
         translator,
         supported_operations=supported_operations,
         memory=memory,
+        composer=composer,
     )
 
 

@@ -21,6 +21,7 @@ from engine.edit_mode.file_picker import choose_edit_document
 from engine.edit_mode.intake import FileIntakeManager
 from engine.edit_mode.intent_memory import shared_memory
 from engine.edit_mode.llm_intent import assisted_analyzer, translator_for
+from engine.edit_mode.llm_macro import composer_for
 from engine.edit_mode.selection_overlay import SelectionOverlayManager
 from engine.edit_mode.session import (
     EditSessionBusy,
@@ -98,6 +99,7 @@ class EditModeController:
         self._app_action_registry = None
         self._confirmations = None
         self._intent_translator = None
+        self._macro_composer = None
         self._persist_layout = layout_manager is None or settings_path is not None
         self._settings_path = Path(
             settings_path or (Path(USER_DATA_DIR) / "edit_mode_settings.json")
@@ -119,6 +121,7 @@ class EditModeController:
         self._app_action_registry = app_action_registry
         self._confirmations = confirmations
         self._intent_translator = translator_for(llm_engine)
+        self._macro_composer = composer_for(llm_engine)
 
     def _learning_manager(self):
         if self._user_learning_manager is None:
@@ -1012,6 +1015,7 @@ class EditModeController:
             self._intent_translator,
             adapter_class.supported_operations,
             memory=shared_memory(),
+            composer=self._macro_composer,
         )
         if self._workflow_executor is None:
             from engine.workflows import WorkflowExecutor
