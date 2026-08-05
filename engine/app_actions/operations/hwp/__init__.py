@@ -21,6 +21,13 @@ from engine.app_actions.operations.hwp.state import (
     paragraph_state,
 )
 from engine.app_actions.operations.hwp.table_cell import SetTableCellOperation
+from engine.app_actions.operations.hwp.table_structure import (
+    DeleteTableColumnOperation,
+    DeleteTableRowOperation,
+    InsertTableColumnOperation,
+    InsertTableRowOperation,
+    MergeTableCellsOperation,
+)
 from engine.app_actions.operations.hwp.text_format import SetTextFormatOperation
 
 HWP_OPERATIONS = OperationRegistry(
@@ -31,6 +38,11 @@ HWP_OPERATIONS = OperationRegistry(
         DeleteTextOperation(),
         InsertTableOperation(),
         SetTableCellOperation(),
+        InsertTableRowOperation(),
+        InsertTableColumnOperation(),
+        DeleteTableRowOperation(),
+        DeleteTableColumnOperation(),
+        MergeTableCellsOperation(),
         SetTextFormatOperation(),
         SetParagraphFormatOperation(),
         SetLineSpacingOperation(),

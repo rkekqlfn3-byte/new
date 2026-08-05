@@ -13,10 +13,28 @@ from engine.app_actions.office_edit_helpers import exact_office_document
 from engine.app_actions.operations.hwp.insert_table import table_control_count
 from engine.app_actions.operations.hwp.page_break import page_count
 from engine.app_actions.operations.hwp.table_cell import (
+    enter_first_cell,
     first_table_control,
     read_addressed_cell,
     visiting_cell,
 )
+from engine.app_actions.operations.hwp.table_structure import cell_count
+
+_TABLE_STRUCTURE_OPERATIONS = frozenset({
+    "insert_table_row",
+    "insert_table_column",
+    "delete_table_row",
+    "delete_table_column",
+    "merge_table_cells",
+})
+
+
+def _table_cell_count(hwp) -> int:
+    control = first_table_control(hwp)
+    if control is None:
+        return 0
+    enter_first_cell(hwp, control)
+    return cell_count(hwp)
 
 
 def _current_cell_text(hwp, prepared) -> str:
@@ -41,6 +59,11 @@ class HwpUndoService:
         "delete_text",
         "insert_table",
         "set_table_cell",
+        "insert_table_row",
+        "insert_table_column",
+        "delete_table_row",
+        "delete_table_column",
+        "merge_table_cells",
         "set_text_format",
         "set_paragraph_format",
         "set_line_spacing",
@@ -113,6 +136,14 @@ class HwpUndoService:
                 )
             return
         current_format = self.adapter._paragraph_state(hwp)
+        if prepared.operation in _TABLE_STRUCTURE_OPERATIONS:
+            if _table_cell_count(hwp) != int(
+                prepared.params.get("expected_cell_count", -1)
+            ):
+                raise AppActionContextChanged(
+                    "직전 표 구조 변경이 그대로 있지 않아 복원하지 않았습니다."
+                )
+            return
         if prepared.operation == "set_table_cell":
             if _current_cell_text(hwp, prepared) != str(prepared.params.get("text")):
                 raise AppActionContextChanged(
@@ -178,6 +209,10 @@ class HwpUndoService:
             ) from error
 
     def _restored_snapshot(self, hwp, prepared, restored_base):
+        if prepared.operation in _TABLE_STRUCTURE_OPERATIONS:
+            expected = int(prepared.current_state.get("cell_count", -1))
+            restored = {"cell_count": _table_cell_count(hwp)}
+            return restored, restored["cell_count"] == expected
         if prepared.operation == "set_table_cell":
             original = str(prepared.params.get("original_text", ""))
             restored = {"cell_text": _current_cell_text(hwp, prepared)}

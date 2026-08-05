@@ -166,6 +166,40 @@ def _hwp_table_cell_intent(command: str, quotes):
     )
 
 
+_TABLE_STRUCTURE_ACTIONS = (
+    # Checked in order; the first match wins, so "삭제" must not be reached by
+    # a request that says "추가".
+    ("merge_table_cells", ("병합", "합쳐", "합치")),
+    ("delete_table_row", ("행 삭제", "행 지워", "줄 삭제", "행 없애")),
+    ("delete_table_column", ("열 삭제", "열 지워", "칸 삭제", "열 없애")),
+    ("insert_table_row", ("행 추가", "행 넣", "줄 추가", "행 삽입")),
+    ("insert_table_column", ("열 추가", "열 넣", "칸 추가", "열 삽입")),
+)
+
+
+def _hwp_table_structure_intent(command: str):
+    if "표" not in command:
+        return None
+    for operation, words in _TABLE_STRUCTURE_ACTIONS:
+        if not any(word in command for word in words):
+            continue
+        address = _TABLE_CELL_RE.search(command)
+        row, column = (
+            (int(address.group(1)), int(address.group(2))) if address else (1, 1)
+        )
+        label = f"표 {row}행 {column}열 기준 " + {
+            "merge_table_cells": "칸 병합",
+            "delete_table_row": "행 삭제",
+            "delete_table_column": "열 삭제",
+            "insert_table_row": "행 추가",
+            "insert_table_column": "열 추가",
+        }[operation]
+        return EditIntent(
+            operation, {"row": row, "column": column}, label, after_preview=label
+        )
+    return None
+
+
 def _hwp_table_intent(command: str):
     if "표" not in command or not any(
         word in command for word in ("넣어", "삽입", "만들", "추가", "생성")
@@ -186,6 +220,9 @@ def _hwp_table_intent(command: str):
 
 def _hwp_selection_intent(command: str, quotes):
     """한글 intents that need nothing from context beyond the selection."""
+    structure = _hwp_table_structure_intent(command)
+    if structure is not None:
+        return structure
     cell = _hwp_table_cell_intent(command, quotes)
     if cell is not None:
         return cell
@@ -637,6 +674,11 @@ class Stage5NativeEditAdapter:
         "set_table_cell",
         "set_list_format",
         "insert_page_break",
+        "insert_table_row",
+        "insert_table_column",
+        "delete_table_row",
+        "delete_table_column",
+        "merge_table_cells",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

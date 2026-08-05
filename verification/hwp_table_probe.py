@@ -117,6 +117,51 @@ def _probe(lease, steps, checks):
     checks["undo_removed_the_table"] = table_control_count(hwp) == 0
 
     fresh_document()
+    steps.append("table_structure")
+    from engine.app_actions.operations.hwp.table_cell import (
+        enter_first_cell,
+        first_table_control,
+    )
+    from engine.app_actions.operations.hwp.table_structure import (
+        cell_count,
+        table_dimensions,
+    )
+
+    adapter.execute(adapter.prepare("insert_table", {"rows": 3, "columns": 4}))
+    control = first_table_control(hwp)
+    checks["dimensions_derived"] = table_dimensions(hwp, control) == (3, 4)
+    enter_first_cell(hwp, control)
+    base_cells = cell_count(hwp)
+    checks["cell_count_is_rows_times_columns"] = base_cells == 12
+
+    for operation, expected in (
+        ("insert_table_row", 16),
+        ("insert_table_column", 20),
+        ("delete_table_row", 15),
+        ("delete_table_column", 12),
+    ):
+        action = adapter.prepare(operation, {"row": 1, "column": 1})
+        enter_first_cell(hwp, first_table_control(hwp))
+        checks[f"{operation}_preview_changed_nothing"] = (
+            cell_count(hwp) == action.current_state["cell_count"]
+        )
+        outcome = adapter.execute(action)
+        checks[f"{operation}_verified"] = bool(outcome.get("verified"))
+        checks[f"{operation}_cell_count"] = (
+            outcome["after"]["cell_count"] == expected
+        )
+        undone = adapter.undo(action, {"after_observations": outcome})
+        checks[f"{operation}_undo_verified"] = bool(undone.get("verified"))
+        adapter.execute(adapter.prepare(operation, {"row": 1, "column": 1}))
+
+    merge = adapter.prepare("merge_table_cells", {"row": 1, "column": 1})
+    merge_result = adapter.execute(merge)
+    checks["merge_verified"] = bool(merge_result.get("verified"))
+    checks["merge_removed_one_cell"] = merge_result["after"]["cell_count"] == 11
+    merge_restored = adapter.undo(merge, {"after_observations": merge_result})
+    checks["merge_undo_verified"] = bool(merge_restored.get("verified"))
+
+    fresh_document()
     steps.append("list_format")
     listing = adapter.prepare("set_list_format", {"list_format": "bullet"})
     checks["list_preview_changed_nothing"] = (
