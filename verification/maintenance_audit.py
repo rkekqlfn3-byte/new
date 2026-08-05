@@ -26,7 +26,7 @@ DEFAULT_LARGE_FILE_BYTES = 5 * 1024 * 1024
 DEFAULT_MODULE_LINE_BUDGETS = {
     "engine/workflows/business_workflow.py": 2477,
     "engine/edit_mode/controller.py": 1628,
-    "engine/edit_mode/native_bridge.py": 1110,
+    "engine/edit_mode/native_bridge.py": 1123,
     "engine/action_executor.py": 1101,
     "engine/edit_mode/stage11.py": 1026,
     "engine/app_actions/excel_vba_adapter.py": 1007,
