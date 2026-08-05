@@ -131,6 +131,32 @@ class FileIntakeManager:
         })
         return item
 
+    def _runtime_hwp_document(self, document: dict) -> dict:
+        """Connect to an unsaved 한글 document by its window.
+
+        한글 gives an unsaved document no path, and the adapter already
+        identifies one as ``unsaved:{window handle}``. Refusing to connect left
+        the user told no 한글 document was open while one was on screen.
+        """
+        item = dict(document or {})
+        handle = int(item.get("window_handle") or 0)
+        name = str(item.get("document_name") or "저장되지 않은 문서").strip()
+        if handle <= 0:
+            raise EditDocumentOpenTimeout(
+                "현재 미저장 한글 창을 안전하게 식별하지 못했습니다. "
+                "한글 창을 다시 선택한 뒤 연결해주세요."
+            )
+        item.update({
+            "app_type": "hwp",
+            "file_path": "",
+            "document_name": name,
+            "runtime_document_id": f"HWP-WINDOW:{handle}",
+            "identity_kind": "runtime",
+            "is_saved": False,
+            "launch_requested": False,
+        })
+        return item
+
     def connect_file(self, file_path: str) -> dict:
         canonical_path = canonical_document_path(file_path)
         app_type = app_type_for_path(canonical_path)
@@ -320,8 +346,13 @@ class FileIntakeManager:
             ]
             if unsaved:
                 candidate = unsaved[0]
-                if str(candidate.get("app_type") or requested).casefold() == "excel":
+                candidate_app = str(
+                    candidate.get("app_type") or requested
+                ).casefold()
+                if candidate_app == "excel":
                     return self._runtime_excel_document(candidate)
+                if candidate_app == "hwp":
+                    return self._runtime_hwp_document(candidate)
                 name = str(candidate.get("document_name") or "현재 문서")
                 label = APP_LABELS.get(
                     str(candidate.get("app_type") or requested).casefold(),

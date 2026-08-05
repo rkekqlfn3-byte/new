@@ -846,16 +846,26 @@ class NativeDocumentBridge:
             document = hwp.XHwpDocuments.Active_XHwpDocument
             window = hwp.XHwpWindows.Active_XHwpWindow
             full_name = _normalized_path(document.FullName)
-            if not full_name:
-                return None
             selected = tuple(hwp.GetSelectedPos())
             has_selection = bool(selected[0]) if selected else False
             position = ":".join(str(int(value)) for value in hwp.GetPos())
+            handle = int(window.WindowHandle or 0)
+            # An unsaved 한글 document has no FullName. Dropping it here left
+            # the user told no 한글 document was open at all, when one was in
+            # front of them - the window is identity enough to connect to, the
+            # same way an unsaved Excel workbook is handled.
+            saved = bool(full_name)
+            if not saved and handle <= 0:
+                return None
             return {
                 "app_type": "hwp",
                 "file_path": full_name,
-                "document_name": Path(full_name).name,
-                "window_handle": int(window.WindowHandle or 0),
+                "document_name": (
+                    Path(full_name).name if saved
+                    else str(getattr(window, "Caption", "") or "저장되지 않은 문서")
+                ),
+                "window_handle": handle,
+                "is_saved": saved,
                 "active_container": None,
                 "selection_reference": (
                     "selected:" + position if has_selection else "cursor:" + position
@@ -871,7 +881,10 @@ class NativeDocumentBridge:
                 metadata = self._hwp_metadata(hwp)
                 if metadata and (
                     not expected_path
-                    or _same_path(metadata["file_path"], expected_path)
+                    or (
+                        metadata["file_path"]
+                        and _same_path(metadata["file_path"], expected_path)
+                    )
                 ):
                     documents.append(metadata)
                 hwp = None

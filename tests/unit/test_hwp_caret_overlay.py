@@ -125,5 +125,37 @@ class HwpCaretOverlayTests(unittest.TestCase):
         self.assertEqual([], backend.shows)
 
 
+class UnsavedHwpDocumentTests(unittest.TestCase):
+    """A 한글 document with no name is still a document on the user's screen."""
+
+    def _manager(self):
+        from engine.edit_mode.intake import FileIntakeManager
+
+        return FileIntakeManager.__new__(FileIntakeManager)
+
+    def test_an_unsaved_document_connects_by_its_window(self):
+        document = self._manager()._runtime_hwp_document(
+            {"window_handle": 778899, "document_name": "빈 문서 1"}
+        )
+        self.assertEqual("HWP-WINDOW:778899", document["runtime_document_id"])
+        self.assertEqual("runtime", document["identity_kind"])
+        self.assertFalse(document["is_saved"])
+        self.assertEqual("", document["file_path"])
+
+    def test_two_unsaved_windows_are_different_documents(self):
+        manager = self._manager()
+        first = manager._runtime_hwp_document({"window_handle": 1})
+        second = manager._runtime_hwp_document({"window_handle": 2})
+        self.assertNotEqual(
+            first["runtime_document_id"], second["runtime_document_id"]
+        )
+
+    def test_a_window_that_cannot_be_identified_is_refused(self):
+        from engine.edit_mode.intake import EditDocumentOpenTimeout
+
+        with self.assertRaises(EditDocumentOpenTimeout):
+            self._manager()._runtime_hwp_document({"window_handle": 0})
+
+
 if __name__ == "__main__":
     unittest.main()

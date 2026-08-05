@@ -721,6 +721,10 @@ class SelectionOverlayManager:
 
     def schedule(self, session, context) -> dict:
         """Queue only the latest marker lookup and return without blocking UI."""
+        # The caret lookup is a local Windows call rather than a COM round
+        # trip, so it needs no worker and can answer immediately.
+        if str(dict(session or {}).get("app_type") or "").casefold() == "hwp":
+            return self._update_caret(session)
         target, reason = self._target(session, context)
         if reason:
             return self.hide(reason)
