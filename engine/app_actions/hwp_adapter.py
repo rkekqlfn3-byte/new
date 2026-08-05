@@ -42,6 +42,11 @@ __all__ = [
 ]
 
 
+def _flatten_preview(value: str) -> str:
+    """One-line preview text for a target label."""
+    return str(value).replace("\r", " ").replace("\n", " ").strip()
+
+
 def _default_hwp_getter():
     import pythoncom
     import win32com.client
@@ -163,6 +168,33 @@ class HwpAdapter:
     _state_fingerprint = staticmethod(stable_state_fingerprint)
 
     @staticmethod
+    def _caret_place(hwp):
+        """Where the caret is, in the terms 한글 shows in its own status bar.
+
+        ``GetPos`` returns an internal list/paragraph/position triplet that
+        means nothing to a reader, so previews said "커서 위치 0:2:8".
+        ``KeyIndicator`` returns the printed page, line and column, which is
+        what the user can actually find on screen.
+        """
+        try:
+            indicator = tuple(hwp.KeyIndicator())
+        except Exception:
+            return {}
+        if len(indicator) < 7:
+            return {}
+        return {
+            "page": int(indicator[3]),
+            "line": int(indicator[5]),
+            "column": int(indicator[6]),
+        }
+
+    @staticmethod
+    def _place_label(place) -> str:
+        if not place:
+            return ""
+        return f"{place['page']}쪽 {place['line']}줄 {place['column']}칸"
+
+    @staticmethod
     def _selection_info(hwp):
         raw = tuple(hwp.GetSelectedPos())
         has_selection = bool(raw[0]) if raw else False
@@ -209,6 +241,7 @@ class HwpAdapter:
                     f"현재 문서 텍스트가 {MAX_DOCUMENT_TEXT_CHARS:,}자를 넘어 1차 한글 자동화 범위를 벗어납니다."
                 )
             position = [int(value) for value in hwp.GetPos()]
+            place = self._caret_place(hwp)
             selection = self._selection_info(hwp)
             base = {
                 "document_id": document_id,
@@ -219,6 +252,8 @@ class HwpAdapter:
                 "edit_mode": edit_mode,
                 "is_modified": bool(hwp.IsModified),
                 "position": position,
+                "place": place,
+                "place_label": self._place_label(place),
                 "selection": {
                     key: value for key, value in selection.items() if key != "text"
                 },
@@ -249,11 +284,21 @@ class HwpAdapter:
 
     @staticmethod
     def _target(base, selection, paragraph=False):
+        """A target the user can find on screen, not an internal coordinate."""
+        place = base.get("place_label") or ""
+        where = f" ({place})" if place else ""
         if selection["has_selection"]:
-            return "선택 영역"
+            length = selection["text_length"]
+            preview = _flatten_preview(selection["text"][:20])
+            described = f"'{preview}…'" if len(selection["text"]) > 20 else f"'{preview}'"
+            if not preview:
+                described = f"{length}자"
+            return f"선택 영역 {described}{where}"
         if paragraph:
-            return "현재 문단"
-        return "커서 위치 " + ":".join(str(value) for value in base["position"])
+            return f"현재 문단{where}"
+        return f"커서 위치{where}" if place else (
+            "커서 위치 " + ":".join(str(value) for value in base["position"])
+        )
 
     @staticmethod
     def _ensure_same_context(current, prepared):

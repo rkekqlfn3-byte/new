@@ -83,12 +83,13 @@ class SetTextFormatOperation(HwpOperation):
                 f"글자 서식은 한 번에 최대 {MAX_FORMAT_SELECTION_CHARS:,}자까지 지원합니다."
             )
         current = char_state(hwp)
+        target = adapter._target(base, selection)
         desired, labels = self.desired_format(hwp, params, current)
         noop = all(current.get(key) == value for key, value in desired.items())
         snapshot = {
             **base,
             "operation": self.name,
-            "target": "선택 영역",
+            "target": target,
             "char_state": current,
             "desired": desired,
         }
@@ -98,7 +99,7 @@ class SetTextFormatOperation(HwpOperation):
             document_id=base["document_id"],
             workbook_name=base["document_name"],
             sheet="현재 문서",
-            target="선택 영역",
+            target=target,
             params={"desired": desired, "format_labels": labels},
             current_state={
                 "has_selection": True,

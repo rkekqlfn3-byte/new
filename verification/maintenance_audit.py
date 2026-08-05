@@ -35,7 +35,7 @@ DEFAULT_MODULE_LINE_BUDGETS = {
     "engine/edit_mode/stage10.py": 778,
     "engine/app_actions/powerpoint_adapter.py": 530,
     "engine/app_actions/word_adapter.py": 329,
-    "engine/app_actions/hwp_adapter.py": 303,
+    "engine/app_actions/hwp_adapter.py": 348,
 }
 
 # Adapters own the COM lifecycle and the shared context; every user-visible
