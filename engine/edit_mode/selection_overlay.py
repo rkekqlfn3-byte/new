@@ -550,9 +550,14 @@ class SelectionOverlayManager:
     # Shorter than the GUI's 700 ms context monitor so a stationary address is
     # still relocated after scrolling, zooming, or moving the Excel window.
     CACHE_SECONDS = 0.5
+    CARET_LABEL = "커서"
 
-    def __init__(self, locator=None, backend=None, enabled=True):
+    def __init__(self, locator=None, backend=None, enabled=True, caret_locator=None):
         self.locator = locator or ExcelSelectionLocator()
+        # Imported here: the caret module imports ScreenRectangle from this one.
+        from engine.edit_mode.hwp_caret import HwpCaretLocator
+
+        self.caret_locator = caret_locator or HwpCaretLocator()
         self.backend = backend or Win32SelectionOverlayBackend()
         self._enabled = bool(enabled)
         self._lock = threading.RLock()
@@ -780,7 +785,37 @@ class SelectionOverlayManager:
                 self._status["status"] = "hidden"
             return dict(self._status)
 
+    def _update_caret(self, session) -> dict:
+        """Mark the 한글 caret, which the user otherwise has to hunt for.
+
+        This does not go through the Excel path: there is no address to
+        re-verify against a document identity, only a place on screen that is
+        already gone if the window moved.
+        """
+        handle = int(dict(session or {}).get("window_handle") or 0)
+        if not handle:
+            return self.hide("window_unavailable")
+        with self._condition:
+            if not self._enabled:
+                return self.hide("disabled")
+            self._request_id += 1
+            self._pending = None
+        rectangle = self.caret_locator.locate(handle)
+        if rectangle is None:
+            return self.hide("caret_unavailable")
+        shown = bool(self.backend.show(handle, rectangle, self.CARET_LABEL))
+        with self._condition:
+            self._status = {
+                "enabled": self._enabled,
+                "visible": shown,
+                "status": "shown" if shown else "hidden",
+                "selection_reference": None,
+            }
+            return dict(self._status)
+
     def update(self, session, context) -> dict:
+        if str(dict(session or {}).get("app_type") or "").casefold() == "hwp":
+            return self._update_caret(session)
         target, reason = self._target(session, context)
         if reason:
             return self.hide(reason)
