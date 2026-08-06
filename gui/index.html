@@ -219,6 +219,7 @@
                 <button class="tab-btn unified-tab-btn active" data-unified-tab="noun">📱 명사 사전 (앱/별명)</button>
                 <button class="tab-btn unified-tab-btn" data-unified-tab="verb">💬 동사 사전 (명령어)</button>
                 <button class="tab-btn unified-tab-btn" data-unified-tab="macro">⚡ 행동 사전 (매크로)</button>
+                <button class="tab-btn unified-tab-btn" data-unified-tab="missed">🔎 못 알아들은 말</button>
             </div>
             
             <div id="unified-content" style="flex: 1; overflow-y: auto; padding-right: 5px;">
@@ -312,6 +313,22 @@
                         <div id="learned-macro-list" class="learned-library-list"></div>
                     </div>
                 </div>
+
+                <div id="tab-missed" class="unified-tab-pane" style="display: none;">
+                    <div class="premium-card">
+                        <h3>🔎 자비스가 못 알아들은 말</h3>
+                        <p class="desc">
+                            문서 편집에서 거절된 문장이 여기 쌓입니다. 자주 나온 것이 위에 옵니다.
+                            이 목록은 이 컴퓨터에만 저장되고 어디에도 보내지 않습니다.
+                            문장과 앱 종류, 거절 이유만 남고 문서 내용은 남지 않습니다.
+                        </p>
+                        <div id="missed-list" class="premium-list"></div>
+                        <div class="flex-row">
+                            <button id="btn-missed-refresh" class="premium-btn btn-outline flex-1">새로 고침</button>
+                            <button id="btn-missed-clear" class="premium-btn warning">전체 지우기</button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -398,6 +415,7 @@
     <script defer src="js/globals.js"></script>
     <script defer src="js/dom.js"></script>
     <script defer src="js/dictionaries/nouns.js"></script>
+    <script defer src="js/dictionaries/missed.js"></script>
     <script defer src="js/dictionaries/macros.js"></script>
     <script defer src="js/dictionaries/native_candidates.js"></script>
     <script defer src="js/dictionaries/learned_skills.js"></script>

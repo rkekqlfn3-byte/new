@@ -46,7 +46,14 @@ document.querySelectorAll('.memory-subtab[data-memory-target]').forEach(button =
 });
 
 document.querySelectorAll('.unified-tab-btn[data-unified-tab]').forEach(button => {
-    button.addEventListener('click', () => switchUnifiedTab(button.dataset.unifiedTab));
+    button.addEventListener('click', () => {
+        switchUnifiedTab(button.dataset.unifiedTab);
+        // The refused-wording list is only worth reading when it is opened,
+        // and it must be current then rather than as of the last refresh.
+        if (button.dataset.unifiedTab === 'missed' && typeof refreshMissed === 'function') {
+            refreshMissed();
+        }
+    });
 });
 
 const sidebarToggle = document.getElementById('btn-toggle-sidebar');

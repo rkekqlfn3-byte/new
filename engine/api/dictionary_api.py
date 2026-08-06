@@ -24,6 +24,24 @@ def scan_web_bookmarks():
     return dict_mgr.scan_web_bookmarks()
 
 @eel.expose
+def get_unrecognised_commands():
+    from engine.diagnostics.unrecognised_commands import shared_log
+
+    return [dict(item) for item in shared_log().entries()]
+
+@eel.expose
+def clear_unrecognised_commands():
+    from engine.diagnostics.unrecognised_commands import shared_log
+
+    return shared_log().clear()
+
+@eel.expose
+def forget_unrecognised_command(command, app_type=""):
+    from engine.diagnostics.unrecognised_commands import shared_log
+
+    return shared_log().forget(command, app_type)
+
+@eel.expose
 def get_nouns():
     return get_dict_manager().get_nouns()
 

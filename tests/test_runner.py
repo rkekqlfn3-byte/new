@@ -84,6 +84,7 @@ TEST_GROUPS = {
         "tests.unit.test_selection_overlay",
         "tests.unit.test_source_identity",
         "tests.unit.test_ui_persistence_refresh",
+        "tests.unit.test_unrecognised_commands",
     ),
     "integration": (
         "tests.integration.test_ai_action_handler",

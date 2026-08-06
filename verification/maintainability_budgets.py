@@ -132,9 +132,6 @@ LONG_FUNCTION_EXCEPTIONS = {
     "engine/pipeline/conversation_route.py::execute_conversation_route": _exception(
         117, "pipeline", "Conversation routing and AI fallback need separation."
     ),
-    "engine/pipeline/edit_route.py::execute_edit_route": _exception(
-        101, "pipeline", "Edit routing and response normalization need separation."
-    ),
     "engine/pipeline/learned_route.py::execute_learned_route": _exception(
         134, "pipeline", "Learned route matching and execution need separation."
     ),
