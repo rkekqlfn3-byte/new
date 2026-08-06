@@ -47,9 +47,11 @@
     }
   },
   "sizes": {
-    "tracked_source_files": 402,
-    "tracked_source_bytes": 4397683,
-    "engine_python_files": 155,
-    "engine_python_bytes": 1972305
-  }
+    "tracked_source_files": 572,
+    "tracked_source_bytes": 5670694,
+    "engine_python_files": 253,
+    "engine_python_bytes": 2463077
+  },
+  "sizes_updated_at": "2026-08-06T13:18:07+09:00",
+  "sizes_updated_reason": "한글 21->62개, Excel 10->26개 기능과 명령 해석 4단 계약을 더하면서 소스가 커졌다. 시간 기준선은 손대지 않아 성능 감시는 그대로다."
 }
