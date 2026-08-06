@@ -461,6 +461,26 @@ class DialogOnlyCommandsTests(unittest.TestCase):
                 None, None, {"dialog_action": "지어낸창"}
             )
 
+    def test_a_dialog_says_how_far_it_got(self):
+        # The operation writes the limit down; the reader has to hear it.
+        # Reporting a window as "적용하고 다시 읽어 확인했습니다" reads as the
+        # work being done, when in fact only the window opened.
+        from types import SimpleNamespace
+
+        from engine.edit_mode.stage5 import edit_success_message
+
+        note = "‘맞춤법 검사’ 창을 열었습니다. 여기서부터는 창에서 직접 설정해주세요."
+        message = edit_success_message(
+            SimpleNamespace(
+                operation="open_hwp_dialog",
+                target={"selection_reference": "현재 커서"},
+                metadata={"preview": {"description": "설정 창 열기"}},
+            ),
+            SimpleNamespace(changed=True, observations={"note": note}),
+        )
+        self.assertEqual(note, message)
+        self.assertNotIn("적용하고", message)
+
     def test_opening_a_dialog_is_not_reversible(self):
         from engine.app_actions.operations.hwp import DIALOG_ACTIONS
 

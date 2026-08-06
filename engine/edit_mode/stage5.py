@@ -1522,6 +1522,11 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             f"{result.observations.get('procedure_name')} 호출이 COM 오류 없이 반환됐습니다. "
             "매크로가 만든 셀·파일 등 업무 결과는 별도 후조건이 없어 확인하지 않았습니다."
         )
+    return _general_success_message(prepared, result, preview)
+
+
+def _general_success_message(prepared, result, preview: Mapping[str, Any]) -> str:
+    """What to say when the operation has no sentence of its own."""
     if not result.changed:
         if prepared.operation in {"read_selection", "inspect_context"}:
             if prepared.operation == "inspect_context" and preview.get("after"):
@@ -1530,5 +1535,10 @@ def edit_success_message(prepared: EditPreparedAction, result) -> str:
             selected = context.get("selected_text_preview") or "선택 영역에 표시할 텍스트가 없습니다."
             return f"현재 선택 영역: {selected}"
         return "현재 대상이 이미 요청한 상태라 문서를 변경하지 않았습니다."
+    # An operation that only got part of the way says so itself, and its own
+    # words win: 설정 창 열기 reported as "적용하고 확인했습니다" reads as
+    # finished when the rest is the reader's to press.
+    if note := str(result.observations.get("note") or "").strip():
+        return note
     target = preview.get("target") or prepared.target.get("selection_reference") or "현재 선택"
     return f"{target}에 {preview.get('description') or prepared.operation} 작업을 적용하고 다시 읽어 확인했습니다."

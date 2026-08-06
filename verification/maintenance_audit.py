@@ -30,7 +30,9 @@ DEFAULT_MODULE_LINE_BUDGETS = {
     "engine/action_executor.py": 1101,
     "engine/edit_mode/stage11.py": 1026,
     "engine/app_actions/excel_vba_adapter.py": 1007,
-    "engine/edit_mode/stage5.py": 1541,
+    # 1541 + 3: a dialog-only operation now speaks its own limit instead of
+    # being reported as finished work.
+    "engine/edit_mode/stage5.py": 1544,
     "engine/app_actions/excel_adapter.py": 942,
     "engine/edit_mode/stage10.py": 778,
     "engine/app_actions/powerpoint_adapter.py": 530,
