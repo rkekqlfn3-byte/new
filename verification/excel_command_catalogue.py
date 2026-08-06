@@ -33,6 +33,8 @@ import re
 import time
 from pathlib import Path
 
+from verification.stray_processes import EXCEL_PROCESS_NAMES, StrayProcessGuard
+
 REPORT_PATH = Path(__file__).with_name("excel_command_catalogue.json")
 
 OFFICE_ROOTS = (
@@ -198,6 +200,7 @@ def run(names=None) -> dict:
     records: list[dict] = []
     index = 0
     pending: list[str] | None = None
+    guard = StrayProcessGuard(EXCEL_PROCESS_NAMES)
     # A command can leave Excel refusing every call that follows, which made
     # one bad name look like the end of the run. Restart and carry on past it.
     while pending is None or index < len(pending):
@@ -263,6 +266,12 @@ def run(names=None) -> dict:
                         pass
         if pending is not None and index >= len(pending):
             break
+        # Quit above is a request. An Excel that ignored it is still holding
+        # its workbook, and starting another one on top is how a run ends
+        # with a stack of invisible instances the reader has to find.
+        guard.require_clear()
+
+    guard.require_clear()
 
     counts: dict[str, int] = {}
     for record in records:

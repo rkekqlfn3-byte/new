@@ -33,6 +33,8 @@ import re
 import time
 from pathlib import Path
 
+from verification.stray_processes import EXCEL_PROCESS_NAMES, StrayProcessGuard
+
 REPORT_PATH = Path(__file__).with_name("excel_menu_catalogue.json")
 
 KOREAN = re.compile("[가-힣]")
@@ -269,6 +271,7 @@ def run() -> dict:
     records: list[dict] = []
     pending: list[dict] | None = None
     index = 0
+    guard = StrayProcessGuard(EXCEL_PROCESS_NAMES)
     while pending is None or index < len(pending):
         with com_apartment(None):
             application = None
@@ -328,6 +331,9 @@ def run() -> dict:
                         pass
         if pending is not None and index >= len(pending):
             break
+        guard.require_clear()
+
+    guard.require_clear()
 
     counts: dict[str, int] = {}
     for record in records:

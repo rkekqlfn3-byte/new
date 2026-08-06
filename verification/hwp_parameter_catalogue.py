@@ -34,10 +34,9 @@ from verification.hwp_action_catalogue import (
     SETUP_TEXT,
     DialogWatchdog,
     _document_state,
-    _process_ids,
     _seed,
-    _stop_stray_processes,
 )
+from verification.stray_processes import HWP_PROCESS_NAMES, StrayProcessGuard
 
 REPORT_PATH = Path(__file__).with_name("hwp_parameter_catalogue.json")
 
@@ -109,12 +108,12 @@ def run(names) -> dict:
     records: list[dict] = []
     index = 0
     restarts = 0
-    baseline = _process_ids()
+    guard = StrayProcessGuard(HWP_PROCESS_NAMES)
     # A command that kills 한글 made every one of the 120 candidates after it
     # report the same COM error, which read as 120 verdicts and was one.
     while index < len(names):
         if restarts:
-            _stop_stray_processes(baseline)
+            guard.require_clear()
             time.sleep(2.0)
         with com_apartment(None):
             lease = None
@@ -161,6 +160,8 @@ def run(names) -> dict:
                         lease.cleanup()
                     except Exception:
                         pass
+
+    guard.require_clear()
 
     counts: dict[str, int] = {}
     for record in records:

@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 
 from engine.app_actions.operations.excel.ribbon import EXCEL_COMMANDS
+from verification.stray_processes import EXCEL_PROCESS_NAMES, StrayProcessGuard
 
 REPORT_PATH = Path(__file__).with_name("excel_label_report.json")
 
@@ -40,7 +41,10 @@ def run() -> dict:
     from engine.app_actions.com_lifecycle import com_apartment
 
     records: list[dict] = []
-    with com_apartment(None):
+    # Quit is a request, not a guarantee: an Excel that ignores it stays
+    # resident and invisible, holding its workbook open. The guard closes
+    # what this run started and says so if one refuses.
+    with StrayProcessGuard(EXCEL_PROCESS_NAMES), com_apartment(None):
         application = None
         try:
             application = client.DispatchEx("Excel.Application")
@@ -58,7 +62,14 @@ def run() -> dict:
                     continue
                 record["excel_label"] = label
                 record["table_label"] = entry.label
-                record["ok"] = label == entry.label and label in entry.words
+                # The label is the display name; it is not automatically a
+                # trigger. Excel calls FillLeft 왼쪽, and taking that as a
+                # trigger made `왼쪽 셀 지워줘` fill left, so bare directions
+                # were removed on purpose. Requiring the label to be a
+                # trigger would report that deliberate fix as drift forever.
+                # What must hold is that the label matches and that someone
+                # has written down how a reader would ask for the command.
+                record["ok"] = label == entry.label and bool(entry.words)
                 record["outcome"] = "matches" if record["ok"] else "drifted"
                 records.append(record)
             workbook.Close(SaveChanges=False)

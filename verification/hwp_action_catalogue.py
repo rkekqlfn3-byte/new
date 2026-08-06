@@ -32,6 +32,8 @@ import threading
 import time
 from pathlib import Path
 
+from verification.stray_processes import HWP_PROCESS_NAMES, StrayProcessGuard
+
 REPORT_PATH = Path(__file__).with_name("hwp_action_catalogue.json")
 
 # Never probed. Printing sends paper out of a real printer; the file and quit
@@ -338,37 +340,6 @@ def _classify(hwp, watchdog, name: str, setup: str = SETUP_TEXT) -> dict:
     }
 
 
-HWP_PROCESS_NAMES = frozenset({"hwp.exe", "hwp64.exe"})
-
-
-def _process_ids() -> set:
-    import psutil
-
-    found = set()
-    for process in psutil.process_iter(["pid", "name"]):
-        try:
-            if str(process.info.get("name") or "").casefold() in HWP_PROCESS_NAMES:
-                found.add(int(process.info["pid"]))
-        except Exception:
-            continue
-    return found
-
-
-def _stop_stray_processes(baseline: set) -> None:
-    """Clear 한글 processes this run started but could not close.
-
-    A restart that races the previous process still holding the automation
-    server fails outright, which lost the remaining candidates once.
-    """
-    import psutil
-
-    for process_id in _process_ids() - set(baseline):
-        try:
-            process = psutil.Process(process_id)
-            process.terminate()
-            process.wait(timeout=3)
-        except Exception:
-            continue
 
 
 def run_catalogue(groups=None, on_progress=None) -> dict:
@@ -390,14 +361,20 @@ def run_catalogue(groups=None, on_progress=None) -> dict:
     records: list[dict] = []
     index = 0
     restarts = 0
-    baseline = _process_ids()
     # Some commands leave 한글 in a state where even clearing the document
     # fails — a split window and full screen both do it. That is a verdict
     # about the command, not a reason to lose the remaining candidates, so
     # the session restarts and the run carries on past it.
+    #
+    # The old process has to be gone before a new one starts. Asking it to
+    # close and carrying on regardless is how one run ended with 23 한글
+    # processes still resident: each restart left its predecessor behind.
+    # require_clear stops the run instead, which loses the remaining
+    # candidates but leaves nothing hidden on the reader's desktop.
+    guard = StrayProcessGuard(HWP_PROCESS_NAMES)
     while index < len(pending):
         if restarts:
-            _stop_stray_processes(baseline)
+            guard.require_clear()
             time.sleep(2.0)
         with com_apartment(None):
             lease = None
@@ -452,6 +429,11 @@ def run_catalogue(groups=None, on_progress=None) -> dict:
                         lease.cleanup()
                     except Exception:
                         pass
+
+    # A finished run still owns whatever it started. The last session is
+    # closed by its lease above, but a 한글 that refused to go is exactly
+    # the case this has to report rather than leave for the reader to find.
+    guard.require_clear()
 
     counts: dict[str, int] = {}
     for record in records:

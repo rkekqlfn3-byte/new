@@ -83,6 +83,7 @@ TEST_GROUPS = {
         "tests.unit.test_recovery_contract",
         "tests.unit.test_selection_overlay",
         "tests.unit.test_source_identity",
+        "tests.unit.test_stray_processes",
         "tests.unit.test_ui_persistence_refresh",
         "tests.unit.test_unrecognised_commands",
     ),
