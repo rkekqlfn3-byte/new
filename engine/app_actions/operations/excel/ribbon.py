@@ -47,36 +47,77 @@ class ExcelCommand:
 
 # Verified 2026-08-06 against a real Excel: changed the sheet and undid
 # cleanly. See verification/excel_command_catalogue.json for the full run.
+#
+# The label and the words are Excel's own, read back through GetLabelMso and
+# GetScreentipMso rather than invented here. That mattered: the hand-written
+# names were 기울임 where Excel says 기울임꼴, 자동 줄바꿈 where it says
+# 자동 줄 바꿈, and 바깥 테두리 where it says 바깥쪽 테두리 — a reader
+# repeating what the ribbon shows them would have matched none of those.
+# verification/excel_label_probe.py fails if they drift apart again.
 EXCEL_COMMANDS: dict[str, ExcelCommand] = {
-    "italic": ExcelCommand("Italic", "기울임", ("기울임", "이탤릭", "기울여")),
-    "underline": ExcelCommand("Underline", "밑줄", ("밑줄", "언더라인")),
-    "subscript": ExcelCommand("Subscript", "아래 첨자", ("아래 첨자", "아래첨자")),
+    "italic": ExcelCommand(
+        "Italic", "기울임꼴",
+        ("기울임꼴", "기울임", "이탤릭", "기울여",),
+    ),
+    "underline": ExcelCommand(
+        "Underline", "밑줄",
+        ("밑줄", "언더라인",),
+    ),
+    "subscript": ExcelCommand(
+        "Subscript", "아래 첨자",
+        ("아래 첨자", "아래첨자",),
+    ),
     "wrap_text": ExcelCommand(
-        "WrapText", "자동 줄바꿈", ("자동 줄바꿈", "줄바꿈", "텍스트 줄 바꿈")
+        "WrapText", "자동 줄 바꿈",
+        ("자동 줄 바꿈", "자동 줄바꿈", "줄바꿈", "텍스트 줄 바꿈",),
     ),
     "merge_cells": ExcelCommand(
-        "MergeCells", "셀 병합", ("셀 병합", "셀 합치", "병합해")
+        "MergeCells", "셀 병합",
+        ("셀 병합", "셀 합치", "병합해",),
     ),
     "border_outside": ExcelCommand(
-        "BorderOutside", "바깥 테두리", ("바깥 테두리", "외곽 테두리", "테두리 두르")
+        "BorderOutside", "바깥쪽 테두리",
+        ("바깥쪽 테두리", "바깥 테두리", "외곽 테두리", "테두리 두르",),
     ),
-    "border_inside": ExcelCommand("BorderInside", "안쪽 테두리", ("안쪽 테두리",)),
-    "border_left": ExcelCommand("BorderLeft", "왼쪽 테두리", ("왼쪽 테두리",)),
-    "border_right": ExcelCommand("BorderRight", "오른쪽 테두리", ("오른쪽 테두리",)),
-    "border_top": ExcelCommand("BorderTop", "위쪽 테두리", ("위쪽 테두리",)),
+    "border_inside": ExcelCommand(
+        "BorderInside", "안쪽 테두리",
+        ("안쪽 테두리",),
+    ),
+    "border_left": ExcelCommand(
+        "BorderLeft", "왼쪽 테두리",
+        ("왼쪽 테두리", "왼쪽 테두리 토글",),
+    ),
+    "border_right": ExcelCommand(
+        "BorderRight", "오른쪽 테두리",
+        ("오른쪽 테두리", "오른쪽 테두리 토글",),
+    ),
+    "border_top": ExcelCommand(
+        "BorderTop", "위쪽 테두리",
+        ("위쪽 테두리", "위쪽 테두리 토글",),
+    ),
     "fill_down": ExcelCommand(
-        "FillDown", "아래로 채우기", ("아래로 채우", "아래쪽 채우")
+        "FillDown", "아래쪽",
+        ("아래쪽", "아래로 채우기", "아래로 채우", "아래쪽 채우",),
     ),
     "fill_right": ExcelCommand(
-        "FillRight", "오른쪽으로 채우기", ("오른쪽으로 채우", "오른쪽 채우")
+        "FillRight", "오른쪽",
+        ("오른쪽", "오른쪽으로 채우기", "오른쪽으로 채우", "오른쪽 채우",),
     ),
-    "fill_left": ExcelCommand("FillLeft", "왼쪽으로 채우기", ("왼쪽으로 채우",)),
-    "fill_up": ExcelCommand("FillUp", "위로 채우기", ("위로 채우",)),
+    "fill_left": ExcelCommand(
+        "FillLeft", "왼쪽",
+        ("왼쪽", "왼쪽으로 채우기", "왼쪽으로 채우",),
+    ),
+    "fill_up": ExcelCommand(
+        "FillUp", "위쪽",
+        ("위쪽", "위쪽으로 채우기", "위로 채우",),
+    ),
     "clear_contents": ExcelCommand(
-        "ClearContents", "내용 지우기", ("내용 지우", "값만 지우")
+        "ClearContents", "내용 지우기",
+        ("내용 지우기", "내용 지우", "값만 지우",),
     ),
     "clear_all": ExcelCommand(
-        "ClearAll", "모두 지우기", ("모두 지우", "서식까지 지우")
+        "ClearAll", "모두 지우기",
+        ("모두 지우기", "모두 지우", "서식까지 지우",),
     ),
 }
 

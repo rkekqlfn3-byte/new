@@ -971,6 +971,7 @@ class Stage5NativeEditAdapter:
         "convert_hanja_to_hangul",
         "run_excel_command",
         "open_hwp_dialog",
+        "open_excel_dialog",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
