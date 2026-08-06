@@ -14,6 +14,7 @@ from engine.app_actions.operations.excel import EXCEL_OPERATIONS
 from engine.app_actions.operations.hwp import HWP_OPERATIONS
 from engine.app_actions.operations.powerpoint import POWERPOINT_OPERATIONS
 from engine.app_actions.operations.word import WORD_OPERATIONS
+from engine.edit_mode import EditRequest
 from engine.edit_mode.llm_intent import (
     HWP_OPERATION_GUIDE,
     OPERATION_GUIDES,
@@ -21,7 +22,11 @@ from engine.edit_mode.llm_intent import (
     LlmEditIntentTranslator,
     build_prompt,
 )
-from engine.edit_mode.stage5 import Stage5EditError, StructuredEditIntentAnalyzer
+from engine.edit_mode.stage5 import (
+    Stage5EditError,
+    Stage5NativeEditAdapter,
+    StructuredEditIntentAnalyzer,
+)
 
 HWP = {
     "app_type": "hwp",
@@ -195,6 +200,82 @@ class AssistedAnalyzerTests(unittest.TestCase):
         )
         with self.assertRaises(Stage5EditError):
             analyzer.analyze("두껍게 해줘", HWP)
+
+
+class ProviderIntentKeepsTheSameGuardsTests(unittest.TestCase):
+    """The contract says a translated intent earns no shortcut.
+
+    §3-A: 2·3단계 결과도 미리보기·승인·문맥 지문 비교·검증·되돌리기를 그대로
+    거친다. That holds because ``prepare`` cannot tell which layer produced
+    the intent — but nothing pinned it, and "the structure makes it true"
+    is exactly what was wrong with the dialog notice nobody read.
+    """
+
+    PATH = r"C:\data\book.xlsx"
+    CONTEXT = {
+        "app_type": "excel",
+        "document_fingerprint": "A" * 64,
+        "context_fingerprint": "C" * 64,
+        "active_container": "Sheet1",
+        "selection_kind": "range",
+        "selection_reference": "A2:A5",
+        "target": {"sheet_name": "Sheet1", "address": "A2:A5"},
+        "selected_text_preview": "10 · 20",
+    }
+
+    def _adapter(self, raw):
+        from tests.unit.test_stage5_editing import (
+            FakeContextManager,
+            FakeNativeAdapter,
+        )
+
+        caller = FakeCaller(raw)
+        analyzer = LlmAssistedEditIntentAnalyzer(
+            StructuredEditIntentAnalyzer(),
+            LlmEditIntentTranslator(caller),
+            supported_operations=set(OPERATION_GUIDES["excel"]),
+        )
+        adapter = Stage5NativeEditAdapter(
+            {
+                "session_id": "edit-session-1",
+                "app_type": "excel",
+                "file_path": self.PATH,
+            },
+            FakeContextManager(self.CONTEXT),
+            FakeNativeAdapter(self.PATH),
+            analyzer=analyzer,
+        )
+        return adapter, caller
+
+    def _request(self, text):
+        return EditRequest(
+            text=text,
+            edit_session_id="edit-session-1",
+            document_fingerprint="A" * 64,
+            request_id="request-1",
+        )
+
+    def test_a_translated_wording_still_has_to_be_approved(self):
+        adapter, caller = self._adapter(
+            reply("write_cell", {"cell": "B2", "value": "10"}, "B2에 씁니다")
+        )
+
+        prepared = adapter.prepare(self._request("비투에 십 넣어"), self.CONTEXT)
+
+        self.assertEqual(1, len(caller.calls), "규칙이 아니라 provider가 풀어야 한다")
+        self.assertTrue(prepared.requires_approval)
+        self.assertTrue(prepared.context_fingerprint)
+        self.assertEqual("write_cell", prepared.operation)
+        self.assertIn("native_prepared_action", prepared.arguments)
+
+    def test_a_translated_operation_outside_the_allowlist_never_prepares(self):
+        # The provider naming an operation the adapter does not run must be
+        # refused by the same gate a rule-produced intent passes, so a
+        # translation cannot widen what edit mode is allowed to do.
+        adapter, _ = self._adapter(reply("vba_run_procedure"))
+
+        with self.assertRaises(Stage5EditError):
+            adapter.prepare(self._request("매크로 아무거나 돌려"), self.CONTEXT)
 
 
 if __name__ == "__main__":
