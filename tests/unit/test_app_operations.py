@@ -151,6 +151,7 @@ class HwpOperationStructureTests(unittest.TestCase):
                 "insert_header",
                 "set_font_name",
                 "convert_hanja_to_hangul",
+                "open_hwp_dialog",
                 "insert_text",
                 "delete_text",
                 "insert_table",
@@ -423,3 +424,47 @@ class HwpRibbonCatalogueTests(unittest.TestCase):
 
         with self.assertRaises(AppActionBlocked):
             RunRibbonActionOperation().prepare(None, None, {"ribbon_action": "만들어낸것"})
+
+
+class DialogOnlyCommandsTests(unittest.TestCase):
+    """Some 한글 commands can only be opened, and must say so."""
+
+    def setUp(self):
+        from engine.edit_mode.stage5 import StructuredEditIntentAnalyzer
+
+        self.analyzer = StructuredEditIntentAnalyzer()
+        self.context = {
+            "app_type": "hwp",
+            "selection_kind": "text",
+            "selected_text_preview": "안녕하세요",
+        }
+
+    def test_a_dialog_only_request_opens_the_window(self):
+        intent = self.analyzer.analyze("맞춤법 검사해줘", self.context)
+        self.assertEqual("open_hwp_dialog", intent.operation)
+        self.assertEqual("SpellingCheck", intent.params["dialog_action"])
+
+    def test_a_command_that_can_be_performed_is_not_sent_to_a_dialog(self):
+        # 글자 모양 opens a window, but 굵게 is an operation; the dialog table
+        # is checked last so a performable request never lands there.
+        intent = self.analyzer.analyze("굵게 해줘", self.context)
+        self.assertEqual("set_text_format", intent.operation)
+
+    def test_only_measured_dialogs_can_be_opened(self):
+        from engine.app_actions.base import AppActionBlocked
+        from engine.app_actions.operations.hwp.open_dialog import (
+            OpenHwpDialogOperation,
+        )
+
+        with self.assertRaises(AppActionBlocked):
+            OpenHwpDialogOperation().prepare(
+                None, None, {"dialog_action": "지어낸창"}
+            )
+
+    def test_opening_a_dialog_is_not_reversible(self):
+        from engine.app_actions.operations.hwp import DIALOG_ACTIONS
+
+        # Whatever the reader does in the window is outside anything this
+        # operation can see, so it must not claim it can undo it.
+        self.assertIn("CharShape", DIALOG_ACTIONS)
+        self.assertNotIn("FileSave", DIALOG_ACTIONS)

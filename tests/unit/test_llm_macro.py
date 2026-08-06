@@ -143,7 +143,7 @@ class ProposalIsNotExecutionTests(unittest.TestCase):
     def test_without_a_proposal_the_usual_guidance_is_kept(self):
         analyzer = self._analyzer(plan())
         with self.assertRaises(Stage5EditError) as caught:
-            analyzer.analyze("맞춤법 검사해줘", HWP)
+            analyzer.analyze("이 문서 인쇄해줘", HWP)
         self.assertIn("지원하는 한글 편집 예", str(caught.exception))
 
     def test_a_wording_the_rules_know_never_reaches_the_composer(self):

@@ -17,6 +17,10 @@ from engine.app_actions.operations.hwp.insert_table import InsertTableOperation
 from engine.app_actions.operations.hwp.insert_text import InsertTextOperation
 from engine.app_actions.operations.hwp.line_spacing import SetLineSpacingOperation
 from engine.app_actions.operations.hwp.list_format import SetListFormatOperation
+from engine.app_actions.operations.hwp.open_dialog import (
+    DIALOG_ACTIONS,
+    OpenHwpDialogOperation,
+)
 from engine.app_actions.operations.hwp.page_break import InsertPageBreakOperation
 from engine.app_actions.operations.hwp.page_setup import SetPageSetupOperation
 from engine.app_actions.operations.hwp.paragraph_format import (
@@ -81,12 +85,14 @@ HWP_OPERATIONS = OperationRegistry(
         InsertHeaderOperation(),
         SetFontNameOperation(),
         ConvertHanjaToHangulOperation(),
+        OpenHwpDialogOperation(),
     ),
 )
 
 __all__ = [
     "COLOR_RGB",
     "HWP_OPERATIONS",
+    "DIALOG_ACTIONS",
     "RIBBON_ACTIONS",
     "PARAGRAPH_ALIGNMENTS",
     "char_state",

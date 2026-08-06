@@ -775,6 +775,10 @@ class StructuredEditIntentAnalyzer:
         if ribbon is not None:
             return ribbon
 
+        dialog_only = _hwp_dialog_only_intent(command)
+        if dialog_only is not None:
+            return dialog_only
+
         raise Stage5EditError(HWP_HELP)
 
 
@@ -846,6 +850,38 @@ def _excel_command_intent(command: str):
                 "run_excel_command",
                 {"excel_command": key},
                 f"{entry.label} 적용",
+            )
+    return None
+
+
+# Requests that only a 한글 dialog can carry out. The window names itself,
+# so the wording here only has to get the reader to the right window.
+_DIALOG_ONLY = (
+    ("CharShape", ("글자 모양", "글자모양", "글꼴 설정", "폰트 설정")),
+    ("ParagraphShape", ("문단 모양", "문단모양")),
+    ("MultiColumn", ("단 설정", "다단", "단 나누기 설정")),
+    ("MakeIndex", ("색인", "찾아보기 만들")),
+    ("MakeContents", ("목차 만들", "차례 만들")),
+    ("SpellingCheck", ("맞춤법", "철자 검사")),
+    ("InputHanja", ("한자로 바꿔", "한자 변환", "한자로 변환")),
+    ("HeaderFooter", ("머리말 설정", "꼬리말")),
+    ("PageNumPos", ("쪽 번호 설정", "쪽번호 위치")),
+    ("Sort", ("정렬 설정", "표 정렬")),
+    ("InsertChart", ("차트", "그래프")),
+    ("DocSummaryInfo", ("문서 정보 보기", "문서 요약")),
+    ("ComposeChars", ("글자 겹치", "원문자")),
+    ("ConvertCase", ("대소문자",)),
+)
+
+
+def _hwp_dialog_only_intent(command: str):
+    """Checked last: a request a real operation covers must never land here."""
+    for action, words in _DIALOG_ONLY:
+        if any(word in command for word in words):
+            return EditIntent(
+                "open_hwp_dialog",
+                {"dialog_action": action},
+                f"{words[0]} 창 열기",
             )
     return None
 
@@ -934,6 +970,7 @@ class Stage5NativeEditAdapter:
         "set_font_name",
         "convert_hanja_to_hangul",
         "run_excel_command",
+        "open_hwp_dialog",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):
