@@ -771,13 +771,17 @@ class StructuredEditIntentAnalyzer:
         if rewritten is not None:
             return rewritten
 
-        ribbon = _hwp_ribbon_intent(command)
-        if ribbon is not None:
-            return ribbon
+        # Settings requests go to the window first: the ribbon rule for
+        # 각주 would otherwise insert one when the reader asked to change
+        # how 각주 look.
+        if _asks_about_settings(command):
+            dialog_only = _hwp_dialog_only_intent(command)
+            if dialog_only is not None:
+                return dialog_only
 
-        dialog_only = _hwp_dialog_only_intent(command)
-        if dialog_only is not None:
-            return dialog_only
+        beyond_rules = _hwp_ribbon_or_dialog_intent(command)
+        if beyond_rules is not None:
+            return beyond_rules
 
         raise Stage5EditError(HWP_HELP)
 
@@ -870,8 +874,22 @@ _DIALOG_ONLY = (
     ("InsertChart", ("차트", "그래프")),
     ("DocSummaryInfo", ("문서 정보 보기", "문서 요약")),
     ("ComposeChars", ("글자 겹치", "원문자")),
+    ("MemoShape", ("메모 모양", "메모 설정")),
+    ("ParaShapeLineSpace", ("줄 간격 설정",)),
+    ("MasterPage", ("바탕쪽",)),
+    ("SetLineNumbers", ("줄 번호",)),
     ("ConvertCase", ("대소문자",)),
 )
+
+
+# Asking about a feature's settings is not asking for the feature. Without
+# this, `각주 모양 바꾸고 싶어` matched the ribbon rule for 각주 and inserted
+# one, and `메모 모양 바꿔줘` inserted a memo.
+_SETTINGS_WORDS = ("모양", "설정", "속성", "서식 바꾸")
+
+
+def _asks_about_settings(command: str) -> bool:
+    return any(word in command for word in _SETTINGS_WORDS)
 
 
 def _hwp_dialog_only_intent(command: str):
@@ -884,6 +902,21 @@ def _hwp_dialog_only_intent(command: str):
                 f"{words[0]} 창 열기",
             )
     return None
+
+
+def _hwp_ribbon_or_dialog_intent(command: str):
+    """Ribbon commands and windows, in the order that does least harm.
+
+    The ribbon rules insert things. A reader asking how 각주 should look does
+    not want another 각주, and inserting one is worse than admitting the
+    setting is out of reach, so a settings request skips the ribbon and
+    falls through to the window table and then to the provider.
+    """
+    if not _asks_about_settings(command):
+        ribbon = _hwp_ribbon_intent(command)
+        if ribbon is not None:
+            return ribbon
+    return _hwp_dialog_only_intent(command)
 
 
 def _hwp_ribbon_intent(command: str):

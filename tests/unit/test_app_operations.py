@@ -468,3 +468,35 @@ class DialogOnlyCommandsTests(unittest.TestCase):
         # operation can see, so it must not claim it can undo it.
         self.assertIn("CharShape", DIALOG_ACTIONS)
         self.assertNotIn("FileSave", DIALOG_ACTIONS)
+
+
+class SettingsRequestsDoNotInsertTests(unittest.TestCase):
+    """Asking how something should look is not asking for another one."""
+
+    def setUp(self):
+        from engine.edit_mode.stage5 import StructuredEditIntentAnalyzer
+
+        self.analyzer = StructuredEditIntentAnalyzer()
+        self.context = {
+            "app_type": "hwp",
+            "selection_kind": "text",
+            "selected_text_preview": "안녕하세요",
+        }
+
+    def test_a_settings_request_reaches_the_window(self):
+        intent = self.analyzer.analyze("메모 모양 바꿔줘", self.context)
+        self.assertEqual("open_hwp_dialog", intent.operation)
+        self.assertEqual("MemoShape", intent.params["dialog_action"])
+
+    def test_a_settings_request_never_inserts_instead(self):
+        from engine.edit_mode.stage5 import Stage5EditError
+
+        # 각주 모양 has no window in the table, and inserting a 각주 because
+        # the sentence contains 각주 is worse than saying it cannot be done.
+        with self.assertRaises(Stage5EditError):
+            self.analyzer.analyze("각주 모양 바꾸고 싶어", self.context)
+
+    def test_plainly_asking_for_the_thing_still_inserts_it(self):
+        intent = self.analyzer.analyze("각주 달아줘", self.context)
+        self.assertEqual("run_ribbon_action", intent.operation)
+        self.assertEqual("footnote", intent.params["ribbon_action"])
