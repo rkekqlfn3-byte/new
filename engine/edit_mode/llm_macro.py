@@ -23,8 +23,6 @@ that has never been approved, and layer 3 exists to suggest, not to act.
 
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -33,12 +31,13 @@ from engine.edit_mode.llm_intent import (
     OPERATION_GUIDES,
     describe_selection,
 )
+from engine.llm.json_reply import json_reply
+from engine.llm.provider_caller import provider_caller
 
 # A proposal longer than this is not a macro, it is a program. The reader
 # cannot check twenty steps against their own intent on a preview.
 MAX_STEPS = 6
 
-_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,26 +75,6 @@ def build_prompt(operations, app_type: str) -> str:
     )
 
 
-def _payload(raw) -> dict:
-    if isinstance(raw, Mapping):
-        candidate: Any = raw
-    else:
-        match = _JSON_OBJECT.search(str(raw or ""))
-        if not match:
-            return {}
-        try:
-            candidate = json.loads(match.group(0))
-        except (TypeError, ValueError):
-            return {}
-    inner = candidate.get("response") if isinstance(candidate, Mapping) else None
-    if isinstance(inner, str):
-        match = _JSON_OBJECT.search(inner)
-        if match:
-            try:
-                candidate = json.loads(match.group(0))
-            except (TypeError, ValueError):
-                return {}
-    return candidate if isinstance(candidate, Mapping) else {}
 
 
 class LlmMacroComposer:
@@ -125,7 +104,7 @@ class LlmMacroComposer:
             raw = self._caller(build_prompt(allowed, app_type), message)
         except Exception:
             return None
-        payload = _payload(raw)
+        payload = json_reply(raw)
         raw_steps = payload.get("steps")
         if not isinstance(raw_steps, list) or not raw_steps:
             return None
@@ -161,14 +140,8 @@ class LlmMacroComposer:
 
 def composer_for(llm_engine) -> LlmMacroComposer | None:
     """Wrap the configured provider, or nothing when there is none."""
-    if llm_engine is None:
-        return None
-    from engine.edit_mode.llm_intent import translator_for
-
-    translator = translator_for(llm_engine)
-    if translator is None:
-        return None
-    return LlmMacroComposer(translator._caller)
+    caller = provider_caller(llm_engine)
+    return None if caller is None else LlmMacroComposer(caller)
 
 
 __all__ = [

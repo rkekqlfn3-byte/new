@@ -246,14 +246,13 @@ class HwpUndoService:
                 control_ids,
             )
 
-            expected = int(prepared.params.get("expected_controls", -1))
             if prepared.operation == "insert_hyperlink":
-                # A hyperlink adds text, not a control the chain reports.
-                if str(prepared.params.get("text") or "") not in str(
-                    current_base.get("text") or ""
-                ):
-                    return
+                # A hyperlink adds text, not a control the chain counts, and
+                # the body text is not in `current_base` — it is returned
+                # beside it. Both arms of the old check returned, so it
+                # verified nothing; the adapter has already verified the edit.
                 return
+            expected = int(prepared.params.get("expected_controls", -1))
             if len(control_ids(hwp)) != expected:
                 raise AppActionContextChanged(
                     "직전에 넣은 항목이 그대로 있지 않아 복원하지 않았습니다."

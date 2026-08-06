@@ -28,12 +28,46 @@ sentence into something the adapter then refuses.
 
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from engine.edit_mode.stage5 import EditIntent, Stage5EditError
+from engine.llm.json_reply import json_reply
+from engine.llm.provider_caller import provider_caller
+
+
+def _named(table) -> str:
+    """`key(label)` for every entry, so a guide cannot drift from its table.
+
+    These lists used to be typed out by hand beside the tables they describe,
+    and the Excel one had already drifted: it said 자동 줄바꿈 and 바깥 테두리
+    where the table, corrected from Excel's own GetLabelMso, says 자동 줄 바꿈
+    and 바깥쪽 테두리.
+    """
+    return ", ".join(f"{key}({entry.label})" for key, entry in table.items())
+
+
+def _dialog_names() -> str:
+    from engine.app_actions.operations.hwp import DIALOG_ACTIONS
+
+    return ", ".join(sorted(DIALOG_ACTIONS))
+
+
+def _hwp_ribbon_names() -> str:
+    from engine.app_actions.operations.hwp import RIBBON_ACTIONS
+
+    return _named(RIBBON_ACTIONS)
+
+
+def _excel_ribbon_names() -> str:
+    from engine.app_actions.operations.excel import EXCEL_COMMANDS
+
+    return _named(EXCEL_COMMANDS)
+
+
+_DIALOG_NAMES = _dialog_names()
+_HWP_RIBBON_NAMES = _hwp_ribbon_names()
+_EXCEL_RIBBON_NAMES = _excel_ribbon_names()
 
 # Only parameters a person's sentence can actually specify.  The operations
 # also read verification fields such as ``expected_cell_count``, which they
@@ -112,44 +146,11 @@ HWP_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {
         "자비스가 대신 해줄 수 없어 한글 설정 창만 열어주는 기능. "
         "실행이 되는 다른 작업이 있으면 반드시 그것을 먼저 쓴다. "
         "창은 스스로 한국어 이름을 달고 뜨므로, 요청과 뜻이 맞는 이름을 "
-        "고르면 된다. dialog_action 은 다음 중 하나: "
-        "AddFieldBibliography, AddHanjaWord, Average, Bookmark, "
-        "ChangeRome, ChangeRomeToName, CharShape, "
-        "CharShapeDialogWithoutBorder, CharShapeHeight, "
-        "CharShapeHeightSpin, CharShapeLang, CharShapeSpacing, "
-        "CharShapeTBTitle, CharShapeTypeFace, CharShapeWidth, "
-        "ComposeChars, ComposeCharsEdit, ConvertCase, "
-        "ConvertFullHalfWidth, ConvertHiraGata, ConvertJianFan, "
-        "ConvertToHangul, DeleteCtrls, DocSummaryInfo, "
-        "DrawObjCreatorArc, DrawObjCreatorObject, DrawObjPart, "
-        "DrawObjTemplateLoad, DutmalChars, EditFieldBibliography, "
-        "FormObjHanjaBusu, FormObjHanjaMean, FormObjInputCodeTable, "
-        "HanThDIC, HancomAsset, HeaderFooter, HimKbdChange, "
-        "Hyperlink, HyperlinkJump, ImageTileGroupTextArt, IndexMark, "
-        "InputCodeTable, InputDateStyle, InputHanja, InputHanjaMean, "
-        "InputPersonsNameHanja, InsertCCLMark, InsertChart, "
-        "InsertConnectLineArcBoth, InsertCrossReference, "
-        "InsertFieldTemplate, InsertHyperlink, InsertIdiom, "
-        "InsertKOGLMark, InsertRevision, InsertRevisionHyperlink, "
-        "InsertRevisionLeftMove, InsertRevisionRightMove, "
-        "InsertRevisionSimpleChange, InsertRevisionTransfer, Jajun, "
-        "LabelAdd, LabelTemplate, LinkDocument, MakeContents, "
-        "MakeIndex, MasterPage, MasterPageType, MemoShape, "
-        "MetaTag_delete_DOC, ModifySection, MultiColumn, NewNumber, "
-        "OutlineNumber, PageBorder, PageNumPos, ParaNumberBullet, "
-        "ParaShapeLineSpace, ParaShapeNextSpace, ParaShapePrevSpace, "
-        "ParagraphShape, PasteSpecial, Presentation, "
-        "PresentationRange, PstGradientType, PstScrChangeType, "
-        "SearchForeign, SetLineNumbers, Shape, ShapeObjGuideLine, "
-        "ShapeObjInsertCaptionNum, ShapeObjLock, ShapeObjSelect, "
-        "ShapeObjShear, ShapeObjTableSelCell, ShapeObjUngroup, "
-        "ShapeObjUnlockAll, SmartSearchMode, Sort, SpellChecker, "
-        "SpellingCheck "
-        ,
+        "고르면 된다. dialog_action 은 다음 중 하나: " + _DIALOG_NAMES,
         ("dialog_action",),
     ),
     "run_ribbon_action": (
-        "리본 기능. ribbon_action 은 다음 중 하나: italic(기울임), underline(밑줄), strikethrough(취소선), superscript(위 첨자), subscript(아래 첨자), outline(외곽선), shadow(그림자), column_break(단 나누기), indent_more(들여쓰기), indent_less(내어쓰기), line_spacing_wider(줄 간격 넓히기), line_spacing_narrower(줄 간격 좁히기), margin_wider(문단 여백 넓히기), margin_narrower(문단 여백 좁히기), align_division(나눔 정렬), memo(메모), page_of_total(현재 쪽/전체 쪽 넣기), insert_file_name(파일 이름 넣기), insert_file_path(파일 경로 넣기), left_margin_wider(왼쪽 여백 넓히기), left_margin_narrower(왼쪽 여백 좁히기), right_margin_wider(오른쪽 여백 넓히기), right_margin_narrower(오른쪽 여백 좁히기), paste(붙여넣기), paste_without_field(필드 빼고 붙여넣기), paste_page(쪽 붙여넣기), insert_doc_info(문서 정보 넣기), insert_last_save_by(마지막 저장자 넣기), insert_datetime_field(날짜·시간 필드 넣기), insert_datetime_text(날짜·시간 글자 넣기), list_level_down(번호 수준 내리기), paragraph_break(문단 나누기), insert_tab(탭 넣기), footnote(각주), endnote(미주)",
+        "리본 기능. ribbon_action 은 다음 중 하나: " + _HWP_RIBBON_NAMES,
         ("ribbon_action",),
     ),
 }
@@ -204,7 +205,7 @@ EXCEL_OPERATION_GUIDE: dict[str, tuple[str, tuple[str, ...]]] = {
         ("range", "operator", "threshold", "color"),
     ),
     "run_excel_command": (
-        "리본 기능. excel_command 는 다음 중 하나: italic(기울임), underline(밑줄), subscript(아래 첨자), wrap_text(자동 줄바꿈), merge_cells(셀 병합), border_outside(바깥 테두리), border_inside(안쪽 테두리), border_left(왼쪽 테두리), border_right(오른쪽 테두리), border_top(위쪽 테두리), fill_down(아래로 채우기), fill_right(오른쪽으로 채우기), fill_left(왼쪽으로 채우기), fill_up(위로 채우기), clear_contents(내용 지우기), clear_all(모두 지우기)",
+        "리본 기능. excel_command 는 다음 중 하나: " + _EXCEL_RIBBON_NAMES,
         ("excel_command",),
     ),
     "format_matching_values": (
@@ -268,7 +269,6 @@ APP_LABELS = {
 
 UNSUPPORTED = "unsupported"
 
-_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def build_prompt(operations, app_type: str = "hwp") -> str:
@@ -308,28 +308,6 @@ class Translation:
     description: str
 
 
-def _payload(raw) -> dict:
-    """Pull the object out of a reply, which providers wrap differently."""
-    if isinstance(raw, Mapping):
-        candidate: Any = raw
-    else:
-        match = _JSON_OBJECT.search(str(raw or ""))
-        if not match:
-            return {}
-        try:
-            candidate = json.loads(match.group(0))
-        except (TypeError, ValueError):
-            return {}
-    # The command providers answer as {"response": "<json string>"}.
-    inner = candidate.get("response") if isinstance(candidate, Mapping) else None
-    if isinstance(inner, str):
-        match = _JSON_OBJECT.search(inner)
-        if match:
-            try:
-                candidate = json.loads(match.group(0))
-            except (TypeError, ValueError):
-                return {}
-    return candidate if isinstance(candidate, Mapping) else {}
 
 
 class LlmEditIntentTranslator:
@@ -362,7 +340,7 @@ class LlmEditIntentTranslator:
             # An offline machine or a provider outage must not turn an
             # unrecognised sentence into a crash.
             return None
-        payload = _payload(raw)
+        payload = json_reply(raw)
         operation = str(payload.get("operation") or "").strip()
         if operation not in allowed:
             return None
@@ -496,28 +474,8 @@ class LlmAssistedEditIntentAnalyzer:
 
 def translator_for(llm_engine) -> LlmEditIntentTranslator | None:
     """Wrap the configured provider, or nothing when there is none."""
-    if llm_engine is None:
-        return None
-
-    def ask(prompt: str, text: str):
-        manager = getattr(llm_engine, "dict_mgr", None)
-        if manager is None:
-            return ""
-        ai_config = manager.config_manager.ai_config
-        key = str(ai_config.get("api_key") or "").strip()
-        if not key:
-            # An unconfigured provider is the same as no provider: the rules
-            # answer alone and the reader sees the usual guidance.
-            return ""
-        provider = str(ai_config.get("provider") or "openai").casefold()
-        call = (
-            llm_engine._call_gemini
-            if provider == "gemini"
-            else llm_engine._call_openai
-        )
-        return call(key, prompt, text, mode="json", temperature=0.0)
-
-    return LlmEditIntentTranslator(ask)
+    caller = provider_caller(llm_engine)
+    return None if caller is None else LlmEditIntentTranslator(caller)
 
 
 def assisted_analyzer(

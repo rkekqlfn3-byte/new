@@ -30,11 +30,6 @@ from engine.app_actions.base import (
 )
 from engine.app_actions.operations.excel.base import ExcelOperation
 
-# How many cells the before/after snapshot reads. A command is judged by the
-# selection it acts on, and reading an unbounded region would make a large
-# selection slow to preview.
-MAX_SNAPSHOT_CELLS = 400
-
 
 @dataclass(frozen=True, slots=True)
 class ExcelCommand:
@@ -47,6 +42,11 @@ class ExcelCommand:
 
 # Verified 2026-08-06 against a real Excel: changed the sheet and undid
 # cleanly. See verification/excel_command_catalogue.json for the full run.
+#
+# A label is not automatically a trigger. Excel calls FillLeft 왼쪽, and
+# taking that as a trigger made `왼쪽 셀 지워줘` fill left instead — a bare
+# direction means nothing on its own. The label stays as the display name;
+# only wording that identifies the command is a trigger.
 #
 # The label and the words are Excel's own, read back through GetLabelMso and
 # GetScreentipMso rather than invented here. That mattered: the hand-written
@@ -97,19 +97,19 @@ EXCEL_COMMANDS: dict[str, ExcelCommand] = {
     ),
     "fill_down": ExcelCommand(
         "FillDown", "아래쪽",
-        ("아래쪽", "아래로 채우기", "아래로 채우", "아래쪽 채우",),
+        ("아래로 채우기", "아래로 채우", "아래로 채워", "아래쪽 채우", "아래쪽으로 채워",),
     ),
     "fill_right": ExcelCommand(
         "FillRight", "오른쪽",
-        ("오른쪽", "오른쪽으로 채우기", "오른쪽으로 채우", "오른쪽 채우",),
+        ("오른쪽으로 채우기", "오른쪽으로 채우", "오른쪽으로 채워", "오른쪽 채우",),
     ),
     "fill_left": ExcelCommand(
         "FillLeft", "왼쪽",
-        ("왼쪽", "왼쪽으로 채우기", "왼쪽으로 채우",),
+        ("왼쪽으로 채우기", "왼쪽으로 채우", "왼쪽으로 채워", "왼쪽 채우",),
     ),
     "fill_up": ExcelCommand(
         "FillUp", "위쪽",
-        ("위쪽", "위쪽으로 채우기", "위로 채우",),
+        ("위쪽으로 채우기", "위로 채우", "위로 채워", "위쪽으로 채워", "위쪽 채우",),
     ),
     "clear_contents": ExcelCommand(
         "ClearContents", "내용 지우기",
@@ -122,35 +122,39 @@ EXCEL_COMMANDS: dict[str, ExcelCommand] = {
 }
 
 
-def selection_state(adapter, application) -> tuple:
-    """Enough of the selection to tell whether the command did anything."""
-    try:
-        selection = application.Selection
-    except Exception:
-        return ()
+def selection_state(adapter, application, selection=None) -> tuple:
+    """Enough of the selection to tell whether the command did anything.
+
+    Read at range level, not per cell. Reading each cell cost twelve
+    cross-process calls — ``Item``, ``Value``, ``Font`` three times, and so
+    on — which for a 400-cell selection was ~4,800 calls per snapshot and
+    ~14,000 per command, since the snapshot is taken before, during and
+    after. Excel answers the same questions for a whole range in one call
+    each, returning ``None`` where the range is not uniform, and ``None``
+    changing to a value is exactly the signal wanted here.
+    """
+    if selection is None:
+        try:
+            selection = application.Selection
+        except Exception:
+            return ()
     marks: list[str] = []
-    seen = 0
-    try:
-        cells = adapter._range_cells(selection)
-    except Exception:
-        return ()
-    for cell in cells:
-        seen += 1
-        if seen > MAX_SNAPSHOT_CELLS:
-            break
-        for reader in (
-            lambda c: c.Value,
-            lambda c: c.Font.Italic,
-            lambda c: c.Font.Underline,
-            lambda c: c.Font.Subscript,
-            lambda c: c.WrapText,
-            lambda c: c.MergeCells,
-            lambda c: c.Borders.LineStyle,
-        ):
-            try:
-                marks.append(str(reader(cell)))
-            except Exception:
-                marks.append("")
+    for reader in (
+        lambda source: source.Value2,
+        lambda source: source.Font.Italic,
+        lambda source: source.Font.Underline,
+        lambda source: source.Font.Subscript,
+        lambda source: source.Font.Bold,
+        lambda source: source.WrapText,
+        lambda source: source.MergeCells,
+        lambda source: source.Borders.LineStyle,
+        lambda source: source.NumberFormat,
+        lambda source: source.HorizontalAlignment,
+    ):
+        try:
+            marks.append(str(reader(selection)))
+        except Exception:
+            marks.append("")
     return tuple(marks)
 
 
@@ -185,14 +189,15 @@ class RunExcelCommandOperation(ExcelOperation):
             )
         _, sheet, base = adapter._common_context(application)
         try:
+            selection = application.Selection
             # Address is a property here, not a call: invoking it raises
             # "'str' object is not callable" and read as Excel refusing.
-            address = str(application.Selection.Address).replace("$", "")
+            address = str(selection.Address).replace("$", "")
         except Exception as error:
             raise AppActionBlocked(
                 "Excel에서 적용할 범위를 읽지 못했습니다. 셀을 선택하고 다시 요청해주세요."
             ) from error
-        state = selection_state(adapter, application)
+        state = selection_state(adapter, application, selection)
         snapshot = {
             **base,
             "operation": self.name,

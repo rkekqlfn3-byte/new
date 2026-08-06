@@ -15,10 +15,10 @@ must satisfy is discarded rather than acted on.
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
+from engine.llm.json_reply import json_reply
+from engine.llm.provider_caller import provider_caller
 from engine.pdf.intent import PdfCommandIntent, PdfIntentKind
 
 # What each kind is for, in the reader's language rather than the enum's.
@@ -43,7 +43,6 @@ PDF_INTENT_GUIDE: dict[str, str] = {
 
 UNSUPPORTED = "unsupported"
 
-_JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def build_prompt() -> str:
@@ -60,27 +59,6 @@ def build_prompt() -> str:
     )
 
 
-def _payload(raw) -> dict:
-    """Pull the object out of a reply, which providers wrap differently."""
-    if isinstance(raw, Mapping):
-        candidate: Any = raw
-    else:
-        match = _JSON_OBJECT.search(str(raw or ""))
-        if not match:
-            return {}
-        try:
-            candidate = json.loads(match.group(0))
-        except (TypeError, ValueError):
-            return {}
-    inner = candidate.get("response") if isinstance(candidate, Mapping) else None
-    if isinstance(inner, str):
-        match = _JSON_OBJECT.search(inner)
-        if match:
-            try:
-                candidate = json.loads(match.group(0))
-            except (TypeError, ValueError):
-                return {}
-    return candidate if isinstance(candidate, Mapping) else {}
 
 
 class PdfIntentTranslator:
@@ -96,7 +74,7 @@ class PdfIntentTranslator:
             raw = self._caller(build_prompt(), str(command))
         except Exception:
             return None
-        payload = _payload(raw)
+        payload = json_reply(raw)
         kind = str(payload.get("kind") or "").strip()
         if kind not in PDF_INTENT_GUIDE:
             return None
@@ -119,26 +97,8 @@ class PdfIntentTranslator:
 
 def translator_for(llm_engine) -> PdfIntentTranslator | None:
     """Wrap the configured provider, or nothing when there is none."""
-    if llm_engine is None:
-        return None
-
-    def ask(prompt: str, text: str):
-        manager = getattr(llm_engine, "dict_mgr", None)
-        if manager is None:
-            return ""
-        ai_config = manager.config_manager.ai_config
-        key = str(ai_config.get("api_key") or "").strip()
-        if not key:
-            return ""
-        provider = str(ai_config.get("provider") or "openai").casefold()
-        call = (
-            llm_engine._call_gemini
-            if provider == "gemini"
-            else llm_engine._call_openai
-        )
-        return call(key, prompt, text, mode="json", temperature=0.0)
-
-    return PdfIntentTranslator(ask)
+    caller = provider_caller(llm_engine)
+    return None if caller is None else PdfIntentTranslator(caller)
 
 
 __all__ = [

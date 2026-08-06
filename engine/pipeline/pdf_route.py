@@ -94,8 +94,9 @@ def try_execute_pdf_route(parser, raw_input, *, session_id=None, log_callback=No
         return None
     failure_action = "pdf_command"
     try:
-        parsed_intent = manager.parse_intent(raw_input)
-        failure_action = f"pdf_{parsed_intent.kind.value}"
+        # resolve_command parses the same sentence, and since layer 2 that
+        # parse can be a provider request. Asking twice paid for it twice and
+        # could get two different answers.
         request = manager.resolve_command(raw_input)
         failure_action = f"pdf_{request.intent.kind.value}"
         if log_callback:

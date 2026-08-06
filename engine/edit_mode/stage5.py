@@ -771,14 +771,6 @@ class StructuredEditIntentAnalyzer:
         if rewritten is not None:
             return rewritten
 
-        # Settings requests go to the window first: the ribbon rule for
-        # 각주 would otherwise insert one when the reader asked to change
-        # how 각주 look.
-        if _asks_about_settings(command):
-            dialog_only = _hwp_dialog_only_intent(command)
-            if dialog_only is not None:
-                return dialog_only
-
         beyond_rules = _hwp_ribbon_or_dialog_intent(command)
         if beyond_rules is not None:
             return beyond_rules
@@ -893,7 +885,11 @@ def _asks_about_settings(command: str) -> bool:
 
 
 def _hwp_dialog_only_intent(command: str):
-    """Checked last: a request a real operation covers must never land here."""
+    """Windows for requests no operation performs.
+
+    Reached after the ribbon rules for a plain request, and before them for a
+    settings request — see _hwp_ribbon_or_dialog_intent.
+    """
     for action, words in _DIALOG_ONLY:
         if any(word in command for word in words):
             return EditIntent(
@@ -1004,7 +1000,6 @@ class Stage5NativeEditAdapter:
         "convert_hanja_to_hangul",
         "run_excel_command",
         "open_hwp_dialog",
-        "open_excel_dialog",
     })
 
     def __init__(self, session, context_manager, native_adapter, analyzer=None):

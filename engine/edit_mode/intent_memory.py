@@ -67,10 +67,12 @@ class EditIntentMemory:
         self._loaded = True
 
     def _save(self) -> None:
+        # A machine-only store: no indentation, and no fresh version file per
+        # remembered wording. The .bak copy already covers corruption.
         atomic_write_json(
             self._path,
             {"schema_version": SCHEMA_VERSION, "entries": self._entries},
-            max_versions=3,
+            max_versions=0,
         )
 
     def recall(self, app_type: str, text: str):

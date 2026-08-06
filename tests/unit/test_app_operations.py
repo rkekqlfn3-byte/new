@@ -500,3 +500,44 @@ class SettingsRequestsDoNotInsertTests(unittest.TestCase):
         intent = self.analyzer.analyze("각주 달아줘", self.context)
         self.assertEqual("run_ribbon_action", intent.operation)
         self.assertEqual("footnote", intent.params["ribbon_action"])
+
+
+class CommandWordsDoNotCollideTests(unittest.TestCase):
+    """A trigger word must identify one command and nothing else.
+
+    Excel calls FillLeft 왼쪽, and taking that label as a trigger made
+    `왼쪽 셀 지워줘` fill left instead. A bare direction, colour or alignment
+    word means nothing on its own.
+    """
+
+    def _tables(self):
+        from engine.app_actions.operations.excel import EXCEL_COMMANDS
+        from engine.app_actions.operations.hwp import RIBBON_ACTIONS
+
+        return {"excel": EXCEL_COMMANDS, "hwp": RIBBON_ACTIONS}
+
+    def test_no_trigger_word_is_an_alignment_word(self):
+        from engine.vocabulary.alignment import ALIGNMENT_ALIASES
+
+        reserved = {word.casefold() for word in ALIGNMENT_ALIASES}
+        for app, table in self._tables().items():
+            for key, entry in table.items():
+                for word in entry.words:
+                    with self.subTest(app=app, command=key, word=word):
+                        self.assertNotIn(word.casefold(), reserved)
+
+    def test_no_trigger_word_is_claimed_by_two_commands(self):
+        for app, table in self._tables().items():
+            seen: dict[str, str] = {}
+            for key, entry in table.items():
+                for word in entry.words:
+                    with self.subTest(app=app, word=word):
+                        self.assertNotIn(word, seen, f"{key} vs {seen.get(word)}")
+                    seen[word] = key
+
+    def test_every_command_keeps_at_least_one_trigger(self):
+        # Removing an ambiguous label must not leave a command unreachable.
+        for app, table in self._tables().items():
+            for key, entry in table.items():
+                with self.subTest(app=app, command=key):
+                    self.assertTrue(entry.words)
